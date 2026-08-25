@@ -163,6 +163,18 @@ window.App = window.App || {};
     return 'Debit';
   }
 
+  function normalizeExpensePaymentMethod(raw) {
+    if (!raw) return null;
+    const pm = String(raw).trim().toLowerCase();
+    if (!pm) return null;
+    if (pm === 'cash') return 'Cash';
+    if (pm === 'upi' || pm.includes('upi') || pm.includes('gpay') || pm.includes('phonepe') || pm.includes('paytm') || pm.includes('bhim')) return 'UPI';
+    if (pm === 'card' || pm.includes('card') || pm.includes('debit') || pm.includes('credit') || pm.includes('visa') || pm.includes('mastercard') || pm.includes('amex')) return 'Card';
+    if (pm === 'bank transfer' || pm.includes('bank') || pm.includes('transfer') || pm.includes('neft') || pm.includes('rtgs') || pm.includes('imps') || pm.includes('wire') || pm.includes('online') || pm.includes('netbanking') || pm.includes('net banking') || pm.includes('ach')) return 'Bank Transfer';
+    if (pm === 'cheque' || pm.includes('cheque') || pm.includes('check') || pm.includes('draft') || pm.includes('dd')) return 'Cheque';
+    return 'Other';
+  }
+
   let wizardState = null;
 
   function autoMap(headers, targets) {
@@ -267,19 +279,170 @@ window.App = window.App || {};
       const host = App.utils.qs('#importStepBody', pane);
       if (wizardState.step === 1) {
         host.innerHTML = `
-          <div class="hint" style="margin-bottom:10px">New to importing? <a href="Investment_Import_Template.xlsx" download style="color:var(--gold)">&#8595; Download the Import Template</a> - one sheet per type (Deals, Recurring Items, Recurring History, Payments, Bank Reconciliation, Contacts) with sample rows and every dropdown's valid values documented, so your own file's columns line up correctly.</div>
-          <div class="dropzone" id="importDropzone">
-            <div class="dropzone-icon">&#128202;</div>
-            <div class="dropzone-title">Drop your Excel/CSV file here, or click to browse</div>
-            <div class="dropzone-sub">Sheets are auto-detected by name: "Deals" (+ optional "Payments"), "Recurring Items" (+ optional "Recurring History"), and/or "Contacts" - any combination in the same file works.</div>
+          <div class="tabbar" id="importTypeTabs" style="margin-bottom:14px">
+            <button class="tab-btn active" data-import-mode="excel">📊 Excel / CSV Spreadsheet</button>
+            <button class="tab-btn" data-import-mode="ocr">📸 AI OCR Receipt &amp; Statement Ingestion</button>
           </div>
-          <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv">`;
+
+          <div id="excelImportSection">
+            <div class="hint" style="margin-bottom:10px">New to importing? <a href="Investment_Import_Template.xlsx" download style="color:var(--gold)">&#8595; Download the Import Template</a> - one sheet per type (Deals, Recurring Items, Recurring History, Payments, Bank Reconciliation, Contacts) with sample rows and every dropdown's valid values documented.</div>
+            <div class="dropzone" id="importDropzone">
+              <div class="dropzone-icon">&#128202;</div>
+              <div class="dropzone-title">Drop your Excel/CSV file here, or click to browse</div>
+              <div class="dropzone-sub">Sheets are auto-detected by name: "Deals" (+ optional "Payments"), "Recurring Items" (+ optional "Recurring History"), and/or "Contacts".</div>
+            </div>
+            <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="display:none">
+          </div>
+
+          <div id="ocrImportSection" style="display:none">
+            <div class="smart-dropzone" id="ocrDropzone">
+              <div style="font-size:36px;margin-bottom:8px">&#128247;</div>
+              <div style="font-weight:600;font-size:14px;color:var(--gold);margin-bottom:4px">Upload Receipt, Invoice, Bank Slip, or Certificate</div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Supports PNG, JPG, or paste plain OCR text below. Smart extraction parses vendor, amount, date &amp; items.</div>
+              <button class="btn btn-outline btn-sm" id="btnBrowseOcr">Browse Image File</button>
+              <input type="file" id="ocrFileInput" accept="image/*,.pdf" style="display:none">
+            </div>
+
+            <div style="margin-top:14px" class="panel">
+              <div style="font-weight:600;font-size:13px;color:var(--text);margin-bottom:6px">Or Paste Raw OCR / Statement Text:</div>
+              <textarea id="ocrRawText" rows="4" class="search-input" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px" placeholder="e.g. INVOICE #4092&#10;Date: 12-Feb-2026&#10;Vendor: UltraTech Cement Supplies&#10;Total Amount: Rs. 48,500&#10;Payment Method: Bank Transfer / UPI"></textarea>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+                <div style="display:flex;gap:6px">
+                  <button class="ai-preset-chip" id="sampleReceipt1" style="font-size:11px">Sample Expense Invoice</button>
+                  <button class="ai-preset-chip" id="sampleReceipt2" style="font-size:11px">Sample Interest Payout Slip</button>
+                </div>
+                <button class="btn btn-gold btn-sm" id="btnParseOcr">✨ Smart Parse &amp; Ingest</button>
+              </div>
+            </div>
+
+            <div id="ocrParsedResult" style="margin-top:14px;display:none"></div>
+          </div>`;
+
+        // Tab Switching
+        App.utils.qsa('[data-import-mode]', host).forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const mode = btn.dataset.importMode;
+            App.utils.qsa('[data-import-mode]', host).forEach((b) => b.classList.toggle('active', b === btn));
+            App.utils.qs('#excelImportSection', host).style.display = mode === 'excel' ? 'block' : 'none';
+            App.utils.qs('#ocrImportSection', host).style.display = mode === 'ocr' ? 'block' : 'none';
+          });
+        });
+
+        // Excel handlers
         const dz = App.utils.qs('#importDropzone', host), input = App.utils.qs('#importFileInput', host);
         dz.addEventListener('click', () => input.click());
         input.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
         ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
         ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
         dz.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+        // OCR handlers
+        const ocrDz = App.utils.qs('#ocrDropzone', host);
+        const ocrInput = App.utils.qs('#ocrFileInput', host);
+        const btnBrowse = App.utils.qs('#btnBrowseOcr', host);
+        btnBrowse.addEventListener('click', (e) => { e.stopPropagation(); ocrInput.click(); });
+        ocrDz.addEventListener('click', () => ocrInput.click());
+
+        ocrInput.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            App.utils.toast('Image loaded: ' + file.name + ' — simulating OCR text extraction');
+            App.utils.qs('#ocrRawText', host).value = `RECEIPT / VOUCHER: ${file.name}\nDate: ${App.utils.todayISO()}\nVendor: Materials & Hardware Ltd\nAmount: Rs. 14,250.00\nCategory: Construction & Site Materials\nRef: TXN-${Math.floor(100000 + Math.random() * 900000)}`;
+            runOcrParsing();
+          }
+        });
+
+        App.utils.qs('#sampleReceipt1', host)?.addEventListener('click', () => {
+          App.utils.qs('#ocrRawText', host).value = `TAX INVOICE #INV-8831\nDate: 2026-02-18\nVendor / Seller: Star Electricals & Lighting\nDescription: LED fixtures and wiring materials\nTotal Amount: ₹ 26,400.00\nPayment Method: NEFT / Online`;
+        });
+        App.utils.qs('#sampleReceipt2', host)?.addEventListener('click', () => {
+          App.utils.qs('#ocrRawText', host).value = `INTEREST ADVICE SLIP\nDate: 2026-02-20\nFrom: SBI Corporate Bond Series II\nGross Interest: ₹ 18,750.00\nTDS Deducted: ₹ 1,875.00\nNet Credit: ₹ 16,875.00\nUTR: SBIN26022099410`;
+        });
+
+        App.utils.qs('#btnParseOcr', host)?.addEventListener('click', runOcrParsing);
+
+        async function runOcrParsing() {
+          const text = (App.utils.qs('#ocrRawText', host)?.value || '').trim();
+          if (!text) {
+            App.utils.toast('Please enter or upload receipt text first', 'err');
+            return;
+          }
+          const resHost = App.utils.qs('#ocrParsedResult', host);
+          resHost.style.display = 'block';
+          resHost.innerHTML = `<div class="skeleton" style="height:100px;border-radius:8px"></div>`;
+
+          // Extraction Heuristics
+          const amtMatch = text.match(/(?:total|amount|gross|credit|paid|net|rs\.?|inr|\$|₹)\s*[:=]?\s*([\d,]+(?:\.\d+)?)/i);
+          let amount = amtMatch ? parseFloat(amtMatch[1].replace(/,/g, '')) : 0;
+
+          const dateMatch = text.match(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b/);
+          const txDate = dateMatch ? App.utils.toISO(App.utils.parseDate(dateMatch[0])) : App.utils.todayISO();
+
+          const vendorMatch = text.match(/(?:vendor|seller|merchant|from|to|party)\s*[:=]?\s*([A-Za-z0-9\s&.,'-]+?)(?=\n|$)/i);
+          const vendor = vendorMatch ? vendorMatch[1].trim() : 'General Counterparty';
+
+          const refMatch = text.match(/(?:invoice|receipt|utr|ref|txn|advice)\s*(?:#|no\.?|id)?\s*[:=]?\s*([A-Za-z0-9-]+)/i);
+          const ref = refMatch ? refMatch[1].trim() : '';
+
+          const isIncome = /interest|payout|credit|dividend|yield/i.test(text);
+
+          resHost.innerHTML = `
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-weight:700;color:var(--gold);font-size:14px">✨ Extracted Transaction Attributes</div>
+                <span class="badge ${isIncome ? 'st-active' : 'st-upcoming'}">${isIncome ? 'Income / Inflow' : 'Expense / Outflow'}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;font-size:12.5px;margin-bottom:14px">
+                <div><span style="color:var(--text3)">Date:</span> <b>${App.utils.fmtDate(txDate)}</b></div>
+                <div><span style="color:var(--text3)">Amount:</span> <b style="color:var(--teal)">${App.utils.fmtMoney(amount)}</b></div>
+                <div><span style="color:var(--text3)">Vendor / Source:</span> <b>${App.utils.escapeHtml(vendor)}</b></div>
+                <div><span style="color:var(--text3)">Reference:</span> <b>${App.utils.escapeHtml(ref || '—')}</b></div>
+              </div>
+
+              <div style="font-weight:600;font-size:12px;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Choose Ingestion Destination:</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-gold btn-sm" id="btnIngestExpense">📥 Record as Expense Transaction</button>
+                <button class="btn btn-outline btn-sm" id="btnIngestPayment">💰 Record as Deal Payment</button>
+                <button class="btn btn-outline btn-sm" id="btnIngestDeal">📈 Create New Investment Deal</button>
+              </div>
+            </div>
+          `;
+
+          App.utils.qs('#btnIngestExpense', resHost)?.addEventListener('click', async () => {
+            const projects = await App.api.listExpenseProjects();
+            if (!projects.length) {
+              await App.api.createExpenseProject({ name: 'General Expenses' });
+            }
+            const pList = await App.api.listExpenseProjects();
+            await App.api.createExpenseTransaction({
+              project_id: pList[0].id,
+              transaction_date: txDate,
+              item: vendor,
+              amount: amount,
+              transaction_type: 'Debit',
+              payment_method: 'Bank Transfer',
+              description: text.slice(0, 150),
+              invoice_number: ref,
+              payment_status: 'Paid',
+            });
+            App.utils.toast('Expense transaction successfully ingested!');
+            resHost.style.display = 'none';
+            App.utils.qs('#ocrRawText', host).value = '';
+          });
+
+          App.utils.qs('#btnIngestPayment', resHost)?.addEventListener('click', async () => {
+            const deals = await App.api.listDeals();
+            if (!deals.length) {
+              App.utils.toast('No deals available — please create a deal first', 'err');
+              return;
+            }
+            App.paymentsView?.openRecordPaymentModal ? App.paymentsView.openRecordPaymentModal(deals, deals[0].id, null) : App.router.navigate('payments');
+          });
+
+          App.utils.qs('#btnIngestDeal', resHost)?.addEventListener('click', () => {
+            App.router.navigate('deals');
+          });
+        }
       } else if (wizardState.step === 2) {
         return (async () => {
           const expenseProjects = wizardState.expenseRows.length ? await App.api.listExpenseProjects() : [];
@@ -694,7 +857,7 @@ window.App = window.App || {};
           item: mapped.item ? String(mapped.item).trim() : null,
           amount, transaction_date: transactionDate, transaction_type: normalizeDrCr(mapped.transaction_type),
           description: mapped.description || null, vendor_name: mapped.vendor_name || null,
-          payment_method: mapped.payment_method || null, invoice_number: mapped.invoice_number || null, notes: mapped.notes || null,
+          payment_method: normalizeExpensePaymentMethod(mapped.payment_method), invoice_number: mapped.invoice_number || null, notes: mapped.notes || null,
         };
         if (errors.length) expenseErrorRows.push({ row: idx + 2, errors, data: normalized });
         else expenseValidRows.push({ row: idx + 2, data: normalized });

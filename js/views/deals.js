@@ -72,10 +72,14 @@ window.App = window.App || {};
     return `${stepperHtml()}<div id="wizardFieldsHost">${App.ui.renderForm(resolvedFields(wizardStep), values)}</div>`;
   }
 
-  function openDealWizard(existing) {
+  function openDealWizard(initialOrExisting) {
+    const isEdit = Boolean(initialOrExisting && initialOrExisting.id);
     wizardStep = 1;
-    wizardDealId = existing ? existing.id : null;
-    const collected = Object.assign({}, existing || {});
+    wizardDealId = isEdit ? initialOrExisting.id : null;
+    const collected = Object.assign({}, initialOrExisting || {});
+    if (!isEdit) {
+      delete collected.id;
+    }
 
     function renderStep() {
       App.utils.qs('#sharedModalBody').innerHTML = renderWizardBody(collected);
@@ -113,7 +117,7 @@ window.App = window.App || {};
       const actions = [];
       if (wizardStep > 1) actions.push({ label: '&larr; Back', className: 'btn-outline', onClick: () => { captureStep(); wizardStep--; renderStep(); } });
       if (wizardStep < 4) actions.push({ label: 'Next &rarr;', className: 'btn-gold', onClick: () => { if (captureStep()) { wizardStep++; renderStep(); refreshActions(); } } });
-      else actions.push({ label: existing ? 'Save Changes' : 'Create Deal', className: 'btn-gold', onClick: submitWizard });
+      else actions.push({ label: isEdit ? 'Save Changes' : 'Create Deal', className: 'btn-gold', onClick: submitWizard });
       actions.push({ label: 'Cancel', className: 'btn-outline', onClick: App.ui.close });
       return actions;
     }
@@ -140,8 +144,12 @@ window.App = window.App || {};
     async function submitWizard() {
       if (!captureStep()) return;
       try {
-        if (!existing) {
+        if (!isEdit) {
           collected.current_principal = collected.invested_amount;
+          delete collected.id;
+          delete collected.user_id;
+          delete collected.created_at;
+          delete collected.updated_at;
           const saved = await App.api.createDeal(collected);
           App.utils.toast('Deal created');
           if (saved.maturity_date && !['Irregular', 'Custom'].includes(saved.payment_frequency)) {
@@ -162,7 +170,7 @@ window.App = window.App || {};
           delete patch.user_id;
           delete patch.created_at;
           delete patch.updated_at;
-          await App.api.updateDeal(existing.id, patch);
+          await App.api.updateDeal(initialOrExisting.id, patch);
           App.utils.toast('Deal updated');
         }
         App.ui.close();
@@ -172,7 +180,7 @@ window.App = window.App || {};
       }
     }
 
-    App.ui.open({ title: existing ? 'Edit Deal' : 'New Deal', bodyHtml: renderWizardBody(collected), onMount: () => { wireStepFields(); refreshActions(); } });
+    App.ui.open({ title: isEdit ? 'Edit Deal' : 'New Deal', bodyHtml: renderWizardBody(collected), onMount: () => { wireStepFields(); refreshActions(); } });
   }
 
   // A deal with recorded payments literally cannot be deleted - payments.deal_id
@@ -301,7 +309,131 @@ window.App = window.App || {};
 
   let sortKey = 'created_at';
   let sortDir = 'desc';
-  let statusTab = 'all'; // 'all' | 'active' | 'closed' - independent of the global filter bar's own Status dropdown
+  let statusTab = 'all'; // 'all' | 'active' | 'closed'
+  let quickFilterChip = 'all'; // 'all' | 'high_yield' | 'maturing_soon' | 'secured' | 'monthly' | 'at_risk'
+
+  function openSmartDealQuickAdd() {
+    App.ui.open({
+      title: '⚡ Natural Language Deal Quick-Add',
+      small: false,
+      bodyHtml: `
+        <div style="font-size:12.5px;color:var(--text2);margin-bottom:12px">
+          Paste or type any deal description in natural language. Our smart parser will extract terms, dates, and amounts automatically.
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Deal Description / Unstructured Text</label>
+          <textarea id="smartDealText" rows="4" placeholder="e.g. Invested 3,50,000 in Tata Capital Secured Debenture with 11.2% annual ROI on 15 Jan 2026 maturing 15 Jan 2028 with monthly interest payouts and collateral attached"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <div class="hint" style="margin:0">Try sample:</div>
+          <button class="ai-preset-chip" id="sampleDeal1" style="font-size:10.5px">HDFC 9.5% Bond</button>
+          <button class="ai-preset-chip" id="sampleDeal2" style="font-size:10.5px">P2P 14% Monthly</button>
+        </div>
+      `,
+      actions: [
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+        {
+          label: '✨ Parse & Open Wizard',
+          className: 'btn-gold',
+          onClick: () => {
+            const raw = (App.utils.qs('#smartDealText')?.value || '').trim();
+            if (!raw) {
+              App.utils.toast('Please enter deal text to parse', 'err');
+              return;
+            }
+            const parsed = parseDealFromText(raw);
+            App.ui.close();
+            openDealWizard(parsed);
+            App.utils.toast('Deal parsed successfully — review and save');
+          },
+        },
+      ],
+      onMount: (modal) => {
+        App.utils.qs('#sampleDeal1', modal)?.addEventListener('click', () => {
+          App.utils.qs('#smartDealText', modal).value = 'Invested 2,00,000 in HDFC Fixed Deposit at 8.75% annual ROI on 2026-02-01 maturing 2029-02-01 with quarterly interest payout';
+        });
+        App.utils.qs('#sampleDeal2', modal)?.addEventListener('click', () => {
+          App.utils.qs('#smartDealText', modal).value = 'Invested 5,00,000 in Cred P2P Lending at 13.5% ROI on 2026-01-10 maturing 2027-01-10 with monthly EMI payout and collateral';
+        });
+      },
+    });
+  }
+
+  function parseDealFromText(text) {
+    const out = {
+      deal_name: '',
+      invested_amount: null,
+      principal_amount: null,
+      original_principal: null,
+      annual_roi: null,
+      start_date: App.utils.todayISO(),
+      maturity_date: null,
+      payment_frequency: 'Monthly',
+      payout_type: 'Interest Only',
+      investment_type: 'Fixed Deposit',
+      collateral_available: false,
+      status: 'ACTIVE',
+      notes: text,
+    };
+
+    // Amount extraction
+    const amtMatch = text.match(/(?:invested|amount|rs\.?|inr|\$|₹)\s*([\d,]+(?:\.\d+)?)/i) || text.match(/([\d,]+(?:\.\d+)?)\s*(?:lakh|lac|k|invested)/i);
+    if (amtMatch) {
+      let numStr = amtMatch[1].replace(/,/g, '');
+      let num = parseFloat(numStr);
+      if (/lakh|lac/i.test(text)) num = num * 100000;
+      else if (/k\b/i.test(amtMatch[0])) num = num * 1000;
+      out.invested_amount = num;
+      out.principal_amount = num;
+      out.original_principal = num;
+    }
+
+    // ROI extraction
+    const roiMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*(?:annual|roi|interest|rate)?/i) || text.match(/(?:roi|interest|rate)\s*(?:of|is|at|:)?\s*(\d+(?:\.\d+)?)/i);
+    if (roiMatch) out.annual_roi = parseFloat(roiMatch[1]);
+
+    // Frequency
+    if (/quarterly/i.test(text)) out.payment_frequency = 'Quarterly';
+    else if (/yearly|annual/i.test(text) && !/annual roi|annual rate/i.test(text)) out.payment_frequency = 'Yearly';
+    else if (/half[- ]?yearly|semi[- ]?annual/i.test(text)) out.payment_frequency = 'Half-Yearly';
+    else if (/at maturity|bullet/i.test(text)) out.payment_frequency = 'At Maturity';
+
+    // Payout Type
+    if (/emi/i.test(text)) out.payout_type = 'EMI';
+    else if (/principal at maturity/i.test(text)) out.payout_type = 'Principal at Maturity';
+    else if (/bullet/i.test(text)) out.payout_type = 'Bullet';
+
+    // Collateral
+    if (/collateral|secured|guarantee/i.test(text)) out.collateral_available = true;
+
+    // Dates
+    const dateMatches = text.match(/\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b/gi);
+    if (dateMatches && dateMatches.length > 0) {
+      try {
+        const d1 = new Date(dateMatches[0]);
+        if (!isNaN(d1)) out.start_date = App.utils.toISO(d1);
+        if (dateMatches.length > 1) {
+          const d2 = new Date(dateMatches[1]);
+          if (!isNaN(d2)) out.maturity_date = App.utils.toISO(d2);
+        }
+      } catch (e) {}
+    }
+
+    // Name extraction heuristic
+    const nameMatch = text.match(/(?:in|for|deal)\s+([A-Za-z0-9\s&]+?)(?=\s+(?:at|with|on|for|of|having|\d))/i);
+    if (nameMatch && nameMatch[1].trim().length > 2) {
+      out.deal_name = nameMatch[1].trim();
+    } else {
+      out.deal_name = 'New Investment Deal';
+    }
+
+    if (App.state.categories && App.state.categories.length > 0) {
+      const matchCat = App.state.categories.find((c) => new RegExp(c.investment_type, 'i').test(text));
+      if (matchCat) out.investment_type = matchCat.investment_type;
+    }
+
+    return out;
+  }
 
   async function renderDealsView() {
     const pane = App.utils.qs('#pane-deals');
@@ -309,6 +441,17 @@ window.App = window.App || {};
       <div class="section-title">Deal Management <div class="line"></div><small>every investment, one universal model</small></div>
       <div id="dealsFilterBar"></div>
       <div class="panel">
+        <!-- QUICK FILTER CHIPS -->
+        <div class="filter-chips-wrap" id="dealQuickChips">
+          <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Quick Filter:</span>
+          <button class="quick-chip active" data-chip="all">All Deals</button>
+          <button class="quick-chip" data-chip="high_yield">&#128293; High Yield (&gt;12%)</button>
+          <button class="quick-chip" data-chip="maturing_soon">&#8987; Maturing Soon (90d)</button>
+          <button class="quick-chip" data-chip="secured">&#128274; Secured / Collateral</button>
+          <button class="quick-chip" data-chip="monthly">&#128197; Monthly Payout</button>
+          <button class="quick-chip" data-chip="at_risk">&#9888; Overdue / At Risk</button>
+        </div>
+
         <div class="tabbar" id="dealsStatusTabs">
           <button class="tab-btn active" data-status-tab="all">All Deals</button>
           <button class="tab-btn" data-status-tab="active">Active Deals</button>
@@ -316,20 +459,32 @@ window.App = window.App || {};
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
           <input class="search-input" id="dealsSearch" placeholder="Search deal name / external id...">
-          <button class="btn btn-outline btn-sm" id="exportDealsBtn">&#8595; Export</button>
-          <button class="btn btn-gold btn-sm" id="addDealBtn">+ New Deal</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" id="smartQuickAddBtn">&#9889; AI Quick Add</button>
+            <button class="btn btn-outline btn-sm" id="exportDealsBtn">&#8595; Export</button>
+            <button class="btn btn-gold btn-sm" id="addDealBtn">+ New Deal</button>
+          </div>
         </div>
         <div class="table-scroll"><table class="data" id="dealsTable"></table></div>
       </div>`;
 
     App.filters.renderBar(App.utils.qs('#dealsFilterBar'), draw);
     App.utils.qs('#addDealBtn').addEventListener('click', () => openDealWizard(null));
+    App.utils.qs('#smartQuickAddBtn').addEventListener('click', openSmartDealQuickAdd);
     App.utils.qs('#exportDealsBtn').addEventListener('click', async () => {
       try { await App.exportData.exportSection('deals'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
     });
     App.utils.qs('#dealsSearch').addEventListener('input', App.utils.debounce((e) => {
       App.state.filters.search = e.target.value; draw();
     }, 250));
+
+    // Quick Chip Listeners
+    App.utils.qsa('[data-chip]', pane).forEach((btn) => btn.addEventListener('click', () => {
+      quickFilterChip = btn.dataset.chip;
+      App.utils.qsa('[data-chip]', pane).forEach((b) => b.classList.toggle('active', b === btn));
+      draw();
+    }));
+
     App.utils.qsa('[data-status-tab]', pane).forEach((btn) => btn.addEventListener('click', () => {
       statusTab = btn.dataset.statusTab;
       App.utils.qsa('[data-status-tab]', pane).forEach((b) => b.classList.toggle('active', b === btn));
@@ -340,8 +495,34 @@ window.App = window.App || {};
       const [deals, metrics] = await Promise.all([App.api.listDeals(), App.api.listDealMetrics()]);
       const metricsById = {}; metrics.forEach((m) => { metricsById[m.deal_id] = m; });
       let list = App.filters.apply(deals);
+
+      // Status Tab filter
       if (statusTab === 'active') list = list.filter((d) => d.status === 'ACTIVE');
       else if (statusTab === 'closed') list = list.filter((d) => d.status !== 'ACTIVE');
+
+      // Quick Filter Chips logic
+      const now = new Date();
+      const in90Days = new Date(now.getTime() + 90 * 86400000);
+
+      if (quickFilterChip === 'high_yield') {
+        list = list.filter((d) => (d.annual_roi || 0) >= 12);
+      } else if (quickFilterChip === 'maturing_soon') {
+        list = list.filter((d) => {
+          if (!d.maturity_date || d.status !== 'ACTIVE') return false;
+          const mat = new Date(d.maturity_date);
+          return mat >= now && mat <= in90Days;
+        });
+      } else if (quickFilterChip === 'secured') {
+        list = list.filter((d) => d.collateral_available);
+      } else if (quickFilterChip === 'monthly') {
+        list = list.filter((d) => d.payment_frequency === 'Monthly');
+      } else if (quickFilterChip === 'at_risk') {
+        list = list.filter((d) => {
+          const m = metricsById[d.id] || {};
+          return ['DEFAULTED', 'ON_HOLD', 'PARTIALLY_RECOVERED'].includes(d.status) || (m.payout_reliability != null && m.payout_reliability < 80);
+        });
+      }
+
       list.sort((a, b) => {
         let va = a[sortKey], vb = b[sortKey];
         if (va === null || va === undefined) va = typeof vb === 'number' ? -Infinity : '';
@@ -358,7 +539,7 @@ window.App = window.App || {};
       const body = list.map((d) => {
         const m = metricsById[d.id] || {};
         return `<tr>
-          <td>${App.utils.escapeHtml(d.deal_name)}</td>
+          <td>${App.utils.escapeHtml(d.deal_name)} ${d.collateral_available ? '<span title="Secured with Collateral" style="color:var(--teal)">&#128274;</span>' : ''}</td>
           <td>${App.utils.escapeHtml(d.external_deal_id || '—')}</td>
           <td>${App.utils.escapeHtml(d.investment_type)}</td>
           <td>${App.utils.fmtMoney(d.invested_amount)}</td>
@@ -376,7 +557,7 @@ window.App = window.App || {};
         </tr>`;
       }).join('');
       const table = App.utils.qs('#dealsTable');
-      table.innerHTML = thead + `<tbody>${body || `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No deals yet.</td></tr>`}</tbody>`;
+      table.innerHTML = thead + `<tbody>${body || `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No deals match the selected filters.</td></tr>`}</tbody>`;
 
       App.utils.qsa('th[data-sort]', table).forEach((th) => th.addEventListener('click', () => {
         const k = th.dataset.sort;

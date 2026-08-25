@@ -571,22 +571,447 @@ window.App = window.App || {};
     return App.api.createSharedPortfolio({ owner_user_id: ownerId, name: `${(allUsers.find((u) => u.id === ownerId) || {}).full_name || 'User'}'s Portfolio` });
   }
 
-  // ---- Database Health (025) ----
+  // ---- Database Health & Maintenance (025 & 043) ----
+  const TABLE_CATEGORIES = {
+    deals: 'Core & Deals', platforms: 'Core & Deals', payment_schedule: 'Core & Deals', payments: 'Core & Deals',
+    reinvestments: 'Core & Deals', bank_transactions: 'Core & Deals', payment_matches: 'Core & Deals',
+    cash_transactions: 'Core & Deals', portfolio_goals: 'Core & Deals', tax_records: 'Core & Deals',
+    accounts: 'Core & Deals', liabilities: 'Core & Deals', net_worth_snapshots: 'Core & Deals',
+    gold_purchases: 'Core & Deals', gold_alerts: 'Core & Deals', gold_price_observations: 'Core & Deals',
+    gold_providers: 'Core & Deals', gold_settings: 'Core & Deals',
+    recurring_items: 'Recurring', recurring_occurrences: 'Recurring', recurring_amount_history: 'Recurring',
+    recurring_schedule_history: 'Recurring', recurring_pauses: 'Recurring',
+    expense_projects: 'Expenses', expense_categories: 'Expenses', expense_vendors: 'Expenses',
+    expense_advances: 'Expenses', expense_transactions: 'Expenses', expense_recurring_templates: 'Expenses',
+    expense_project_custom_fields: 'Expenses', expense_transaction_custom_values: 'Expenses',
+    contacts: 'CRM & Contacts', contact_phones: 'CRM & Contacts', contact_emails: 'CRM & Contacts',
+    contact_addresses: 'CRM & Contacts', contact_groups: 'CRM & Contacts', contact_group_members: 'CRM & Contacts',
+    contact_important_dates: 'CRM & Contacts', contact_notes: 'CRM & Contacts', contact_reminders: 'CRM & Contacts',
+    conversations: 'Chat & Calls', conversation_members: 'Chat & Calls', messages: 'Chat & Calls',
+    message_attachments: 'Chat & Calls', message_reactions: 'Chat & Calls', message_edits: 'Chat & Calls',
+    message_reads: 'Chat & Calls', message_hidden_for_me: 'Chat & Calls', shared_message_batches: 'Chat & Calls',
+    shared_message_items: 'Chat & Calls', calls: 'Chat & Calls',
+    support_tickets: 'Support', ticket_messages: 'Support', ticket_internal_notes: 'Support',
+    feature_suggestions: 'Ideas & Roadmap', suggestion_internal_notes: 'Ideas & Roadmap', suggestion_votes: 'Ideas & Roadmap',
+    blog_posts: 'Community & Blog', blog_comments: 'Community & Blog', community_messages: 'Community & Blog',
+    audit_logs: 'Logs & Telemetry', login_events: 'Logs & Telemetry', copilot_usage: 'Logs & Telemetry',
+    notifications: 'Notifications', notification_preferences: 'Notifications', notification_type_preferences: 'Notifications',
+    push_subscriptions: 'Notifications',
+    imports: 'System', documents: 'System', notes: 'System', calendar_events: 'System', app_settings: 'System',
+    user_privacy_settings: 'System', blocked_users: 'System', reported_users: 'System',
+    shared_portfolios: 'System', portfolio_members: 'System', automation_rules: 'System',
+    ai_insights: 'System', scenario_simulations: 'System', integration_configs: 'System',
+    ai_providers: 'System', ai_settings: 'System', benchmark_observations: 'System',
+    profiles: 'Users & Auth',
+  };
+
+  let dbHealthSearch = '';
+  let dbHealthCategory = 'All';
+
+  function exportTableRowsToCsv(tableName, rows) {
+    if (!rows || !rows.length) {
+      App.utils.toast('No rows to export for ' + tableName, 'warn');
+      return;
+    }
+    const clean = rows.map((r) => {
+      const out = {};
+      Object.entries(r).forEach(([k, v]) => {
+        out[k] = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+      });
+      return out;
+    });
+    if (typeof XLSX !== 'undefined') {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(clean);
+      XLSX.utils.book_append_sheet(wb, ws, tableName.slice(0, 31));
+      XLSX.writeFile(wb, `${tableName}_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    } else {
+      const keys = Object.keys(clean[0] || {});
+      const csv = [keys.join(',')].concat(clean.map((row) => keys.map((k) => JSON.stringify(row[k] ?? '')).join(','))).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${tableName}_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    App.utils.toast(`Exported ${rows.length} rows from ${tableName}`);
+  }
+
+  function openClearTableModal(tableName, estimatedRows, onDone) {
+    App.ui.open({
+      title: `Clear Table: ${tableName}`,
+      bodyHtml: `
+        <div class="hint" style="color:var(--red,#e5484d);margin-bottom:12px">
+          This will permanently delete all records (approx. <b>${estimatedRows}</b> rows) from <code>public.${App.utils.escapeHtml(tableName)}</code>.
+          ${['deals', 'recurring_items', 'expense_projects', 'contacts', 'conversations', 'support_tickets'].includes(tableName) ? '<br><br><b>Note:</b> Dependent child records (e.g. schedules, payments, notes, messages) will also be cascade-cleared to maintain referential integrity.' : ''}
+        </div>
+        <div class="field span2">
+          <label>Type <b>CLEAR</b> to confirm</label>
+          <input id="confirmClearTableInput" type="text" placeholder="Type CLEAR" autocomplete="off">
+        </div>
+        <div class="auth-error" id="clearTableError" style="margin-top:8px"></div>`,
+      actions: [
+        {
+          label: 'Permanently Clear Table',
+          className: 'btn-outline',
+          onClick: async () => {
+            const typed = (App.utils.qs('#confirmClearTableInput') || {}).value || '';
+            if (typed.trim() !== 'CLEAR') {
+              App.utils.qs('#clearTableError').textContent = 'Please type CLEAR in all caps to confirm.';
+              return;
+            }
+            try {
+              const res = await App.api.adminClearTable(tableName);
+              App.utils.toast(res.message || `Table ${tableName} was cleared successfully.`);
+              App.ui.close();
+              if (onDone) onDone();
+            } catch (e) {
+              App.utils.qs('#clearTableError').textContent = e.message || String(e);
+            }
+          },
+        },
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+      ],
+    });
+  }
+
+  function openPurgeOldLogsModal(onDone) {
+    App.ui.open({
+      title: 'Purge Old Logs & Telemetry',
+      bodyHtml: `
+        <div class="hint" style="margin-bottom:12px">
+          Clean up historical audit logs, customer login events, AI Copilot query logs, and read notifications to optimize database performance and save storage space. Core deals, accounts, and contacts are untouched.
+        </div>
+        <div class="field span2">
+          <label>Retention Window</label>
+          <select id="purgeDaysSelect" class="search-input" style="width:100%">
+            <option value="7">Purge older than 7 days</option>
+            <option value="15">Purge older than 15 days</option>
+            <option value="30" selected>Purge older than 30 days (Recommended)</option>
+            <option value="60">Purge older than 60 days</option>
+            <option value="90">Purge older than 90 days</option>
+          </select>
+        </div>
+        <div style="font-size:12.5px;color:var(--text2);margin-top:10px;padding:10px;background:var(--fill-1);border-radius:6px;border:1px solid var(--border)">
+          <b>Target Tables:</b> <code>audit_logs</code>, <code>login_events</code>, <code>copilot_usage</code>, <code>notifications (read only)</code>.
+        </div>
+        <div class="auth-error" id="purgeLogsError" style="margin-top:8px"></div>`,
+      actions: [
+        {
+          label: 'Purge Old Logs Now',
+          className: 'btn-gold',
+          onClick: async () => {
+            const days = parseInt(App.utils.qs('#purgeDaysSelect').value, 10) || 30;
+            try {
+              const res = await App.api.adminPurgeOldLogs(days);
+              const purged = res && res.total_purged !== undefined ? res.total_purged : 'Historical';
+              App.utils.toast(`Log cleanup complete: ${purged} old records removed`);
+              App.ui.close();
+              if (onDone) onDone();
+            } catch (e) {
+              App.utils.qs('#purgeLogsError').textContent = e.message || String(e);
+            }
+          },
+        },
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+      ],
+    });
+  }
+
+  async function openTableDataModal(tableName) {
+    App.ui.open({
+      title: `Inspect Table: public.${tableName}`,
+      bodyHtml: `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
+            <input id="inspectTableSearch" type="text" class="search-input" placeholder="Search rows..." style="width:100%">
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" id="inspectExportCsvBtn">&#128229; Export CSV</button>
+            <button class="btn btn-outline btn-sm" id="inspectClearTableBtn" style="color:var(--red,#e5484d);border-color:var(--red,#e5484d)">&#128465; Clear Table</button>
+            <button class="btn btn-outline btn-sm" id="inspectRefreshBtn">&#8635; Refresh</button>
+          </div>
+        </div>
+        <div id="inspectTableCount" style="font-size:12px;color:var(--text2);margin-bottom:8px">Loading rows...</div>
+        <div class="table-scroll" style="max-height:420px;border:1px solid var(--border2);border-radius:8px">
+          <table class="data" id="inspectDataTable"></table>
+        </div>`,
+      actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
+    });
+
+    let currentRows = [];
+    async function loadInspectData() {
+      try {
+        App.utils.qs('#inspectTableCount').textContent = 'Fetching records from database...';
+        const res = await App.api.adminGetTableRows(tableName, { limit: 150 });
+        currentRows = res.rows || [];
+        renderInspectTable(currentRows);
+      } catch (e) {
+        App.utils.qs('#inspectTableCount').innerHTML = `<span style="color:var(--red,#e5484d)">Could not load records: ${App.utils.escapeHtml(e.message || e)}</span>`;
+      }
+    }
+
+    function renderInspectTable(rows) {
+      const q = (App.utils.qs('#inspectTableSearch') ? App.utils.qs('#inspectTableSearch').value : '').toLowerCase().trim();
+      const filtered = q
+        ? rows.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q)))
+        : rows;
+
+      App.utils.qs('#inspectTableCount').innerHTML = `Showing <b>${filtered.length}</b> of <b>${rows.length}</b> loaded rows (max 150 shown)`;
+      const table = App.utils.qs('#inspectDataTable');
+      if (!table) return;
+
+      if (!filtered.length) {
+        table.innerHTML = `<tbody><tr><td style="text-align:center;padding:24px;color:var(--text3)">${rows.length === 0 ? 'No records in this table (table is clean/empty).' : 'No matching records found for search filter.'}</td></tr></tbody>`;
+        return;
+      }
+
+      const allKeys = Array.from(new Set(filtered.flatMap((r) => Object.keys(r))));
+      const priorityKeys = ['id', 'name', 'title', 'email', 'user_id', 'amount', 'status', 'created_at'].filter((k) => allKeys.includes(k));
+      const remainingKeys = allKeys.filter((k) => !priorityKeys.includes(k));
+      const displayKeys = priorityKeys.concat(remainingKeys).slice(0, 8);
+
+      const thead = `<thead><tr>
+        ${displayKeys.map((k) => `<th>${App.utils.escapeHtml(k)}</th>`).join('')}
+        <th style="text-align:right">Actions</th>
+      </tr></thead>`;
+
+      const tbody = `<tbody>${filtered.map((row, idx) => `
+        <tr data-row-idx="${idx}">
+          ${displayKeys.map((k) => {
+            const val = row[k];
+            let formatted = '—';
+            if (val !== null && val !== undefined) {
+              if (typeof val === 'object') formatted = `<code style="font-size:11px;padding:2px 4px;background:var(--fill-1);border-radius:3px">${App.utils.escapeHtml(JSON.stringify(val).slice(0, 30))}${JSON.stringify(val).length > 30 ? '...' : ''}</code>`;
+              else if (typeof val === 'boolean') formatted = val ? '<span class="badge st-active">true</span>' : '<span class="badge st-cancelled">false</span>';
+              else if (typeof val === 'number') formatted = App.utils.escapeHtml(String(val));
+              else if (String(val).length > 40) formatted = App.utils.escapeHtml(String(val).slice(0, 40)) + '...';
+              else formatted = App.utils.escapeHtml(String(val));
+            }
+            return `<td>${formatted}</td>`;
+          }).join('')}
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn btn-outline btn-sm inspect-row-json" data-row-idx="${idx}" style="padding:2px 6px;font-size:11px" title="View Full Record Details">&#128065;</button>
+            <button class="btn btn-outline btn-sm inspect-row-del" data-row-id="${row.id || row.table_name || idx}" data-row-idx="${idx}" style="padding:2px 6px;font-size:11px;color:var(--red,#e5484d);border-color:var(--red,#e5484d)" title="Delete This Entry">&#128465;</button>
+          </td>
+        </tr>`).join('')}</tbody>`;
+
+      table.innerHTML = thead + tbody;
+
+      App.utils.qsa('.inspect-row-json', table).forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const rIdx = Number(btn.dataset.rowIdx);
+          const r = filtered[rIdx];
+          if (!r) return;
+          App.ui.open({
+            title: `Record Details: ${tableName} #${r.id || rIdx + 1}`,
+            bodyHtml: `<pre style="max-height:400px;overflow:auto;background:var(--bg2);padding:12px;border-radius:8px;border:1px solid var(--border);font-size:12px;color:var(--text);white-space:pre-wrap;word-break:break-all">${App.utils.escapeHtml(JSON.stringify(r, null, 2))}</pre>`,
+            actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
+          });
+        });
+      });
+
+      App.utils.qsa('.inspect-row-del', table).forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const rIdx = Number(btn.dataset.rowIdx);
+          const r = filtered[rIdx];
+          if (!r) return;
+          const rowId = r.id;
+          if (rowId === undefined || rowId === null) {
+            App.utils.toast('This table entry does not have a standard primary key id column to delete individually.', 'warn');
+            return;
+          }
+          if (!confirm(`Delete record #${rowId} from ${tableName}?`)) return;
+          try {
+            await App.api.adminDeleteTableRow(tableName, rowId);
+            currentRows = currentRows.filter((item) => item.id !== rowId);
+            App.utils.toast(`Record #${rowId} deleted from ${tableName}`);
+            renderInspectTable(currentRows);
+          } catch (err) {
+            App.utils.toast('Could not delete record: ' + (err.message || err), 'err');
+          }
+        });
+      });
+    }
+
+    const searchInput = App.utils.qs('#inspectTableSearch');
+    if (searchInput) searchInput.addEventListener('input', () => renderInspectTable(currentRows));
+
+    const exportBtn = App.utils.qs('#inspectExportCsvBtn');
+    if (exportBtn) exportBtn.addEventListener('click', () => exportTableRowsToCsv(tableName, currentRows));
+
+    const refreshBtn = App.utils.qs('#inspectRefreshBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadInspectData);
+
+    const clearBtn = App.utils.qs('#inspectClearTableBtn');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      openClearTableModal(tableName, currentRows.length, loadInspectData);
+    });
+
+    await loadInspectData();
+  }
+
   async function drawDatabaseHealthPanel(pane) {
     const stats = await App.api.getAdminTableStats();
-    App.utils.qs('#dbHealthTable', pane).innerHTML = `<thead><tr><th>Table</th><th>Rows</th><th>Size</th></tr></thead>
-      <tbody>${stats.map((t) => `<tr ${t.estimated_rows === 0 ? 'style="color:var(--text3)"' : ''}>
-        <td>${App.utils.escapeHtml(t.table_name)}</td>
-        <td>${t.estimated_rows}${t.estimated_rows === 0 ? ' <span class="badge st-cancelled">empty</span>' : ''}</td>
-        <td>${App.utils.escapeHtml(t.total_size_pretty)}</td>
-      </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:20px">No stats available.</td></tr>'}</tbody>`;
-    const btn = App.utils.qs('#refreshDbHealthBtn', pane);
-    if (btn) btn.onclick = async () => {
-      btn.disabled = true; btn.textContent = 'Refreshing...';
-      try { await drawDatabaseHealthPanel(pane); }
-      catch (e) { App.utils.toast('Could not refresh: ' + (e.message || e), 'err'); }
-      finally { if (App.utils.qs('#refreshDbHealthBtn', pane)) { App.utils.qs('#refreshDbHealthBtn', pane).disabled = false; App.utils.qs('#refreshDbHealthBtn', pane).innerHTML = '&#8635; Refresh Now'; } }
-    };
+    const tableContainer = App.utils.qs('#dbHealthTableContainer', pane) || App.utils.qs('#dbHealthTable', pane);
+    if (!tableContainer) return;
+
+    const totalTables = stats.length;
+    const tablesWithData = stats.filter((t) => (t.estimated_rows || 0) > 0).length;
+    const emptyTables = stats.filter((t) => (t.estimated_rows || 0) === 0).length;
+    const totalRows = stats.reduce((acc, t) => acc + Number(t.estimated_rows || 0), 0);
+    const totalBytes = stats.reduce((acc, t) => acc + Number(t.total_size_bytes || 0), 0);
+    const prettyTotalBytes = totalBytes > 1048576 ? (totalBytes / 1048576).toFixed(2) + ' MB' : (totalBytes / 1024).toFixed(0) + ' kB';
+
+    const kpiHost = App.utils.qs('#dbHealthKpis', pane);
+    if (kpiHost) {
+      kpiHost.innerHTML = `
+        <div class="grid-4" style="margin-bottom:12px">
+          <div class="kpi"><div class="kpi-label">Total Tables</div><div class="kpi-value">${totalTables}</div><div class="kpi-desc">Schema: public</div></div>
+          <div class="kpi"><div class="kpi-label">Estimated Records</div><div class="kpi-value">${totalRows.toLocaleString()}</div><div class="kpi-desc">Live Postgres Tuples</div></div>
+          <div class="kpi"><div class="kpi-label">Database Disk Size</div><div class="kpi-value">${prettyTotalBytes}</div><div class="kpi-desc">Relations + Indexes</div></div>
+          <div class="kpi"><div class="kpi-label">Populated Tables</div><div class="kpi-value">${tablesWithData} <span style="font-size:14px;color:var(--text3)">/ ${totalTables}</span></div><div class="kpi-desc">${emptyTables} clean/empty</div></div>
+        </div>`;
+    }
+
+    function renderFilteredStats() {
+      const q = (dbHealthSearch || '').toLowerCase().trim();
+      const filtered = stats.filter((t) => {
+        const cat = TABLE_CATEGORIES[t.table_name] || 'System';
+        if (dbHealthCategory === 'With Data' && (t.estimated_rows || 0) === 0) return false;
+        if (dbHealthCategory === 'Empty' && (t.estimated_rows || 0) > 0) return false;
+        if (dbHealthCategory !== 'All' && dbHealthCategory !== 'With Data' && dbHealthCategory !== 'Empty' && cat !== dbHealthCategory) return false;
+        if (q && !t.table_name.toLowerCase().includes(q) && !cat.toLowerCase().includes(q)) return false;
+        return true;
+      });
+
+      const tableEl = App.utils.qs('#dbHealthTable', pane);
+      if (!tableEl) return;
+
+      tableEl.innerHTML = `
+        <thead>
+          <tr>
+            <th>Table Name</th>
+            <th>Category</th>
+            <th>Estimated Rows</th>
+            <th>Disk Size</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map((t) => {
+            const rows = Number(t.estimated_rows || 0);
+            const cat = TABLE_CATEGORIES[t.table_name] || 'System';
+            const isProtected = t.table_name === 'profiles';
+            return `
+              <tr ${rows === 0 ? 'style="color:var(--text3)"' : ''}>
+                <td>
+                  <span style="font-weight:600;font-family:monospace;font-size:13px;color:var(--text)">${App.utils.escapeHtml(t.table_name)}</span>
+                </td>
+                <td>
+                  <span class="badge" style="font-size:10px;background:var(--fill-2);border:1px solid var(--border2);color:var(--text2)">${App.utils.escapeHtml(cat)}</span>
+                </td>
+                <td>
+                  ${rows === 0 ? '<span class="badge st-cancelled">0 (empty)</span>' : `<span style="font-weight:600;color:var(--text)">${rows.toLocaleString()}</span>`}
+                </td>
+                <td>${App.utils.escapeHtml(t.total_size_pretty || '8 kB')}</td>
+                <td style="text-align:right;white-space:nowrap">
+                  <button class="btn btn-outline btn-sm btn-inspect-db-table" data-table="${App.utils.escapeHtml(t.table_name)}" style="padding:3px 8px;font-size:11.5px" title="View / Inspect Data">&#128065; View</button>
+                  <button class="btn btn-outline btn-sm btn-export-db-table" data-table="${App.utils.escapeHtml(t.table_name)}" style="padding:3px 8px;font-size:11.5px" title="Export CSV">&#128229; CSV</button>
+                  ${!isProtected ? `<button class="btn btn-outline btn-sm btn-clear-db-table" data-table="${App.utils.escapeHtml(t.table_name)}" data-rows="${rows}" style="padding:3px 8px;font-size:11.5px;color:var(--red,#e5484d);border-color:var(--red,#e5484d)" title="Purge / Clean Table">&#128465; Clean</button>` : ''}
+                </td>
+              </tr>`;
+          }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No tables match your filter.</td></tr>'}
+        </tbody>`;
+
+      App.utils.qsa('.btn-inspect-db-table', tableEl).forEach((btn) => {
+        btn.addEventListener('click', () => openTableDataModal(btn.dataset.table));
+      });
+
+      App.utils.qsa('.btn-export-db-table', tableEl).forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const tName = btn.dataset.table;
+          btn.disabled = true;
+          btn.textContent = 'Exporting...';
+          try {
+            const res = await App.api.adminGetTableRows(tName, { limit: 10000 });
+            exportTableRowsToCsv(tName, res.rows || []);
+          } catch (e) {
+            App.utils.toast('Could not export table: ' + (e.message || e), 'err');
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = '&#128229; CSV';
+          }
+        });
+      });
+
+      App.utils.qsa('.btn-clear-db-table', tableEl).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tName = btn.dataset.table;
+          const rows = Number(btn.dataset.rows || 0);
+          openClearTableModal(tName, rows, () => drawDatabaseHealthPanel(pane));
+        });
+      });
+    }
+
+    const searchInput = App.utils.qs('#dbHealthSearchInput', pane);
+    if (searchInput) {
+      searchInput.value = dbHealthSearch;
+      searchInput.oninput = (e) => {
+        dbHealthSearch = e.target.value;
+        renderFilteredStats();
+      };
+    }
+
+    App.utils.qsa('[data-db-cat-filter]', pane).forEach((chip) => {
+      chip.onclick = () => {
+        App.utils.qsa('[data-db-cat-filter]', pane).forEach((c) => c.classList.remove('active'));
+        chip.classList.add('active');
+        dbHealthCategory = chip.dataset.dbCatFilter;
+        renderFilteredStats();
+      };
+    });
+
+    const refreshBtn = App.utils.qs('#refreshDbHealthBtn', pane);
+    if (refreshBtn) {
+      refreshBtn.onclick = async () => {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Refreshing...';
+        try {
+          await drawDatabaseHealthPanel(pane);
+          App.utils.toast('Database health statistics refreshed');
+        } catch (e) {
+          App.utils.toast('Could not refresh: ' + (e.message || e), 'err');
+        } finally {
+          if (App.utils.qs('#refreshDbHealthBtn', pane)) {
+            App.utils.qs('#refreshDbHealthBtn', pane).disabled = false;
+            App.utils.qs('#refreshDbHealthBtn', pane).innerHTML = '&#8635; Refresh Now';
+          }
+        }
+      };
+    }
+
+    const purgeLogsBtn = App.utils.qs('#purgeOldLogsBtn', pane);
+    if (purgeLogsBtn) {
+      purgeLogsBtn.onclick = () => openPurgeOldLogsModal(() => drawDatabaseHealthPanel(pane));
+    }
+
+    const exportAllBtn = App.utils.qs('#exportAllDbBtn', pane);
+    if (exportAllBtn) {
+      exportAllBtn.onclick = async () => {
+        if (typeof App.exportData !== 'undefined' && App.exportData.exportFullPortfolio) {
+          await App.exportData.exportFullPortfolio();
+        } else {
+          App.utils.toast('Starting full database export...');
+        }
+      };
+    }
+
+    renderFilteredStats();
   }
 
   // ---- Visits & Customer Logins (027 & 040) ----
@@ -817,12 +1242,25 @@ window.App = window.App || {};
         <div class="table-scroll"><table class="data" id="sharedPortfoliosTable"></table></div>
       </div>
       <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <div class="chart-title">Database Health</div>
-          <button class="btn btn-outline btn-sm" id="refreshDbHealthBtn">&#8635; Refresh Now</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="chart-title" style="margin-bottom:2px">Database Health &amp; Storage Maintenance</div>
+            <div class="hint">Inspect records, download table CSVs, purge historical logs, or clear specific tables to keep your database clean and performant.</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="purgeOldLogsBtn" title="Clean historical logs, events, and notifications">&#129529; Purge Old Logs</button>
+            <button class="btn btn-outline btn-sm" id="exportAllDbBtn" title="Export entire portfolio data to Excel">&#128230; Full Export</button>
+            <button class="btn btn-outline btn-sm" id="refreshDbHealthBtn">&#8635; Refresh Now</button>
+          </div>
         </div>
-        <div class="hint" style="margin-bottom:10px">Row counts (estimated, not a full scan) and disk size per table - use this to decide what's worth archiving or clearing.</div>
-        <div class="table-scroll" style="max-height:340px"><table class="data" id="dbHealthTable"></table></div>
+        <div id="dbHealthKpis" style="margin-top:12px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+          <input id="dbHealthSearchInput" type="text" class="search-input" placeholder="Search tables by name or category..." style="width:240px">
+          <div class="chip-row" id="dbHealthCatFilters" style="margin-bottom:0">
+            ${['All', 'With Data', 'Empty', 'Core & Deals', 'Expenses', 'CRM & Contacts', 'Chat & Calls', 'Support', 'Logs & Telemetry', 'System'].map((c) => `<div class="chip ${c === 'All' ? 'active' : ''}" data-db-cat-filter="${c}">${c}</div>`).join('')}
+          </div>
+        </div>
+        <div class="table-scroll" style="max-height:460px;border:1px solid var(--border2);border-radius:8px"><table class="data" id="dbHealthTable"></table></div>
       </div>
       <div class="panel">
         <div class="chart-title" style="margin-bottom:4px">Visits &amp; Customer Logins</div>

@@ -14,7 +14,13 @@ window.App = window.App || {};
   async function renderDashboardView() {
     const pane = App.utils.qs('#pane-dashboard');
     pane.innerHTML = `
-      <div class="section-title">Portfolio Dashboard <div class="line"></div><small>money, then attention, then performance</small></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:0">Portfolio Dashboard <div class="line"></div><small>money, then attention, then performance</small></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" id="dashAiAuditBtn">&#9889; AI Risk Audit</button>
+          <button class="btn btn-gold btn-sm" id="dashExecReportBtn">&#128196; Executive Report</button>
+        </div>
+      </div>
       <div id="dashFilterBar"></div>
       <div class="kpi-grid" id="dashKpis"></div>
       <div class="grid-2">
@@ -39,6 +45,13 @@ window.App = window.App || {};
         <div class="chart-title" style="margin-bottom:10px">Needs Your Attention</div>
         <div id="dashAttention"></div>
       </div>`;
+
+    App.utils.qs('#dashExecReportBtn', pane)?.addEventListener('click', () => {
+      App.executiveReport.openExecutiveReportModal();
+    });
+    App.utils.qs('#dashAiAuditBtn', pane)?.addEventListener('click', () => {
+      App.router.navigate('aicopilot');
+    });
 
     App.filters.renderBar(App.utils.qs('#dashFilterBar'), draw);
 

@@ -18,7 +18,10 @@ window.App = window.App || {};
     const pane = App.utils.qs('#pane-reports');
     const fy = defaultFyRange();
     pane.innerHTML = `
-      <div class="section-title">Reports — Tax &amp; Financial Year <div class="line"></div><small>${fy.label} by default; pick a custom range below</small></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:0">Reports — Tax &amp; Financial Year <div class="line"></div><small>${fy.label} by default; pick a custom range below</small></div>
+        <button class="btn btn-gold btn-sm" id="btnGenExecReport">&#128196; Generate Executive PDF / Print Report</button>
+      </div>
       <div class="panel">
         <div class="filterbar">
           <div class="filter-group"><label>From</label><input type="date" class="date-mini" id="repFrom" value="${fy.from}"></div>
@@ -35,6 +38,20 @@ window.App = window.App || {};
         <div class="hint">This is a tracking tool, not a tax calculator - it totals what your records show (gross interest, tax deducted/TDS). It does not compute your final tax liability under any specific tax regime.</div>
         <div class="table-scroll" style="margin-top:10px"><table class="data" id="taxTable"></table></div>
       </div>`;
+
+    App.utils.qs('#btnGenExecReport', pane)?.addEventListener('click', async () => {
+      const btn = App.utils.qs('#btnGenExecReport', pane);
+      btn.disabled = true;
+      btn.textContent = 'Generating Report...';
+      try {
+        await App.executiveReport.openExecutiveReportModal();
+      } catch (e) {
+        App.utils.toast('Could not generate executive report: ' + (e.message || e), 'err');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '&#128196; Generate Executive PDF / Print Report';
+      }
+    });
 
     async function run() {
       const from = App.utils.qs('#repFrom', pane).value;

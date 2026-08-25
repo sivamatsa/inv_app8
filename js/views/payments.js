@@ -123,13 +123,39 @@ window.App = window.App || {};
     const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
     const allSchedule = await App.api.listSchedule({ in: { status: ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_RECEIVED'] } });
     allSchedule.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date));
-    container.innerHTML = `<div id="scheduleFilterBar"></div><div id="scheduleTableHost"></div>`;
+    let schedQuickChip = 'all';
+    container.innerHTML = `
+      <div class="filter-chips-wrap" id="schedQuickChips" style="margin-top:6px">
+        <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Quick Filter:</span>
+        <button class="quick-chip active" data-sched-chip="all">All Pending</button>
+        <button class="quick-chip" data-sched-chip="overdue">&#9888; Overdue</button>
+        <button class="quick-chip" data-sched-chip="due_today">&#128308; Due Today</button>
+        <button class="quick-chip" data-sched-chip="this_month">&#128197; Due This Month</button>
+        <button class="quick-chip" data-sched-chip="interest_only">&#128176; Interest Component</button>
+        <button class="quick-chip" data-sched-chip="principal">&#128181; Principal Repayment</button>
+      </div>
+      <div id="scheduleFilterBar"></div>
+      <div id="scheduleTableHost"></div>`;
     const filterHost = App.utils.qs('#scheduleFilterBar', container);
     const tableHost = App.utils.qs('#scheduleTableHost', container);
     const filterState = { month: '', year: '' };
 
     function draw() {
-      const schedule = allSchedule.filter((s) => matchesDateFilter(filterState, s.scheduled_date));
+      const currentYearMonth = new Date().toISOString().slice(0, 7);
+      let schedule = allSchedule.filter((s) => matchesDateFilter(filterState, s.scheduled_date));
+
+      if (schedQuickChip === 'overdue') {
+        schedule = schedule.filter((s) => s.status === 'OVERDUE');
+      } else if (schedQuickChip === 'due_today') {
+        schedule = schedule.filter((s) => s.status === 'DUE_TODAY');
+      } else if (schedQuickChip === 'this_month') {
+        schedule = schedule.filter((s) => s.scheduled_date && s.scheduled_date.startsWith(currentYearMonth));
+      } else if (schedQuickChip === 'interest_only') {
+        schedule = schedule.filter((s) => (s.expected_interest || 0) > 0);
+      } else if (schedQuickChip === 'principal') {
+        schedule = schedule.filter((s) => (s.expected_principal || 0) > 0);
+      }
+
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
           <thead><tr><th>Scheduled Date</th><th>Deal</th><th>External Deal ID</th><th>Expected Interest</th><th>Expected Principal</th><th>Expected Total</th><th>Status</th><th>Actions</th></tr></thead>
@@ -143,13 +169,22 @@ window.App = window.App || {};
               <td>${App.utils.fmtMoney(s.expected_total)}</td>
               <td><span class="badge ${App.utils.statusBadgeClass(s.status)}">${s.status}</span></td>
               <td><button class="btn btn-sm btn-gold" data-record="${s.id}">Record</button></td>
-            </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Nothing pending.</td></tr>'}</tbody>
+            </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No pending payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
       App.utils.qsa('[data-record]', tableHost).forEach((b) => b.addEventListener('click', () => {
         const s = allSchedule.find((x) => x.id === Number(b.dataset.record));
         openRecordPaymentModal(deals, s.deal_id, s);
       }));
     }
+
+    App.utils.qsa('[data-sched-chip]', container).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        schedQuickChip = btn.dataset.schedChip;
+        App.utils.qsa('[data-sched-chip]', container).forEach((b) => b.classList.toggle('active', b === btn));
+        draw();
+      });
+    });
+
     renderDateFilterBar(filterHost, filterState, draw);
     draw();
   }
@@ -157,7 +192,15 @@ window.App = window.App || {};
   async function renderLedgerTab(container, deals) {
     const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
     const allPayments = await App.api.listPayments();
+    let ledgerQuickChip = 'all';
     container.innerHTML = `
+      <div class="filter-chips-wrap" id="ledgerQuickChips" style="margin-top:6px">
+        <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Quick Filter:</span>
+        <button class="quick-chip active" data-led-chip="all">All Received</button>
+        <button class="quick-chip" data-led-chip="this_month">&#128197; This Month</button>
+        <button class="quick-chip" data-led-chip="interest">&#128176; Interest Component</button>
+        <button class="quick-chip" data-led-chip="principal">&#128181; Principal Component</button>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px">
         <div id="ledgerFilterBar" style="flex:1"></div>
         <button class="btn btn-gold btn-sm" id="adhocRecordBtn">+ Record Payment</button>
@@ -168,7 +211,17 @@ window.App = window.App || {};
     const filterState = { month: '', year: '' };
 
     function draw() {
-      const payments = allPayments.filter((p) => matchesDateFilter(filterState, p.transaction_date));
+      const currentYearMonth = new Date().toISOString().slice(0, 7);
+      let payments = allPayments.filter((p) => matchesDateFilter(filterState, p.transaction_date));
+
+      if (ledgerQuickChip === 'this_month') {
+        payments = payments.filter((p) => p.transaction_date && p.transaction_date.startsWith(currentYearMonth));
+      } else if (ledgerQuickChip === 'interest') {
+        payments = payments.filter((p) => (p.interest_amount || 0) > 0);
+      } else if (ledgerQuickChip === 'principal') {
+        payments = payments.filter((p) => (p.principal_amount || 0) > 0);
+      }
+
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
           <thead><tr><th>Date</th><th>Deal</th><th>External Deal ID</th><th>Amount</th><th>Interest</th><th>Principal</th><th>Reference</th><th>Method</th><th></th><th>Actions</th></tr></thead>
@@ -184,7 +237,7 @@ window.App = window.App || {};
               <td>${p.confirmation_method}</td>
               <td>${p.is_voided ? '<span class="badge st-missed">Voided</span>' : ''}</td>
               <td>${p.is_voided ? '' : `<button class="icon-btn del" data-void="${p.id}" title="Void">&#128465;</button>`}</td>
-            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No payments recorded yet.</td></tr>'}</tbody>
+            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
       App.utils.qsa('[data-void]', tableHost).forEach((b) => b.addEventListener('click', async () => {
         const reason = prompt('Reason for voiding this payment (kept in the audit trail; the payment is never deleted):');
@@ -193,6 +246,15 @@ window.App = window.App || {};
         catch (e) { App.utils.toast('Could not void payment: ' + (e.message || e), 'err'); }
       }));
     }
+
+    App.utils.qsa('[data-led-chip]', container).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        ledgerQuickChip = btn.dataset.ledChip;
+        App.utils.qsa('[data-led-chip]', container).forEach((b) => b.classList.toggle('active', b === btn));
+        draw();
+      });
+    });
+
     renderDateFilterBar(filterHost, filterState, draw);
     draw();
     App.utils.qs('#adhocRecordBtn', container).addEventListener('click', () => openRecordPaymentModal(deals, null, null));

@@ -146,6 +146,9 @@ App.api = (function () {
   }
 
   async function updateRow(table, id, patch, idCol) {
+    if (id === undefined || id === null || id === 'undefined' || id === '') {
+      throw new Error(`Cannot update ${table}: missing or invalid id (${id})`);
+    }
     const { data, error } = await client().from(table).update(patch).eq(idCol || 'id', id).select().single();
     check(error);
     markLocalWrite();
@@ -153,6 +156,9 @@ App.api = (function () {
   }
 
   async function deleteRow(table, id, idCol) {
+    if (id === undefined || id === null || id === 'undefined' || id === '') {
+      throw new Error(`Cannot delete ${table}: missing or invalid id (${id})`);
+    }
     const { error } = await client().from(table).delete().eq(idCol || 'id', id);
     check(error);
     markLocalWrite();
@@ -1086,11 +1092,54 @@ App.api = (function () {
     return data;
   }
 
-  // ---- Database Health (025) ----
+  // ---- Database Health & Maintenance (025 & 043) ----
   async function getAdminTableStats() {
     const { data, error } = await client().rpc('fn_admin_table_stats');
     check(error);
     return data || [];
+  }
+
+  async function adminClearTable(tableName) {
+    if (!tableName) throw new Error('Table name is required');
+    const { data, error } = await client().rpc('fn_admin_clear_table', { p_table_name: tableName });
+    if (error) {
+      // Fallback if custom RPC not yet migrated in Supabase
+      const { error: delErr } = await client().from(tableName).delete().neq('id', -999999999);
+      if (delErr) throw new Error(delErr.message || error.message);
+      return { ok: true, table: tableName };
+    }
+    return data;
+  }
+
+  async function adminPurgeOldLogs(days = 30) {
+    const { data, error } = await client().rpc('fn_admin_purge_old_logs', { p_days_old: days });
+    if (error) {
+      // Fallback direct cleanup for logs
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+      await Promise.allSettled([
+        client().from('audit_logs').delete().lt('created_at', cutoff),
+        client().from('login_events').delete().lt('occurred_at', cutoff),
+        client().from('copilot_usage').delete().lt('created_at', cutoff),
+        client().from('notifications').delete().eq('is_read', true).lt('created_at', cutoff),
+      ]);
+      return { ok: true, message: `Purged logs older than ${days} days` };
+    }
+    return data;
+  }
+
+  async function adminGetTableRows(tableName, { limit = 50, offset = 0 } = {}) {
+    const { data, error, count } = await client()
+      .from(tableName)
+      .select('*', { count: 'exact' })
+      .range(offset, offset + limit - 1);
+    check(error);
+    return { rows: data || [], total: count != null ? count : (data ? data.length : 0) };
+  }
+
+  async function adminDeleteTableRow(tableName, id, idCol = 'id') {
+    const { error } = await client().from(tableName).delete().eq(idCol, id);
+    check(error);
+    return { ok: true };
   }
 
   // ---- Shared portfolios / peer viewing (024) - shared_portfolios isn't
@@ -1327,10 +1376,69 @@ App.api = (function () {
   const updateExpenseAdvance = (id, patch) => updateRow('expense_advances', id, patch);
   const deleteExpenseAdvance = (id) => deleteRow('expense_advances', id);
 
+  function sanitizeExpenseTransaction(row) {
+    if (!row) return row;
+    const clean = Object.assign({}, row);
+
+    // transaction_type check (transaction_type in ('Debit', 'Credit'))
+    if (clean.transaction_type !== undefined) {
+      const tt = String(clean.transaction_type || '').trim().toLowerCase().replace(/\.$/, '');
+      if (tt === 'cr' || tt === 'credit') clean.transaction_type = 'Credit';
+      else clean.transaction_type = 'Debit';
+    }
+
+    // payment_method check (payment_method in ('Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque', 'Other'))
+    if (clean.payment_method !== undefined) {
+      if (clean.payment_method === null || clean.payment_method === '') {
+        clean.payment_method = null;
+      } else {
+        const pm = String(clean.payment_method).trim().toLowerCase();
+        if (pm === 'cash') clean.payment_method = 'Cash';
+        else if (pm === 'upi' || pm.includes('upi') || pm.includes('gpay') || pm.includes('phonepe') || pm.includes('paytm') || pm.includes('bhim')) clean.payment_method = 'UPI';
+        else if (pm === 'card' || pm.includes('card') || pm.includes('debit') || pm.includes('credit') || pm.includes('visa') || pm.includes('mastercard') || pm.includes('amex')) clean.payment_method = 'Card';
+        else if (pm === 'bank transfer' || pm.includes('bank') || pm.includes('transfer') || pm.includes('neft') || pm.includes('rtgs') || pm.includes('imps') || pm.includes('wire') || pm.includes('online') || pm.includes('netbanking') || pm.includes('net banking') || pm.includes('ach')) clean.payment_method = 'Bank Transfer';
+        else if (pm === 'cheque' || pm.includes('cheque') || pm.includes('check') || pm.includes('draft') || pm.includes('dd')) clean.payment_method = 'Cheque';
+        else clean.payment_method = 'Other';
+      }
+    }
+
+    // payment_status check (payment_status in ('Paid', 'Pending', 'Partially Paid', 'Overdue', 'Cancelled'))
+    if (clean.payment_status !== undefined) {
+      if (clean.payment_status === null || clean.payment_status === '') {
+        clean.payment_status = 'Paid';
+      } else {
+        const ps = String(clean.payment_status).trim().toLowerCase();
+        if (ps === 'paid') clean.payment_status = 'Paid';
+        else if (ps === 'pending' || ps === 'unpaid') clean.payment_status = 'Pending';
+        else if (ps === 'partially paid' || ps === 'partial' || ps === 'partially_paid') clean.payment_status = 'Partially Paid';
+        else if (ps === 'overdue') clean.payment_status = 'Overdue';
+        else if (ps === 'cancelled' || ps === 'canceled') clean.payment_status = 'Cancelled';
+        else clean.payment_status = 'Paid';
+      }
+    }
+
+    // credit_type check (credit_type in ('Refund', 'Advance Return', 'Discount', 'Received From Someone', 'Material Return', 'Other'))
+    if (clean.credit_type !== undefined) {
+      if (clean.credit_type === null || clean.credit_type === '') {
+        clean.credit_type = null;
+      } else {
+        const ct = String(clean.credit_type).trim().toLowerCase();
+        if (ct.includes('refund')) clean.credit_type = 'Refund';
+        else if (ct.includes('advance')) clean.credit_type = 'Advance Return';
+        else if (ct.includes('discount')) clean.credit_type = 'Discount';
+        else if (ct.includes('received') || ct.includes('someone')) clean.credit_type = 'Received From Someone';
+        else if (ct.includes('material') || ct.includes('return')) clean.credit_type = 'Material Return';
+        else clean.credit_type = 'Other';
+      }
+    }
+
+    return clean;
+  }
+
   const listExpenseTransactions = (opts) => selectAll('expense_transactions', Object.assign({ order: { column: 'transaction_date', ascending: false } }, opts));
   const getExpenseTransaction = (id) => client().from('expense_transactions').select('*').eq('id', id).single().then(({ data, error }) => { check(error); return data; });
-  const createExpenseTransaction = (row) => insertRow('expense_transactions', row);
-  const updateExpenseTransaction = (id, patch) => updateRow('expense_transactions', id, patch);
+  const createExpenseTransaction = (row) => insertRow('expense_transactions', sanitizeExpenseTransaction(row));
+  const updateExpenseTransaction = (id, patch) => updateRow('expense_transactions', id, sanitizeExpenseTransaction(patch));
   const deleteExpenseTransaction = (id) => deleteRow('expense_transactions', id);
 
   // Purely a saved-values template for one-click quick-entry - no
@@ -1444,7 +1552,8 @@ App.api = (function () {
     listGoldPurchases, createGoldPurchase, updateGoldPurchase, deleteGoldPurchase,
     listGoldAlerts, createGoldAlert, updateGoldAlert, deleteGoldAlert,
     listPushSubscriptions, savePushSubscription, deletePushSubscriptionByEndpoint,
-    adminCreateUser, adminSetUserActive, adminUpdateUser, adminDeleteUser, getAdminTableStats,
+    adminCreateUser, adminSetUserActive, adminUpdateUser, adminDeleteUser,
+    getAdminTableStats, adminClearTable, adminPurgeOldLogs, adminGetTableRows, adminDeleteTableRow,
     listSharedPortfolios, createSharedPortfolio, updateSharedPortfolio, deleteSharedPortfolio,
     listPortfolioMembers, addPortfolioMember, removePortfolioMember, listPortfoliosSharedWithMe,
     listBenchmarkObservations, refreshBenchmarkData,

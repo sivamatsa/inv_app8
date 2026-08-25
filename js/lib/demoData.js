@@ -1673,6 +1673,39 @@ App.demo = (function () {
             return { data: ticket_number, error: null };
           }
           if (fn === 'fn_clear_my_data') { clearPersonalData(DEMO_USER.id); return { data: null, error: null }; }
+          if (fn === 'fn_admin_clear_table') {
+            if (!DB.profiles.find((p) => p.id === DEMO_USER.id && p.is_admin)) return { data: null, error: { message: 'Only an admin can run this.' } };
+            const table = params.p_table_name;
+            if (table === 'profiles') return { data: null, error: { message: 'Cannot wipe profiles table directly.' } };
+            if (DB[table] !== undefined) {
+              DB[table] = [];
+              if (table === 'deals') { DB.payment_schedule = []; DB.payments = []; DB.reinvestments = []; }
+              if (table === 'recurring_items') { DB.recurring_occurrences = []; DB.recurring_amount_history = []; DB.recurring_schedule_history = []; DB.recurring_pauses = []; }
+              if (table === 'expense_projects') { DB.expense_transactions = []; DB.expense_advances = []; DB.expense_categories = []; DB.expense_project_custom_fields = []; }
+              if (table === 'contacts') { DB.contact_phones = []; DB.contact_emails = []; DB.contact_addresses = []; DB.contact_groups = []; DB.contact_group_members = []; DB.contact_important_dates = []; DB.contact_notes = []; DB.contact_reminders = []; }
+              if (table === 'conversations') { DB.messages = []; DB.conversation_members = []; DB.message_attachments = []; DB.message_reactions = []; DB.message_edits = []; DB.message_reads = []; }
+              if (table === 'support_tickets') { DB.ticket_messages = []; DB.ticket_internal_notes = []; }
+              if (table === 'feature_suggestions') { DB.suggestion_internal_notes = []; DB.suggestion_votes = []; }
+              if (table === 'blog_posts') { DB.blog_comments = []; }
+              return { data: { ok: true, table, message: `Table ${table} was cleared successfully.` }, error: null };
+            }
+            return { data: null, error: { message: `Table ${table} does not exist.` } };
+          }
+          if (fn === 'fn_admin_purge_old_logs') {
+            if (!DB.profiles.find((p) => p.id === DEMO_USER.id && p.is_admin)) return { data: null, error: { message: 'Only an admin can run this.' } };
+            const days = params.p_days_old || 30;
+            const cutoff = new Date(Date.now() - days * 86400000);
+            const aCount = (DB.audit_logs || []).length;
+            const lCount = (DB.login_events || []).length;
+            const cCount = (DB.copilot_usage || []).length;
+            const nCount = (DB.notifications || []).length;
+            DB.audit_logs = (DB.audit_logs || []).filter((r) => new Date(r.created_at || 0) >= cutoff);
+            DB.login_events = (DB.login_events || []).filter((r) => new Date(r.occurred_at || 0) >= cutoff);
+            DB.copilot_usage = (DB.copilot_usage || []).filter((r) => new Date(r.created_at || 0) >= cutoff);
+            DB.notifications = (DB.notifications || []).filter((r) => !r.is_read || new Date(r.created_at || 0) >= cutoff);
+            const total = (aCount - DB.audit_logs.length) + (lCount - DB.login_events.length) + (cCount - DB.copilot_usage.length) + (nCount - DB.notifications.length);
+            return { data: { ok: true, total_purged: total }, error: null };
+          }
           if (fn === 'fn_admin_clear_all_data') {
             if (!DB.profiles.find((p) => p.id === DEMO_USER.id && p.is_admin)) return { data: null, error: { message: 'Only an admin can run this.' } };
             CLEAR_DATA_TABLES.forEach((table) => { DB[table] = []; });
