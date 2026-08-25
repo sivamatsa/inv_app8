@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 App.utils = (function () {
-  const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£' };
+  const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ', SGD: 'S$', CAD: 'C$', AUD: 'A$', JPY: '¥', CHF: 'CHF ' };
 
   function currencySymbol(code) {
     return CURRENCY_SYMBOLS[code] || (code ? code + ' ' : '₹');
@@ -11,8 +11,18 @@ App.utils = (function () {
 
   function fmtMoney(n, currency) {
     if (n === null || n === undefined || isNaN(n)) return '—';
-    const sym = currencySymbol(currency || (App.state && App.state.profile && App.state.profile.preferred_currency));
-    return sym + Math.round(Number(n)).toLocaleString('en-IN');
+    const targetCurr = currency || (App.currency ? App.currency.getActiveCurrency() : (App.state && App.state.profile && App.state.profile.preferred_currency)) || 'INR';
+    
+    // If target currency is not INR, convert from INR to target currency
+    let val = Number(n);
+    if (!currency && targetCurr !== 'INR' && App.currency) {
+      val = App.currency.convert(val, 'INR', targetCurr);
+    }
+    
+    const sym = currencySymbol(targetCurr);
+    const locale = targetCurr === 'INR' ? 'en-IN' : 'en-US';
+    const dec = targetCurr === 'JPY' ? 0 : 0;
+    return sym + Math.round(val).toLocaleString(locale);
   }
 
   function fmtNum(n, dec) {

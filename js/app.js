@@ -474,6 +474,31 @@ document.addEventListener('DOMContentLoaded', () => {
   wireAuthScreen();
   App.utils.qs('#notifBell').addEventListener('click', openNotificationPanel);
   App.globalSearch.wire();
+
+  // Wire Topbar Currency Selector
+  const currSelect = App.utils.qs('#topbarCurrencySelect');
+  if (currSelect && App.currency) {
+    currSelect.value = App.currency.getActiveCurrency();
+    currSelect.addEventListener('change', (e) => {
+      App.currency.setActiveCurrency(e.target.value);
+      App.utils.toast(`Display currency switched to ${e.target.value}`);
+      App.router.refresh();
+    });
+  }
+
+  // Wire Arcade Game Button
+  App.utils.qs('#btnLaunchArcadeGame')?.addEventListener('click', () => {
+    if (App.offlineGame) App.offlineGame.open();
+  });
+
+  // Re-render views on global currency change
+  document.addEventListener('currency-changed', (e) => {
+    if (currSelect && e.detail && e.detail.currency) {
+      currSelect.value = e.detail.currency;
+    }
+    App.router.refresh();
+  });
+
   App.auth.onChange((user, session, event) => {
     // A password-reset email link logs the visitor into a real, valid
     // session (that's how Supabase's recovery flow works) - entering the

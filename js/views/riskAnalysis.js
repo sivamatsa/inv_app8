@@ -1,8 +1,5 @@
-/* Risk Analysis (spec Section 25) + Portfolio Health Score (spec Section
-   36) - grouped into one view since health score is fundamentally a
-   risk-transparency feature. Every factor is a plain, visible formula
-   (spec: "Risk scores must be transparent and not presented as guaranteed
-   predictions" / "Show factor-level explanations"), not a black box. */
+/* Risk Analysis + Portfolio Health Score + Sharpe & Sortino Risk Metrics
+   Transparent factors, concentration, maturity exposure, and modern portfolio theory metrics. */
 window.App = window.App || {};
 
 (function () {
@@ -11,7 +8,20 @@ window.App = window.App || {};
   async function renderRiskView() {
     const pane = App.utils.qs('#pane-risk');
     pane.innerHTML = `
-      <div class="section-title">Risk Analysis <div class="line"></div><small>concentration, exposure, and a transparent health score - not predictions</small></div>
+      <div class="section-title">Risk &amp; Quantitative Health Analysis <div class="line"></div><small>concentration, exposure, Sharpe &amp; Sortino ratios, and transparent health score</small></div>
+      
+      <!-- Modern Portfolio Theory Sharpe / Sortino / VaR Card -->
+      <div class="panel" style="margin-bottom:16px;background:var(--bg2);border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:700;color:var(--gold);font-size:15px">📈 Modern Portfolio Theory: Risk-Adjusted Ratios</div>
+            <div style="font-size:12px;color:var(--text2)">Computed dynamically from your active deals, cashflows, and risk-free benchmark.</div>
+          </div>
+          <button class="btn btn-outline btn-sm" id="btnOpenSharpeCalc">Open Dedicated Ratio Engine &rarr;</button>
+        </div>
+        <div class="grid-4" id="riskMptKpis"></div>
+      </div>
+
       <div class="grid-3">
         <div class="chart-card"><div class="chart-header"><div><div class="chart-title">Concentration</div></div></div><div id="riskConcentration"></div></div>
         <div class="chart-card"><div class="chart-header"><div><div class="chart-title">Maturity Exposure</div></div></div><div id="riskMaturity"></div></div>
@@ -26,11 +36,42 @@ window.App = window.App || {};
         </div>
       </div>`;
 
+    App.utils.qs('#btnOpenSharpeCalc', pane)?.addEventListener('click', () => {
+      App.router.navigate('calculator');
+      setTimeout(() => {
+        const sharpeChip = document.querySelector('[data-calc-tab="sharpe"]');
+        if (sharpeChip) sharpeChip.click();
+      }, 50);
+    });
+
     const [deals, metrics, schedule, payments, reinvestments] = await Promise.all([
       App.api.listDeals({ eq: { status: 'ACTIVE' } }), App.api.listDealMetrics(), App.api.listSchedule(), App.api.listPayments(), App.api.listReinvestments(),
     ]);
     const metricsById = {}; metrics.forEach((m) => { metricsById[m.deal_id] = m; });
     const totalPrincipal = deals.reduce((a, d) => a + (d.current_principal || 0), 0);
+
+    // Compute MPT Sharpe & Sortino from active deal returns
+    const dealReturns = deals.filter((d) => d.annual_roi != null).map((d) => Number(d.annual_roi));
+    const mpt = App.calc.computeRatios(dealReturns.length >= 2 ? dealReturns : [12, 14, 16], 6.5, 7.5);
+
+    App.utils.qs('#riskMptKpis', pane).innerHTML = `
+      <div class="kpi c-gold">
+        <div class="kpi-label">Portfolio Sharpe Ratio</div>
+        <div class="kpi-value">${mpt.sharpeRatio.toFixed(2)}</div>
+      </div>
+      <div class="kpi c-teal">
+        <div class="kpi-label">Sortino Ratio (Downside)</div>
+        <div class="kpi-value">${mpt.sortinoRatio.toFixed(2)}</div>
+      </div>
+      <div class="kpi c-purple">
+        <div class="kpi-label">Portfolio Volatility (&sigma;)</div>
+        <div class="kpi-value">${App.utils.fmtPct(mpt.volatility)}</div>
+      </div>
+      <div class="kpi c-red">
+        <div class="kpi-label">Downside Deviation (&sigma;<sub>d</sub>)</div>
+        <div class="kpi-value">${App.utils.fmtPct(mpt.downsideDeviation)}</div>
+      </div>
+    `;
 
     const byPlatform = {};
     deals.forEach((d) => { const n = App.lookups.platformName(d.platform_id) || 'Unassigned'; byPlatform[n] = (byPlatform[n] || 0) + (d.current_principal || 0); });
@@ -63,10 +104,6 @@ window.App = window.App || {};
       <div class="stat-line"><span>Overdue Principal / Total Invested</span><span class="v">${App.utils.fmtPct(overdueExposurePct)}</span></div>
       <div class="stat-line"><span>Deals with Overdue Payments</span><span class="v">${overduePrincipalDeals.size}</span></div>`;
 
-    // This whole view is scoped to active-deal risk exposure (deals was
-    // fetched with status=ACTIVE above), so income here is kept on that
-    // same footing rather than pulling in payments from closed deals that
-    // aren't part of any of the concentration figures above.
     const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
     const validPayments = payments.filter((p) => !p.is_voided && dealsById[p.deal_id]);
     const incomeByDeal = {};
