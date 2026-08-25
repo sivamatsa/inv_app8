@@ -9,6 +9,7 @@
     "build": "echo 'Build complete'"
   },
   "dependencies": {
+    "@google/genai": "^2.18.0",
     "express": "^4.21.2"
   }
 }

@@ -147,6 +147,16 @@ App.currency = (function () {
     return { success: false, fallback: true };
   }
 
+  function getActiveSymbol() {
+    const curr = getActiveCurrency();
+    return (CURRENCY_METADATA[curr] && CURRENCY_METADATA[curr].symbol) || '₹';
+  }
+
+  function getCurrencyMeta(curr) {
+    const code = curr || getActiveCurrency();
+    return CURRENCY_METADATA[code] || CURRENCY_METADATA.INR;
+  }
+
   init();
 
   return {
@@ -154,6 +164,8 @@ App.currency = (function () {
     formatConverted,
     getActiveCurrency,
     setActiveCurrency,
+    getActiveSymbol,
+    getCurrencyMeta,
     getExchangeRate,
     getAllRates,
     setRate,

@@ -11,6 +11,7 @@ window.App = window.App || {};
 
 (function () {
   const TABS = [
+    { key: 'tape', label: '🧮 Excel & Tape Scratchpad' },
     { key: 'interest', label: 'Interest Calculator' },
     { key: 'emi', label: 'EMI Calculator' },
     { key: 'sharpe', label: '📈 Sharpe & Sortino' },
@@ -98,13 +99,24 @@ window.App = window.App || {};
 
     async function drawTab() {
       const host = App.utils.qs('#calcTabHost', pane);
-      if (state.tab === 'interest') await drawInterestTab(host);
+      if (state.tab === 'tape') await drawTapeTab(host);
+      else if (state.tab === 'interest') await drawInterestTab(host);
       else if (state.tab === 'emi') await drawEmiTab(host);
       else if (state.tab === 'sharpe') await drawSharpeTab(host);
       else if (state.tab === 'rebalancing') await drawRebalancingTab(host);
       else if (state.tab === 'tax') await drawTaxTab(host);
       else if (state.tab === 'waterfall') await drawWaterfallTab(host);
       else if (state.tab === 'currency') await drawCurrencyTab(host);
+    }
+
+    // -----------------------------------------------------------------------
+    // 0. Interactive Excel & Tape Scratchpad
+    // -----------------------------------------------------------------------
+    async function drawTapeTab(host) {
+      host.innerHTML = `<div id="tapeScratchpadContainer"></div>`;
+      if (App.tapeCalculator) {
+        App.tapeCalculator.render(App.utils.qs('#tapeScratchpadContainer', host));
+      }
     }
 
     // -----------------------------------------------------------------------

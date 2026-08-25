@@ -486,10 +486,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Wire Arcade Game Button
+  // Wire Topbar Calculator & Arcade Game Buttons
+  App.utils.qs('#btnTopbarCalc')?.addEventListener('click', () => {
+    App.router.navigate('calculator');
+  });
+
   App.utils.qs('#btnLaunchArcadeGame')?.addEventListener('click', () => {
     if (App.offlineGame) App.offlineGame.open();
   });
+
+  // Initialize Floating Gemini AI Chatbot
+  if (App.chatbot) {
+    App.chatbot.init();
+  }
 
   // Re-render views on global currency change
   document.addEventListener('currency-changed', (e) => {
