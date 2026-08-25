@@ -117,6 +117,35 @@ function applySidebarPrefs(structure, prefs) {
     .filter((g) => g.items.length);
 }
 
+function closeMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  const backdrop = App.utils.qs('#sidebarBackdrop');
+  if (sidebar) sidebar.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+  document.body.classList.remove('mobile-drawer-open');
+}
+
+function openMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  const backdrop = App.utils.qs('#sidebarBackdrop');
+  if (sidebar) sidebar.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+  document.body.classList.add('mobile-drawer-open');
+}
+
+function toggleMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  if (sidebar && sidebar.classList.contains('open')) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
+  }
+}
+
+App.closeMobileSidebar = closeMobileSidebar;
+App.openMobileSidebar = openMobileSidebar;
+App.toggleMobileSidebar = toggleMobileSidebar;
+
 function renderSidebar() {
   const structure = currentNavStructure();
   const prefs = App.state.profile && App.state.profile.ui_preferences;
@@ -137,7 +166,10 @@ function renderSidebar() {
       </div>`).join('')}
   `).join('');
   App.utils.qsa('.nav-link', nav).forEach((link) => {
-    link.addEventListener('click', () => App.router.navigate(link.dataset.nav));
+    link.addEventListener('click', () => {
+      App.router.navigate(link.dataset.nav);
+      closeMobileSidebar();
+    });
   });
 
   // enterApp() calls this every time App.auth's onAuthStateChange fires -
@@ -474,6 +506,32 @@ document.addEventListener('DOMContentLoaded', () => {
   wireAuthScreen();
   App.utils.qs('#notifBell').addEventListener('click', openNotificationPanel);
   App.globalSearch.wire();
+
+  // Wire Mobile Drawer & Search Triggers
+  App.utils.qs('#mobileMenuBtn')?.addEventListener('click', toggleMobileSidebar);
+  App.utils.qs('#mobileBottomMenuBtn')?.addEventListener('click', toggleMobileSidebar);
+  App.utils.qs('#sidebarCloseBtn')?.addEventListener('click', closeMobileSidebar);
+  App.utils.qs('#sidebarBackdrop')?.addEventListener('click', closeMobileSidebar);
+
+  // Mobile Search Toggle
+  const searchWrap = App.utils.qs('#topbarSearchWrap');
+  const searchInput = App.utils.qs('#globalSearchInput');
+  App.utils.qs('#mobileSearchBtn')?.addEventListener('click', () => {
+    if (searchWrap) {
+      searchWrap.classList.toggle('mobile-open');
+      if (searchWrap.classList.contains('mobile-open') && searchInput) {
+        searchInput.focus();
+      }
+    }
+  });
+
+  // Close mobile drawer on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeMobileSidebar();
+      if (searchWrap) searchWrap.classList.remove('mobile-open');
+    }
+  });
 
   // Wire Topbar Currency Selector
   const currSelect = App.utils.qs('#topbarCurrencySelect');

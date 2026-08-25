@@ -29,6 +29,9 @@ App.router = (function () {
     if (!views[name]) name = 'dashboard';
     App.utils.qsa('.view-pane').forEach((p) => p.classList.toggle('active', p.dataset.view === name));
     App.utils.qsa('.nav-link').forEach((l) => l.classList.toggle('active', l.dataset.nav === name));
+    App.utils.qsa('.mobile-bottom-item').forEach((item) => {
+      if (item.dataset.tab) item.classList.toggle('active', item.dataset.tab === name);
+    });
     const titleEl = App.utils.qs('#topbarTitle');
     const link = App.utils.qs(`.nav-link[data-nav="${name}"]`);
     if (titleEl && link) titleEl.textContent = link.dataset.label || name;

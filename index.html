@@ -87,11 +87,14 @@
 </div>
 
 <!-- ============ APP SHELL ============ -->
+<div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
 <div id="appShell">
-  <nav class="sidebar">
+  <nav class="sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <div class="sidebar-logo">IOS</div>
-      <div><div class="sidebar-title">Investment OS</div><div class="sidebar-sub">Personal Portfolio</div></div>
+      <div style="flex:1"><div class="sidebar-title">Investment OS</div><div class="sidebar-sub">Personal Portfolio</div></div>
+      <button class="sidebar-close-btn" id="sidebarCloseBtn" title="Close Navigation" aria-label="Close navigation">&#10005;</button>
     </div>
     <div id="sidebarNav"></div>
   </nav>
@@ -101,14 +104,19 @@
       &#9654; <b>Demo Mode</b> — sample data only, nothing is saved, no Supabase project connected.
     </div>
     <div class="topbar">
-      <div class="topbar-title" id="topbarTitle">Dashboard</div>
-      <div style="flex:1;max-width:400px;margin:0 12px;position:relative">
+      <div class="topbar-left">
+        <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn" title="Open Navigation Menu" aria-label="Open Navigation">☰</button>
+        <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      </div>
+      <div class="topbar-search-wrap" id="topbarSearchWrap">
         <input type="text" id="globalSearchInput" class="search-input" placeholder="Search deals, contacts, recurring, gold..." style="width:100%" autocomplete="off">
         <div id="globalSearchResults" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-height:70vh;overflow:auto;z-index:60;box-shadow:0 20px 50px rgba(0,0,0,0.45)"></div>
       </div>
       <div class="topbar-actions">
+        <!-- Mobile Search Toggle -->
+        <button class="icon-btn mobile-search-btn" id="mobileSearchBtn" title="Search Portfolio">🔍</button>
         <!-- Quick Currency Selector -->
-        <select id="topbarCurrencySelect" class="search-input" style="height:32px;padding:2px 8px;font-size:12px;font-weight:600;width:auto;cursor:pointer" title="Switch Display Currency">
+        <select id="topbarCurrencySelect" class="search-input topbar-currency-select" title="Switch Display Currency">
           <option value="INR">₹ INR</option>
           <option value="USD">$ USD</option>
           <option value="EUR">€ EUR</option>
@@ -121,19 +129,43 @@
           <option value="CHF">Fr CHF</option>
         </select>
         <!-- Quick Tape / Calculator Launcher -->
-        <div class="icon-btn" id="btnTopbarCalc" title="Open Financial Tape & Excel Scratchpad" style="width:32px;height:32px;font-size:14px">🧮</div>
+        <div class="icon-btn topbar-tool-btn" id="btnTopbarCalc" title="Financial Tape & Scratchpad">🧮</div>
         <!-- Offline / Arcade Game Launcher -->
-        <div class="icon-btn" id="btnLaunchArcadeGame" title="Play Market Runner (Offline Game)" style="width:32px;height:32px;font-size:14px">🎮</div>
-        <div class="icon-btn" id="themeToggle" title="Toggle dark / light mode" style="width:32px;height:32px;font-size:14px"></div>
-        <div class="icon-btn" id="notifBell" style="position:relative;width:32px;height:32px;font-size:15px">
+        <div class="icon-btn topbar-tool-btn" id="btnLaunchArcadeGame" title="Play Market Runner">🎮</div>
+        <div class="icon-btn topbar-tool-btn" id="themeToggle" title="Toggle dark / light mode"></div>
+        <div class="icon-btn" id="notifBell" style="position:relative;width:32px;height:32px;font-size:15px" title="Notifications">
           &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
         </div>
         <div class="user-chip"><span id="userChipEmail"></span></div>
-        <button class="btn btn-outline btn-sm" id="signOutBtn">Sign Out</button>
+        <button class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn">Sign Out</button>
       </div>
     </div>
     <div class="view-container" id="viewContainer"></div>
   </div>
+
+  <!-- Mobile Bottom Navigation Bar -->
+  <nav class="mobile-bottom-bar" id="mobileBottomBar">
+    <a href="#dashboard" class="mobile-bottom-item active" data-tab="dashboard" id="mobTabDashboard">
+      <span class="m-ic">&#9670;</span>
+      <span class="m-lbl">Overview</span>
+    </a>
+    <a href="#deals" class="mobile-bottom-item" data-tab="deals" id="mobTabDeals">
+      <span class="m-ic">&#128188;</span>
+      <span class="m-lbl">Deals</span>
+    </a>
+    <a href="#payments" class="mobile-bottom-item" data-tab="payments" id="mobTabPayments">
+      <span class="m-ic">&#128179;</span>
+      <span class="m-lbl">Payments</span>
+    </a>
+    <a href="#analytics" class="mobile-bottom-item" data-tab="analytics" id="mobTabAnalytics">
+      <span class="m-ic">&#128200;</span>
+      <span class="m-lbl">Analytics</span>
+    </a>
+    <button type="button" class="mobile-bottom-item m-menu-trigger" id="mobileBottomMenuBtn" aria-label="Open Full Menu">
+      <span class="m-ic">&#9776;</span>
+      <span class="m-lbl">More</span>
+    </button>
+  </nav>
 </div>
 
 <script src="js/lib/theme.js"></script>
