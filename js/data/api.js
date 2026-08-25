@@ -351,7 +351,17 @@ App.api = (function () {
   // ---- audit / imports ----
   const listAuditLogs = (opts) => selectAll('audit_logs', Object.assign({ order: { column: 'changed_at', ascending: false }, limit: 500 }, opts));
   const listImports = (opts) => selectAll('imports', Object.assign({ order: { column: 'imported_at', ascending: false } }, opts));
-  const createImport = (row) => insertRow('imports', row);
+  async function createImport(row) {
+    try {
+      return await insertRow('imports', row);
+    } catch (err) {
+      if (row && row.source && String(err.message || '').toLowerCase().includes('check constraint')) {
+        const fallback = Object.assign({}, row, { source: 'CSV Import' });
+        return await insertRow('imports', fallback);
+      }
+      throw err;
+    }
+  }
   const updateImport = (id, patch) => updateRow('imports', id, patch);
 
   // ---- goals / cash / tax ----

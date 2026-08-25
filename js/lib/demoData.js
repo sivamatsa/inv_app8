@@ -219,6 +219,16 @@ App.demo = (function () {
             if (row.priority === undefined) row.priority = 'Medium';
             row.ticket_number = 'TKT-' + String(row.id).padStart(5, '0');
           }
+          if (this.table === 'imports') {
+            if (row.imported_at === undefined) row.imported_at = nowIso();
+            if (row.total_rows === undefined) row.total_rows = 1;
+            if (row.successful_rows === undefined) row.successful_rows = 1;
+            if (row.duplicate_rows === undefined) row.duplicate_rows = 0;
+            if (row.failed_rows === undefined) row.failed_rows = 0;
+            if (row.status === undefined) row.status = 'Completed';
+            if (row.source === undefined) row.source = 'AI OCR Ingestion';
+            if (row.error_report === undefined) row.error_report = [];
+          }
           if (this.table === 'feature_suggestions') {
             row.suggestion_number = 'SUG-' + String(row.id).padStart(5, '0');
             if (row.priority === undefined) row.priority = 'Medium';
