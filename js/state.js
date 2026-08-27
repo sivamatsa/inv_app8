@@ -13,6 +13,8 @@ App.state = {
   // (024_portfolio_sharing_admin_users.sql) - drives whether the "Shared
   // With Me" nav item shows at all (app.js's currentNavStructure()).
   sharedWithMeCount: 0,
+  // Active shared portfolio context for Co-Managers / Editors
+  activePortfolioContext: null,
   // Per-(user, notification type) channel toggles (032_ui_and_notification_preferences.sql),
   // keyed by type - App.notifPrefs.isEnabled() below is the only thing that
   // should ever read this directly. Loaded once in App.lookups.loadAll();
@@ -155,4 +157,30 @@ App.notifPrefs = {
     if (!pref) return true;
     return pref[channel] !== false;
   },
+};
+
+App.setActivePortfolioContext = function (ctx) {
+  App.state.activePortfolioContext = ctx;
+  const banner = App.utils.qs('#sharedPortfolioBanner');
+  const nameEl = App.utils.qs('#sharedPortfolioBannerName');
+  const roleEl = App.utils.qs('#sharedPortfolioBannerRole');
+  if (banner && ctx) {
+    if (nameEl) nameEl.textContent = ctx.owner_name || ctx.name || 'Shared Portfolio';
+    if (roleEl) roleEl.textContent = ctx.role || 'Full Access';
+    banner.style.display = 'flex';
+  }
+  App.utils.toast(`Switched active workspace to ${ctx.owner_name || 'Shared Portfolio'}'s Portfolio (${ctx.role || 'Co-Manager'})`);
+  if (App.router && typeof App.router.navigate === 'function') {
+    App.router.navigate('dashboard');
+  }
+};
+
+App.clearActivePortfolioContext = function () {
+  App.state.activePortfolioContext = null;
+  const banner = App.utils.qs('#sharedPortfolioBanner');
+  if (banner) banner.style.display = 'none';
+  App.utils.toast('Returned to your personal portfolio workspace');
+  if (App.router && typeof App.router.navigate === 'function') {
+    App.router.navigate('sharedWithMe');
+  }
 };

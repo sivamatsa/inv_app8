@@ -15,9 +15,30 @@ window.App = window.App || {};
 
 (function () {
   async function openUserDetailModal(user, permissions = null) {
-    const [deals, summary] = await Promise.all([
-      App.api.listDeals({ eq: { user_id: user.id } }),
-      App.api.getPortfolioSummary(user.id),
+    if (App.sharedWithMeView && App.sharedWithMeView.openSharedWorkspaceModal) {
+      const perms = permissions || {
+        role: 'Full Access',
+        view_net_worth: true,
+        view_deals: true,
+        view_amounts: true,
+        view_returns: true,
+        view_goals: true,
+        view_documents: true,
+        view_contacts: true
+      };
+      App.sharedWithMeView.openSharedWorkspaceModal(
+        { id: user.id, name: `${user.full_name || user.email || 'User'}'s Portfolio` },
+        user,
+        perms
+      );
+      return;
+    }
+
+    const [deals, summary, docs, contacts] = await Promise.all([
+      App.api.listDeals({ eq: { user_id: user.id } }).catch(() => []),
+      App.api.getPortfolioSummary(user.id).catch(() => ({})),
+      permissions && permissions.view_documents ? App.api.listDocuments({ eq: { user_id: user.id } }).catch(() => []) : Promise.resolve([]),
+      permissions && permissions.view_contacts ? App.api.listContacts ? App.api.listContacts().catch(() => []) : Promise.resolve([]) : Promise.resolve([]),
     ]);
     const s = summary || {};
     const perms = permissions || {
@@ -34,6 +55,9 @@ window.App = window.App || {};
     const showRoi = (val) => (perms.view_returns !== false ? App.utils.fmtPct(val) : '••%');
     const showDealName = (name, i) => (perms.view_deals !== false ? App.utils.escapeHtml(name) : `Protected Asset ${i + 1}`);
 
+    const hasDocs = perms.view_documents && docs && docs.length > 0;
+    const hasContacts = perms.view_contacts && contacts && contacts.length > 0;
+
     const bodyHtml = `
       <div class="grid-2" style="margin-bottom:14px">
         <div>
@@ -47,7 +71,7 @@ window.App = window.App || {};
           <div class="stat-line"><span>Realized ROI</span><span class="v">${showRoi(s.realized_roi)}</span></div>
         </div>
       </div>
-      <div class="table-scroll" style="max-height:320px">
+      <div class="table-scroll" style="max-height:300px;margin-bottom:10px">
         <table class="data"><thead><tr><th>Deal</th><th>Type</th><th>Invested</th><th>ROI</th><th>Status</th><th>Maturity</th></tr></thead>
         <tbody>${deals.map((d, idx) => `<tr>
           <td>${showDealName(d.deal_name, idx)}</td>
@@ -58,6 +82,13 @@ window.App = window.App || {};
           <td>${App.utils.fmtDate(d.maturity_date)}</td>
         </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No deals yet.</td></tr>'}</tbody></table>
       </div>
+      ${hasDocs ? `
+        <div style="margin-top:10px;padding:8px 12px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">&#128196; Attached Documents (${docs.length})</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            ${docs.map((dc) => `<div style="font-size:11.5px;color:var(--text2)">${App.utils.escapeHtml(dc.file_name || dc.title || 'Document')} &middot; <span style="color:var(--text3)">${App.utils.escapeHtml(dc.category || 'General')}</span></div>`).join('')}
+          </div>
+        </div>` : ''}
       <div class="hint" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
         <span>Read-only collaborator view &middot; Protected with granular access permissions</span>
         ${perms.role ? `<span class="badge" style="background:rgba(201,168,76,0.18);color:var(--gold)">Role: ${App.utils.escapeHtml(perms.role)}</span>` : ''}
@@ -626,7 +657,7 @@ window.App = window.App || {};
             <tbody>${members.map((m) => {
               const u = allUsers.find((x) => x.id === m.member_user_id) || {};
               return `<tr><td>${App.utils.escapeHtml(u.full_name || u.email || m.member_user_id)}</td><td>${m.role}</td>
-                <td><button class="icon-btn del" data-remove-member="${m.id}">&#128465;</button></td></tr>`;
+                <td><button class="icon-btn del" data-remove-member="${m.id || ''}" data-member-user-id="${m.member_user_id || ''}" data-portfolio-id="${portfolio.id || ''}">&#128465;</button></td></tr>`;
             }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:14px">No members yet.</td></tr>'}</tbody></table>
           </div>
           <div class="field span2" style="margin-bottom:10px"><label>Add Member</label>
@@ -643,8 +674,14 @@ window.App = window.App || {};
         ],
         onMount: (body) => {
           App.utils.qsa('[data-remove-member]', body).forEach((b) => b.addEventListener('click', async () => {
-            try { await App.api.removePortfolioMember(Number(b.dataset.removeMember)); await draw(); if (onDone) onDone(); }
-            catch (e) { App.utils.toast('Could not remove member: ' + (e.message || e), 'err'); }
+            try {
+              await App.api.removePortfolioMember(b.dataset.removeMember, {
+                portfolio_id: b.dataset.portfolioId,
+                member_user_id: b.dataset.memberUserId
+              });
+              await draw();
+              if (onDone) onDone();
+            } catch (e) { App.utils.toast('Could not remove member: ' + (e.message || e), 'err'); }
           }));
         },
       });

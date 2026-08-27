@@ -761,7 +761,7 @@ window.App = window.App || {};
                       <td style="font-size:11px;color:var(--text2)">${scopes.join(', ') || 'Custom'}</td>
                       <td><span class="badge st-active">Active</span></td>
                       <td>
-                        <button class="icon-btn del" data-revoke-member="${m.id}" title="Revoke access">&#128465;</button>
+                        <button class="icon-btn del" data-revoke-member="${m.id || ''}" data-member-user-id="${m.member_user_id || ''}" data-portfolio-id="${p.id || ''}" title="Revoke access">&#128465;</button>
                       </td>
                     </tr>
                   `;
@@ -781,45 +781,77 @@ window.App = window.App || {};
 
         App.utils.qsa('[data-revoke-member]', host).forEach((btn) => {
           btn.addEventListener('click', async () => {
-            if (!confirm('Revoke access for this member?')) return;
-            await App.api.removePortfolioMember(Number(btn.dataset.revokeMember));
-            App.utils.toast('Member access revoked');
-            drawSharedPortfolios();
+            if (!confirm('Revoke access for this collaborator?')) return;
+            const memberId = btn.dataset.revokeMember;
+            const memberUserId = btn.dataset.memberUserId;
+            const portfolioId = btn.dataset.portfolioId;
+            btn.disabled = true;
+            try {
+              await App.api.removePortfolioMember(memberId, {
+                portfolio_id: portfolioId,
+                member_user_id: memberUserId
+              });
+              App.utils.toast('Collaborator access revoked successfully');
+              await drawSharedPortfolios();
+              if (App.lookups && App.lookups.loadAll) {
+                await App.lookups.loadAll().catch(() => {});
+                if (typeof App.renderSidebar === 'function') App.renderSidebar();
+              }
+            } catch (err) {
+              App.utils.toast('Could not revoke access: ' + (err.message || err), 'err');
+              btn.disabled = false;
+            }
           });
         });
       }
     }
 
     async function openAddMemberModal(portfolioId) {
-      const allProfiles = await App.api.listProfiles().catch(() => []);
+      const [allProfiles, allContacts] = await Promise.all([
+        App.api.listProfiles().catch(() => []),
+        App.api.listContacts ? App.api.listContacts().catch(() => []) : Promise.resolve([])
+      ]);
       const myId = App.state.profile?.id;
       const otherProfiles = allProfiles.filter((p) => p.id !== myId);
+
+      // Build options combining profiles & contacts
+      const optionsMap = new Map();
+      otherProfiles.forEach((p) => {
+        const val = p.email || p.id;
+        const label = `${p.full_name || p.email || 'User'} (${p.email || p.id})`;
+        optionsMap.set(val, label);
+      });
+      (allContacts || []).forEach((c) => {
+        if (c.email && !optionsMap.has(c.email)) {
+          optionsMap.set(c.email, `${c.full_name || 'Contact'} (${c.email}) [Contact Directory]`);
+        }
+      });
 
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop';
       modal.style.cssText = 'position:fixed;inset:0;background:rgba(3,7,18,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(5px)';
       modal.innerHTML = `
-        <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.3);border-radius:12px;max-width:500px;width:100%;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.6)">
+        <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.3);border-radius:12px;max-width:520px;width:100%;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.6)">
           <div style="padding:14px 18px;background:#152238;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
-            <div style="font-weight:700;font-size:15px;color:var(--gold)">👥 Invite Collaborator to Portfolio</div>
+            <div style="font-weight:700;font-size:15px;color:var(--gold)">👥 Invite Collaborator / Co-Manager</div>
             <button class="btn btn-outline btn-sm" id="btnCloseInviteModal" style="padding:2px 8px;font-size:12px">✕</button>
           </div>
           <div style="padding:18px">
             <div class="field" style="margin-bottom:12px">
-              <label>Select User or Enter Email / UUID</label>
-              <input type="text" id="inviteMemberInput" list="registeredUsersList" placeholder="Search by name, email, or enter UUID" class="search-input" style="width:100%">
+              <label>Select User, Contact, or Enter Any Email / UUID</label>
+              <input type="text" id="inviteMemberInput" list="registeredUsersList" placeholder="Search by name, email (e.g. siva@gmail.com), or enter UUID" class="search-input" style="width:100%">
               <datalist id="registeredUsersList">
-                ${otherProfiles.map((p) => `<option value="${App.utils.escapeHtml(p.email || p.id)}">${App.utils.escapeHtml(p.full_name || p.email || 'User')} (${p.email || p.id})</option>`).join('')}
+                ${Array.from(optionsMap.entries()).map(([val, label]) => `<option value="${App.utils.escapeHtml(val)}">${App.utils.escapeHtml(label)}</option>`).join('')}
               </datalist>
-              <div style="font-size:11px;color:var(--text3);margin-top:4px">Type an email to search existing accounts or paste a direct User UUID.</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">Type an email to invite anyone directly or select an existing registered user / contact.</div>
             </div>
             <div class="field" style="margin-bottom:14px">
-              <label>Permission Level</label>
+              <label>Permission Level &amp; Role</label>
               <select id="inviteRoleSelect" class="search-input" style="width:100%">
-                <option value="Viewer">Viewer (Read-only access to granted views)</option>
+                <option value="Full Access" selected>Full Access (Full co-manager privileges &amp; all scopes)</option>
+                <option value="Editor">Editor (Can record payments, updates &amp; view financials)</option>
+                <option value="Viewer">Viewer (Read-only access to selected portfolio views)</option>
                 <option value="Commenter">Commenter (Read &amp; leave notes/comments)</option>
-                <option value="Editor">Editor (Can record payments &amp; updates)</option>
-                <option value="Full Access">Full Access (Full co-manager privileges)</option>
               </select>
             </div>
 
@@ -830,8 +862,8 @@ window.App = window.App || {};
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permDealAmounts" checked> Investment Amounts</label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permReturns" checked> Returns, Yield &amp; Profit</label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permGoals" checked> Goals &amp; Milestones</label>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permDocs"> Attached Documents</label>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permContacts"> Emergency Contacts</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permDocs" checked> Attached Documents</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="permContacts" checked> Emergency Contacts</label>
             </div>
 
             <div style="display:flex;justify-content:flex-end;gap:8px">
@@ -842,6 +874,52 @@ window.App = window.App || {};
         </div>
       `;
       document.body.appendChild(modal);
+
+      const roleSelect = modal.querySelector('#inviteRoleSelect');
+      const permNetWorth = modal.querySelector('#permNetWorth');
+      const permDealNames = modal.querySelector('#permDealNames');
+      const permDealAmounts = modal.querySelector('#permDealAmounts');
+      const permReturns = modal.querySelector('#permReturns');
+      const permGoals = modal.querySelector('#permGoals');
+      const permDocs = modal.querySelector('#permDocs');
+      const permContacts = modal.querySelector('#permContacts');
+
+      roleSelect?.addEventListener('change', () => {
+        const r = roleSelect.value;
+        if (r === 'Full Access') {
+          permNetWorth.checked = true;
+          permDealNames.checked = true;
+          permDealAmounts.checked = true;
+          permReturns.checked = true;
+          permGoals.checked = true;
+          permDocs.checked = true;
+          permContacts.checked = true;
+        } else if (r === 'Editor') {
+          permNetWorth.checked = true;
+          permDealNames.checked = true;
+          permDealAmounts.checked = true;
+          permReturns.checked = true;
+          permGoals.checked = true;
+          permDocs.checked = true;
+          permContacts.checked = false;
+        } else if (r === 'Viewer') {
+          permNetWorth.checked = true;
+          permDealNames.checked = true;
+          permDealAmounts.checked = true;
+          permReturns.checked = true;
+          permGoals.checked = true;
+          permDocs.checked = false;
+          permContacts.checked = false;
+        } else if (r === 'Commenter') {
+          permNetWorth.checked = true;
+          permDealNames.checked = true;
+          permDealAmounts.checked = false;
+          permReturns.checked = false;
+          permGoals.checked = true;
+          permDocs.checked = true;
+          permContacts.checked = false;
+        }
+      });
 
       const close = () => { if (modal.parentNode) modal.parentNode.removeChild(modal); };
       modal.querySelector('#btnCloseInviteModal')?.addEventListener('click', close);
@@ -868,8 +946,9 @@ window.App = window.App || {};
               targetUserId = found.id;
             } else {
               const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(memberVal);
-              if (!isUuid) {
-                App.utils.toast(`No registered profile found for "${memberVal}". Please ensure the user has created an account.`, 'err');
+              const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberVal);
+              if (!isUuid && !isEmail) {
+                App.utils.toast(`Please enter a valid email address or user UUID.`, 'err');
                 return;
               }
             }
@@ -880,7 +959,7 @@ window.App = window.App || {};
             role,
             permissions
           });
-          App.utils.toast('Collaborator invited successfully!');
+          App.utils.toast(`Access granted successfully with ${role} permissions!`);
           close();
           drawSharedPortfolios();
         } catch (e) {

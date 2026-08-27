@@ -505,6 +505,9 @@ document.addEventListener('DOMContentLoaded', () => {
   App.theme.init();
   wireAuthScreen();
   App.utils.qs('#notifBell').addEventListener('click', openNotificationPanel);
+  App.utils.qs('#btnExitSharedPortfolio')?.addEventListener('click', () => {
+    if (App.clearActivePortfolioContext) App.clearActivePortfolioContext();
+  });
   App.globalSearch.wire();
 
   // Wire Mobile Drawer & Search Triggers

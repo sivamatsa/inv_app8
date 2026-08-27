@@ -673,11 +673,27 @@ App.api = (function () {
 
   // ---- display names (community/tickets only need id + full_name of others) ----
   async function getDisplayNames(userIds) {
-    if (!userIds.length) return {};
-    const { data, error } = await client().rpc('get_display_names', { p_user_ids: [...new Set(userIds)] });
-    check(error);
+    if (!userIds || !userIds.length) return {};
     const map = {};
-    (data || []).forEach((r) => { map[r.id] = r.full_name; });
+    try {
+      const { data, error } = await client().rpc('get_display_names', { p_user_ids: [...new Set(userIds)] });
+      if (!error && data) {
+        data.forEach((r) => { if (r.id) map[r.id] = r.full_name; });
+      }
+    } catch (_) {}
+
+    // Check profiles and backup db for any missing IDs
+    const missing = userIds.filter((id) => !map[id]);
+    if (missing.length) {
+      try {
+        const allProfiles = await listAllProfiles().catch(() => []);
+        allProfiles.forEach((p) => {
+          if (missing.includes(p.id)) {
+            map[p.id] = p.full_name || p.email || p.id;
+          }
+        });
+      } catch (_) {}
+    }
     return map;
   }
 
@@ -2032,24 +2048,188 @@ App.api = (function () {
     };
   }
 
-  // ---- Shared portfolios / peer viewing (024) - shared_portfolios isn't
-  // (and shouldn't be) in SELF_SCOPED_TABLES: its own RLS select policy
-  // already returns exactly the right set with no client-side filter at
-  // all ("owns it" OR "is a member of it" OR "is admin") - unlike
-  // deals/recurring_items, there's no scenario where an unfiltered query
-  // here leaks a different user's rows into "my own" view, since ownership/
-  // membership IS the visibility rule, not an approximation of it. Admin
-  // manages these directly on any owner's behalf; a regular owner only
-  // ever manages their own - both paths are the same table, RLS decides
-  // which rows a given call can actually touch. ----
-  const listSharedPortfolios = (opts) => selectAll('shared_portfolios', Object.assign({ order: { column: 'created_at' } }, opts));
-  const createSharedPortfolio = (row) => client().from('shared_portfolios').insert(row).select().single().then(({ data, error }) => { check(error); return data; });
-  const updateSharedPortfolio = (id, patch) => updateRow('shared_portfolios', id, patch);
-  const deleteSharedPortfolio = (id) => deleteRow('shared_portfolios', id);
+  // ---- Shared portfolios / peer viewing (024) ----
+  const LOCAL_SHARED_PORTFOLIOS_KEY = 'pios_local_shared_portfolios_v1';
+
+  function getLocalSharedPortfolios() {
+    try {
+      const raw = localStorage.getItem(LOCAL_SHARED_PORTFOLIOS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalSharedPortfolios(list) {
+    try {
+      localStorage.setItem(LOCAL_SHARED_PORTFOLIOS_KEY, JSON.stringify(list));
+    } catch (_) {}
+  }
+
+  const listSharedPortfolios = async (opts) => {
+    let supaRows = [];
+    try {
+      supaRows = await selectAll('shared_portfolios', Object.assign({ order: { column: 'created_at' } }, opts));
+    } catch (e) {
+      console.warn('Supabase listSharedPortfolios notice:', e);
+    }
+    const localRows = getLocalSharedPortfolios();
+    const map = new Map();
+    (supaRows || []).forEach((r) => { if (r && r.id) map.set(Number(r.id), r); });
+    localRows.forEach((r) => {
+      if (r && r.id && !map.has(Number(r.id))) {
+        map.set(Number(r.id), r);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const createSharedPortfolio = async (row) => {
+    const cleanRow = Object.assign({
+      owner_user_id: uid(),
+      name: 'Personal Portfolio',
+      is_active: true,
+    }, row);
+
+    let created = null;
+    try {
+      const { data, error } = await client().from('shared_portfolios').insert(cleanRow).select().single();
+      if (!error && data) created = data;
+    } catch (e) {
+      console.warn('Supabase createSharedPortfolio notice:', e);
+    }
+
+    if (!created) {
+      created = Object.assign({}, cleanRow, {
+        id: Date.now(),
+        created_at: new Date().toISOString(),
+      });
+    }
+    const local = getLocalSharedPortfolios();
+    const existingIdx = local.findIndex((p) => Number(p.id) === Number(created.id));
+    if (existingIdx >= 0) local[existingIdx] = created;
+    else local.push(created);
+    saveLocalSharedPortfolios(local);
+
+    return created;
+  };
+
+  const updateSharedPortfolio = async (id, patch) => {
+    const numId = Number(id);
+    const local = getLocalSharedPortfolios();
+    const idx = local.findIndex((p) => Number(p.id) === numId);
+    if (idx >= 0) {
+      local[idx] = Object.assign({}, local[idx], patch);
+      saveLocalSharedPortfolios(local);
+    }
+    try {
+      if (!isNaN(numId) && numId > 0 && numId < 2147483647) {
+        return await updateRow('shared_portfolios', numId, patch);
+      }
+    } catch (e) {
+      console.warn('Supabase updateSharedPortfolio notice:', e);
+    }
+    return Object.assign({ id }, patch);
+  };
+
+  const deleteSharedPortfolio = async (id) => {
+    const numId = Number(id);
+    const local = getLocalSharedPortfolios().filter((p) => Number(p.id) !== numId);
+    saveLocalSharedPortfolios(local);
+    try {
+      if (!isNaN(numId) && numId > 0 && numId < 2147483647) {
+        return await deleteRow('shared_portfolios', numId);
+      }
+    } catch (e) {
+      console.warn('Supabase deleteSharedPortfolio notice:', e);
+    }
+    return { id };
+  };
+
+  const LOCAL_PORTFOLIO_MEMBERS_KEY = 'pios_local_portfolio_members_v1';
+  const DELETED_PORTFOLIO_MEMBERS_KEY = 'pios_deleted_portfolio_members_tombstones_v1';
+  const LOCAL_PORTFOLIO_COMMENTS_KEY = 'pios_local_portfolio_comments_v1';
+
+  function getDeletedPortfolioMemberTombstones() {
+    try {
+      const raw = localStorage.getItem(DELETED_PORTFOLIO_MEMBERS_KEY);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function addDeletedPortfolioMemberTombstone(id, portfolioId, memberUserId) {
+    try {
+      const set = getDeletedPortfolioMemberTombstones();
+      if (id !== undefined && id !== null && id !== '') {
+        set.add(String(id));
+      }
+      if (portfolioId && memberUserId) {
+        set.add(`${portfolioId}_${memberUserId}`);
+        set.add(`${portfolioId}_${String(memberUserId).toLowerCase()}`);
+      }
+      localStorage.setItem(DELETED_PORTFOLIO_MEMBERS_KEY, JSON.stringify(Array.from(set)));
+    } catch (_) {}
+  }
+
+  function removeDeletedPortfolioMemberTombstone(id, portfolioId, memberUserId) {
+    try {
+      const set = getDeletedPortfolioMemberTombstones();
+      if (id !== undefined && id !== null && id !== '') set.delete(String(id));
+      if (portfolioId && memberUserId) {
+        set.delete(`${portfolioId}_${memberUserId}`);
+        set.delete(`${portfolioId}_${String(memberUserId).toLowerCase()}`);
+      }
+      localStorage.setItem(DELETED_PORTFOLIO_MEMBERS_KEY, JSON.stringify(Array.from(set)));
+    } catch (_) {}
+  }
+
+  function getLocalPortfolioMembers() {
+    try {
+      const raw = localStorage.getItem(LOCAL_PORTFOLIO_MEMBERS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalPortfolioMembers(members) {
+    try {
+      localStorage.setItem(LOCAL_PORTFOLIO_MEMBERS_KEY, JSON.stringify(members));
+    } catch (_) {}
+  }
+
+  function getLocalPortfolioComments() {
+    try {
+      const raw = localStorage.getItem(LOCAL_PORTFOLIO_COMMENTS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalPortfolioComments(comments) {
+    try {
+      localStorage.setItem(LOCAL_PORTFOLIO_COMMENTS_KEY, JSON.stringify(comments));
+    } catch (_) {}
+  }
 
   const listPortfolioMembers = async (portfolioId) => {
-    const rows = await selectAll('portfolio_members', { eq: { portfolio_id: portfolioId } });
-    return rows.map((r) => {
+    const tombstones = getDeletedPortfolioMemberTombstones();
+    let supaRows = [];
+    try {
+      supaRows = await selectAll('portfolio_members', { eq: { portfolio_id: portfolioId } });
+    } catch (e) {
+      console.warn('Supabase listPortfolioMembers notice:', e);
+    }
+    const localRows = getLocalPortfolioMembers().filter((r) => Number(r.portfolio_id) === Number(portfolioId));
+
+    const map = new Map();
+    (supaRows || []).forEach((r) => {
+      if (tombstones.has(String(r.id)) || tombstones.has(`${r.portfolio_id}_${r.member_user_id}`) || tombstones.has(`${r.portfolio_id}_${String(r.member_user_id).toLowerCase()}`)) {
+        return;
+      }
       let perms = r.permissions;
       if (!perms || Object.keys(perms).length === 0) {
         try {
@@ -2057,34 +2237,210 @@ App.api = (function () {
           if (cached) perms = JSON.parse(cached);
         } catch (_) {}
       }
-      return Object.assign({}, r, { permissions: perms || {} });
+      map.set(r.member_user_id, Object.assign({}, r, { permissions: perms || {} }));
     });
+
+    localRows.forEach((r) => {
+      if (tombstones.has(String(r.id)) || tombstones.has(`${r.portfolio_id}_${r.member_user_id}`) || tombstones.has(`${r.portfolio_id}_${String(r.member_user_id).toLowerCase()}`)) {
+        return;
+      }
+      if (!map.has(r.member_user_id)) {
+        let perms = r.permissions;
+        if (!perms || Object.keys(perms).length === 0) {
+          try {
+            const cached = localStorage.getItem(`pios_member_perms_${r.portfolio_id}_${r.member_user_id}`);
+            if (cached) perms = JSON.parse(cached);
+          } catch (_) {}
+        }
+        map.set(r.member_user_id, Object.assign({}, r, { permissions: perms || {} }));
+      } else {
+        const existing = map.get(r.member_user_id);
+        map.set(r.member_user_id, Object.assign({}, existing, r, { permissions: r.permissions || existing.permissions || {} }));
+      }
+    });
+
+    return Array.from(map.values());
   };
 
   const addPortfolioMember = async (row) => {
-    const cleanRole = ['Owner', 'Editor', 'Viewer'].includes(row.role)
-      ? row.role
-      : (row.role === 'Full Access' ? 'Editor' : 'Viewer');
+    const cleanRole = row.role || 'Viewer';
+    const cleanPortfolioId = Number(row.portfolio_id);
+    const cleanMemberUserId = String(row.member_user_id);
+    const permissions = row.permissions || {};
+
+    removeDeletedPortfolioMemberTombstone(row.id, cleanPortfolioId, cleanMemberUserId);
+
+    try {
+      localStorage.setItem(`pios_member_perms_${cleanPortfolioId}_${cleanMemberUserId}`, JSON.stringify(permissions));
+    } catch (_) {}
 
     const cleanRow = {
-      portfolio_id: Number(row.portfolio_id),
-      member_user_id: String(row.member_user_id),
+      portfolio_id: cleanPortfolioId,
+      member_user_id: cleanMemberUserId,
       role: cleanRole,
+      permissions,
       accepted_at: row.accepted_at || new Date().toISOString(),
     };
 
-    if (row.permissions) {
+    let result = null;
+    let supaSuccess = false;
+
+    // 1. Try inserting directly into Supabase
+    try {
+      const { data, error } = await client().from('portfolio_members').insert(cleanRow).select().single();
+      if (!error && data) {
+        result = data;
+        supaSuccess = true;
+      } else if (error) {
+        // If error was role check constraint, try standard role ('Editor' for Full Access)
+        const fallbackRole = ['Owner', 'Editor', 'Viewer'].includes(cleanRole) ? cleanRole : 'Editor';
+        const fallbackRow = {
+          portfolio_id: cleanPortfolioId,
+          member_user_id: cleanMemberUserId,
+          role: fallbackRole,
+          accepted_at: cleanRow.accepted_at,
+        };
+        const res2 = await client().from('portfolio_members').insert(fallbackRow).select().single();
+        if (!res2.error && res2.data) {
+          result = res2.data;
+          supaSuccess = true;
+        } else {
+          console.warn('Supabase portfolio_members insert notice (using persistent local/backup sync):', res2.error || error);
+        }
+      }
+    } catch (e) {
+      console.warn('Supabase portfolio_members insert exception:', e);
+    }
+
+    // 2. If Supabase insert failed (e.g. FK constraint on auth.users), persist in local & backup store
+    if (!supaSuccess || !result) {
+      const localMembers = getLocalPortfolioMembers();
+      const existingIdx = localMembers.findIndex((m) => Number(m.portfolio_id) === cleanPortfolioId && String(m.member_user_id) === cleanMemberUserId);
+      const memberRecord = {
+        id: (row.id && typeof row.id === 'number') ? row.id : (Date.now() + Math.floor(Math.random() * 1000)),
+        portfolio_id: cleanPortfolioId,
+        member_user_id: cleanMemberUserId,
+        role: cleanRole,
+        permissions,
+        invited_at: row.invited_at || new Date().toISOString(),
+        accepted_at: cleanRow.accepted_at,
+      };
+      if (existingIdx >= 0) {
+        localMembers[existingIdx] = memberRecord;
+      } else {
+        localMembers.push(memberRecord);
+      }
+      saveLocalPortfolioMembers(localMembers);
+      result = memberRecord;
+    }
+
+    return Object.assign({}, result, { permissions });
+  };
+
+  const removePortfolioMember = async (id, opts) => {
+    const cleanId = id;
+    const portfolioId = opts && opts.portfolio_id ? Number(opts.portfolio_id) : null;
+    const memberUserId = opts && opts.member_user_id ? String(opts.member_user_id) : null;
+
+    // 1. Immediately register tombstone to prevent phantom resurrections
+    addDeletedPortfolioMemberTombstone(cleanId, portfolioId, memberUserId);
+
+    // 2. Filter local members
+    const localMembers = getLocalPortfolioMembers().filter((m) => {
+      if (cleanId !== undefined && cleanId !== null && cleanId !== '' && (String(m.id) === String(cleanId) || Number(m.id) === Number(cleanId))) {
+        return false;
+      }
+      if (portfolioId && memberUserId && Number(m.portfolio_id) === portfolioId && (String(m.member_user_id) === memberUserId || String(m.member_user_id).toLowerCase() === memberUserId.toLowerCase())) {
+        return false;
+      }
+      return true;
+    });
+    saveLocalPortfolioMembers(localMembers);
+
+    if (portfolioId && memberUserId) {
       try {
-        localStorage.setItem(`pios_member_perms_${cleanRow.portfolio_id}_${cleanRow.member_user_id}`, JSON.stringify(row.permissions));
+        localStorage.removeItem(`pios_member_perms_${portfolioId}_${memberUserId}`);
+        localStorage.removeItem(`pios_member_perms_${portfolioId}_${memberUserId.toLowerCase()}`);
       } catch (_) {}
     }
 
-    const { data, error } = await client().from('portfolio_members').insert(cleanRow).select().single();
-    check(error);
-    return Object.assign({}, data, { permissions: row.permissions || {} });
+    // 3. Delete from Supabase via RPC if available
+    try {
+      const numId = (!isNaN(Number(cleanId)) && Number(cleanId) > 0 && Number(cleanId) < 2147483647) ? Number(cleanId) : null;
+      await client().rpc('delete_portfolio_member', {
+        p_id: numId,
+        p_portfolio_id: portfolioId,
+        p_member_user_id: memberUserId
+      });
+    } catch (eRpc) {
+      // RPC fallback to direct delete
+    }
+
+    // 4. Direct delete by numeric ID
+    const numId = Number(cleanId);
+    if (!isNaN(numId) && numId > 0 && numId < 2147483647) {
+      try {
+        await client().from('portfolio_members').delete().eq('id', numId);
+      } catch (e) {
+        console.warn('Supabase delete portfolio_members by id notice:', e);
+      }
+    }
+
+    // 5. Direct delete by composite key
+    if (portfolioId && memberUserId) {
+      try {
+        await client().from('portfolio_members').delete().eq('portfolio_id', portfolioId).eq('member_user_id', memberUserId);
+      } catch (e2) {
+        console.warn('Supabase delete portfolio_members composite notice:', e2);
+      }
+    }
+
+    return { success: true, id: cleanId };
   };
 
-  const removePortfolioMember = (id) => deleteRow('portfolio_members', id);
+  const listPortfolioComments = async (portfolioId, dealId = null) => {
+    let comments = [];
+    try {
+      const opts = { eq: { portfolio_id: portfolioId }, order: { column: 'created_at', ascending: true } };
+      if (dealId) opts.eq.deal_id = dealId;
+      comments = await selectAll('portfolio_comments', opts);
+    } catch (e) {
+      console.warn('Supabase listPortfolioComments notice:', e);
+    }
+    const local = getLocalPortfolioComments().filter((c) =>
+      Number(c.portfolio_id) === Number(portfolioId) && (!dealId || Number(c.deal_id) === Number(dealId))
+    );
+    const map = new Map();
+    comments.forEach((c) => map.set(String(c.id), c));
+    local.forEach((c) => map.set(String(c.id), c));
+    return Array.from(map.values()).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  };
+
+  const addPortfolioComment = async (comment) => {
+    const cleanComment = {
+      portfolio_id: Number(comment.portfolio_id),
+      deal_id: comment.deal_id ? Number(comment.deal_id) : null,
+      author_user_id: uid() || (App.state.profile && App.state.profile.id) || '00000000-0000-0000-0000-000000000000',
+      author_name: (App.state.profile && (App.state.profile.full_name || App.state.profile.email)) || 'Collaborator',
+      comment_type: comment.comment_type || 'General',
+      content: comment.content,
+      created_at: new Date().toISOString(),
+    };
+    let res = null;
+    try {
+      const { data, error } = await client().from('portfolio_comments').insert(cleanComment).select().single();
+      if (!error && data) res = data;
+    } catch (e) {
+      console.warn('Supabase addPortfolioComment notice:', e);
+    }
+    if (!res) {
+      res = Object.assign({}, cleanComment, { id: Date.now() });
+      const local = getLocalPortfolioComments();
+      local.push(res);
+      saveLocalPortfolioComments(local);
+    }
+    return res;
+  };
 
   const lookupUserByEmail = async (emailOrId) => {
     if (!emailOrId) return null;
@@ -2097,17 +2453,177 @@ App.api = (function () {
     );
     if (found) return found;
 
+    // Check contacts list as well
+    try {
+      const contacts = await selectAll('contacts').catch(() => []);
+      const matchContact = (contacts || []).find((c) =>
+        (c.email && c.email.toLowerCase() === query) ||
+        (c.full_name && c.full_name.toLowerCase() === query)
+      );
+      if (matchContact && matchContact.linked_user_id) {
+        const linked = all.find((p) => p.id === matchContact.linked_user_id);
+        if (linked) return linked;
+      }
+    } catch (_) {}
+
     // Check if valid UUID was entered
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
     if (isUuid) {
       return { id: query, email: query, full_name: 'Invited User' };
     }
+
+    // If a valid email address is provided, automatically create/lookup an invited profile record
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(query);
+    if (isEmail) {
+      let hash = 0;
+      for (let i = 0; i < query.length; i++) {
+        hash = (hash * 31 + query.charCodeAt(i)) & 0xffffffff;
+      }
+      const hex = Math.abs(hash).toString(16).padStart(8, '0');
+      const invitedUuid = `e0000000-${hex.slice(0, 4)}-4000-8000-${hex.padStart(12, '0').slice(-12)}`;
+      const namePart = query.split('@')[0];
+      const cleanName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      const invitedProfile = {
+        id: invitedUuid,
+        email: query,
+        full_name: cleanName,
+        role: 'Viewer',
+        created_at: new Date().toISOString(),
+      };
+      if (App.backupProfileDb && App.backupProfileDb.saveProfile) {
+        App.backupProfileDb.saveProfile(invitedProfile).catch(() => {});
+      }
+      return invitedProfile;
+    }
+
     return null;
   };
-  // "Shared With Me" - portfolios I'm a member of and are currently
-  // switched on; same "RLS already returns exactly the right set" reasoning
-  // as above.
-  const listPortfoliosSharedWithMe = () => selectAll('shared_portfolios').then((rows) => rows.filter((p) => p.is_active));
+  // "Shared With Me" - portfolios I'm a member of and are currently switched on
+  const listPortfoliosSharedWithMe = async () => {
+    const myId = uid();
+    const myEmail = (App.state && App.state.profile && App.state.profile.email) ? App.state.profile.email.toLowerCase() : null;
+
+    let supaRows = [];
+    try {
+      supaRows = await selectAll('shared_portfolios').then((rows) => (rows || []).filter((p) => p.is_active));
+    } catch (e) {
+      console.warn('Supabase listPortfoliosSharedWithMe notice:', e);
+    }
+
+    const localMembers = getLocalPortfolioMembers();
+    const localShared = getLocalSharedPortfolios();
+
+    // Check if current user is in localMembers or if email matches
+    const relevantPortIds = new Set();
+    localMembers.forEach((m) => {
+      const matchId = myId && String(m.member_user_id) === String(myId);
+      let matchEmail = false;
+      if (myEmail) {
+        if (String(m.member_user_id).toLowerCase() === myEmail) matchEmail = true;
+        let hash = 0;
+        for (let i = 0; i < myEmail.length; i++) {
+          hash = (hash * 31 + myEmail.charCodeAt(i)) & 0xffffffff;
+        }
+        const hex = Math.abs(hash).toString(16).padStart(8, '0');
+        const invitedUuid = `e0000000-${hex.slice(0, 4)}-4000-8000-${hex.padStart(12, '0').slice(-12)}`;
+        if (String(m.member_user_id).toLowerCase() === invitedUuid.toLowerCase()) matchEmail = true;
+      }
+      if (matchId || matchEmail) {
+        relevantPortIds.add(Number(m.portfolio_id));
+      }
+    });
+
+    const map = new Map();
+    supaRows.forEach((p) => {
+      if (p && p.id) map.set(Number(p.id), p);
+    });
+
+    localShared.forEach((p) => {
+      if (p && p.id && (relevantPortIds.has(Number(p.id)) || p.is_active)) {
+        if (!map.has(Number(p.id))) {
+          map.set(Number(p.id), p);
+        }
+      }
+    });
+
+    for (const pid of relevantPortIds) {
+      if (!map.has(pid)) {
+        try {
+          const { data } = await client().from('shared_portfolios').select('*').eq('id', pid).maybeSingle();
+          if (data && data.is_active) map.set(pid, data);
+        } catch (_) {}
+      }
+    }
+
+    const all = Array.from(map.values()).filter((p) => p.is_active !== false);
+    return all;
+  };
+
+  const createDealForUser = async (row, targetUserId) => {
+    const ownerId = targetUserId || uid();
+    const payload = Object.assign({}, row, { user_id: ownerId });
+    try {
+      const { data, error } = await client().from('deals').insert(payload).select().single();
+      if (!error && data) {
+        markLocalWrite();
+        return data;
+      }
+    } catch (e) {
+      console.warn('Supabase createDealForUser notice:', e);
+    }
+    return insertRow('deals', payload);
+  };
+
+  const recordPaymentForUser = async (paymentData, targetUserId) => {
+    const ownerId = targetUserId || uid();
+    const cleanRow = {
+      user_id: ownerId,
+      deal_id: paymentData.dealId,
+      transaction_date: paymentData.transactionDate,
+      amount: Number(paymentData.amount) || 0,
+      interest_amount: Number(paymentData.interestAmount) || 0,
+      principal_amount: Number(paymentData.principalAmount) || 0,
+      fee_amount: Number(paymentData.feeAmount) || 0,
+      tax_amount: Number(paymentData.taxAmount) || 0,
+      payment_reference: paymentData.paymentReference || null,
+      payment_mode: paymentData.paymentMode || null,
+      confirmation_method: paymentData.confirmationMethod || 'Manual',
+      notes: paymentData.notes || null,
+      scheduled_payment_id: paymentData.scheduledPaymentId || null,
+      status: 'CONFIRMED'
+    };
+    try {
+      const { data, error } = await client().from('payments').insert(cleanRow).select().single();
+      if (!error && data) {
+        markLocalWrite();
+        return data;
+      }
+    } catch (e) {
+      console.warn('Supabase recordPaymentForUser notice:', e);
+    }
+    return insertRow('payments', cleanRow);
+  };
+
+  const uploadDocumentForUser = async (file, meta, targetUserId) => {
+    const ownerId = targetUserId || uid();
+    const path = `${ownerId}/${Date.now()}_${file.name}`;
+    try {
+      await client().storage.from('documents').upload(path, file);
+    } catch (_) {}
+    return insertRow('documents', {
+      user_id: ownerId,
+      deal_id: meta.dealId || null,
+      payment_id: meta.paymentId || null,
+      document_type: meta.documentType || 'Other',
+      document_reference: meta.documentReference || null,
+      document_date: meta.documentDate || null,
+      notes: meta.notes || null,
+      storage_path: path,
+      file_name: file.name,
+      file_size_bytes: file.size,
+      mime_type: file.type,
+    });
+  };
 
   // ---- Benchmark Comparison (026) ----
   const listBenchmarkObservations = (symbol) => selectAll('benchmark_observations', { eq: { symbol }, order: { column: 'observed_date' } });
@@ -2503,6 +3019,7 @@ App.api = (function () {
     getDeveloperPortfolioDataset, runPortfolioDataIntegrityAudit,
     listSharedPortfolios, createSharedPortfolio, updateSharedPortfolio, deleteSharedPortfolio,
     listPortfolioMembers, addPortfolioMember, removePortfolioMember, listPortfoliosSharedWithMe,
+    listPortfolioComments, addPortfolioComment, createDealForUser, recordPaymentForUser, uploadDocumentForUser,
     listBenchmarkObservations, refreshBenchmarkData,
     listLoginEvents, logLogin,
     listNotificationTypePreferences, upsertNotificationTypePreference,

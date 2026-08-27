@@ -95,6 +95,13 @@
     <div id="demoBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:linear-gradient(90deg,rgba(22,201,163,0.18),rgba(201,168,76,0.18));border-bottom:1px solid var(--border);padding:7px;font-size:11.5px;color:var(--text)">
       &#9654; <b>Demo Mode</b> — sample data only, nothing is saved, no Supabase project connected.
     </div>
+    <div id="sharedPortfolioBanner" style="display:none;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(201,168,76,0.22),rgba(34,197,94,0.18));border-bottom:1px solid rgba(201,168,76,0.4);padding:8px 16px;font-size:12.5px;color:var(--text);z-index:90">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">&#128101;</span>
+        <span>Co-Managing Shared Portfolio: <strong id="sharedPortfolioBannerName"></strong> &middot; <span id="sharedPortfolioBannerRole" class="badge" style="background:rgba(201,168,76,0.2);color:var(--gold)"></span></span>
+      </div>
+      <button class="btn btn-outline btn-sm" id="btnExitSharedPortfolio" style="padding:2px 10px;font-size:11.5px;border-color:var(--gold);color:var(--gold)">Exit to My Portfolio ✕</button>
+    </div>
     <div class="topbar">
       <div class="topbar-left">
         <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn" title="Open Navigation Menu" aria-label="Open Navigation">☰</button>
