@@ -539,7 +539,31 @@ App.api = (function () {
   const createGoal = (row) => insertRow('portfolio_goals', row);
   const updateGoal = (id, patch) => updateRow('portfolio_goals', id, patch);
   const listCashTransactions = (opts) => selectAll('cash_transactions', Object.assign({ order: { column: 'transaction_date', ascending: false } }, opts));
-  const createCashTransaction = (row) => insertRow('cash_transactions', row);
+  const createCashTransaction = (row) => {
+    let tType = row.transaction_type || 'Other';
+    if (tType === 'Inflow' || tType === 'Credit') tType = 'Deposit';
+    if (tType === 'Outflow' || tType === 'Debit') tType = 'Withdrawal';
+    const allowedTypes = ['Deposit', 'Withdrawal', 'Reserved', 'Released', 'Interest Credit', 'Other'];
+    const finalType = allowedTypes.includes(tType) ? tType : 'Other';
+    
+    // Notes composition from any extra caller fields
+    let notes = row.notes || '';
+    if (!notes && row.description) notes = row.description;
+    if (row.category && !notes.includes(row.category)) {
+      notes = notes ? `[${row.category}] ${notes}` : `[${row.category}]`;
+    }
+    if (row.reference && !notes.includes(row.reference)) {
+      notes = notes ? `${notes} (Ref: ${row.reference})` : `Ref: ${row.reference}`;
+    }
+
+    const cleanRow = {
+      transaction_date: row.transaction_date || (window.App && window.App.utils ? window.App.utils.todayISO() : new Date().toISOString().slice(0, 10)),
+      transaction_type: finalType,
+      amount: Number(row.amount) || 0,
+      notes: notes.trim() || null
+    };
+    return insertRow('cash_transactions', cleanRow);
+  };
   const listTaxRecords = (opts) => selectAll('tax_records', Object.assign({ order: { column: 'financial_year', ascending: false } }, opts));
   const createTaxRecord = (row) => insertRow('tax_records', row);
   const updateTaxRecord = (id, patch) => updateRow('tax_records', id, patch);
@@ -2022,9 +2046,64 @@ App.api = (function () {
   const createSharedPortfolio = (row) => client().from('shared_portfolios').insert(row).select().single().then(({ data, error }) => { check(error); return data; });
   const updateSharedPortfolio = (id, patch) => updateRow('shared_portfolios', id, patch);
   const deleteSharedPortfolio = (id) => deleteRow('shared_portfolios', id);
-  const listPortfolioMembers = (portfolioId) => selectAll('portfolio_members', { eq: { portfolio_id: portfolioId } });
-  const addPortfolioMember = (row) => client().from('portfolio_members').insert(row).select().single().then(({ data, error }) => { check(error); return data; });
+
+  const listPortfolioMembers = async (portfolioId) => {
+    const rows = await selectAll('portfolio_members', { eq: { portfolio_id: portfolioId } });
+    return rows.map((r) => {
+      let perms = r.permissions;
+      if (!perms || Object.keys(perms).length === 0) {
+        try {
+          const cached = localStorage.getItem(`pios_member_perms_${r.portfolio_id}_${r.member_user_id}`);
+          if (cached) perms = JSON.parse(cached);
+        } catch (_) {}
+      }
+      return Object.assign({}, r, { permissions: perms || {} });
+    });
+  };
+
+  const addPortfolioMember = async (row) => {
+    const cleanRole = ['Owner', 'Editor', 'Viewer'].includes(row.role)
+      ? row.role
+      : (row.role === 'Full Access' ? 'Editor' : 'Viewer');
+
+    const cleanRow = {
+      portfolio_id: Number(row.portfolio_id),
+      member_user_id: String(row.member_user_id),
+      role: cleanRole,
+      accepted_at: row.accepted_at || new Date().toISOString(),
+    };
+
+    if (row.permissions) {
+      try {
+        localStorage.setItem(`pios_member_perms_${cleanRow.portfolio_id}_${cleanRow.member_user_id}`, JSON.stringify(row.permissions));
+      } catch (_) {}
+    }
+
+    const { data, error } = await client().from('portfolio_members').insert(cleanRow).select().single();
+    check(error);
+    return Object.assign({}, data, { permissions: row.permissions || {} });
+  };
+
   const removePortfolioMember = (id) => deleteRow('portfolio_members', id);
+
+  const lookupUserByEmail = async (emailOrId) => {
+    if (!emailOrId) return null;
+    const query = String(emailOrId).trim().toLowerCase();
+    const all = await listAllProfiles().catch(() => []);
+    const found = all.find((p) =>
+      (p.email && p.email.toLowerCase() === query) ||
+      (p.id && String(p.id).toLowerCase() === query) ||
+      (p.full_name && p.full_name.toLowerCase() === query)
+    );
+    if (found) return found;
+
+    // Check if valid UUID was entered
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
+    if (isUuid) {
+      return { id: query, email: query, full_name: 'Invited User' };
+    }
+    return null;
+  };
   // "Shared With Me" - portfolios I'm a member of and are currently
   // switched on; same "RLS already returns exactly the right set" reasoning
   // as above.
@@ -2361,7 +2440,7 @@ App.api = (function () {
   }
 
   return {
-    getProfile, updateProfile, listAllProfiles,
+    getProfile, updateProfile, listAllProfiles, listProfiles: listAllProfiles, lookupUserByEmail,
     listPlatforms, createPlatform, updatePlatform, deletePlatform,
     listCategories, createCategory, listRiskRatings, createRiskRating,
     listDeals, getDeal, createDeal, updateDeal, deleteDeal, listDealMetrics, getPortfolioSummary,

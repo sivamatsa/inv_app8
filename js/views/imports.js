@@ -298,9 +298,13 @@ window.App = window.App || {};
             <div class="smart-dropzone" id="ocrDropzone">
               <div style="font-size:36px;margin-bottom:8px">&#128247;</div>
               <div style="font-weight:600;font-size:14px;color:var(--gold);margin-bottom:4px">Upload Bank Statement, Invoice, Receipt, or Certificate</div>
-              <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Supports PNG, JPG, JPEG, or paste raw OCR / statement text below. Smart OCR parses bank ledgers, debits/credits, vendors &amp; taxes.</div>
-              <button class="btn btn-outline btn-sm" id="btnBrowseOcr">Browse Image / Document</button>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Supports PNG, JPG, JPEG, camera snapshots, or paste raw OCR / statement text below. Smart OCR parses bank ledgers, debits/credits, vendors &amp; taxes.</div>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button class="btn btn-outline btn-sm" id="btnBrowseOcr">📁 Browse Image / PDF</button>
+                <button class="btn btn-gold btn-sm" id="btnCameraOcr">📷 Open Camera / Live Capture</button>
+              </div>
               <input type="file" id="ocrFileInput" accept="image/*,.pdf" style="display:none">
+              <input type="file" id="ocrCameraInput" accept="image/*" capture="environment" style="display:none">
             </div>
 
             <div style="margin-top:14px" class="panel">
@@ -422,8 +426,140 @@ window.App = window.App || {};
 
         const ocrDz = App.utils.qs('#ocrDropzone', host);
         const ocrInput = App.utils.qs('#ocrFileInput', host);
+        const ocrCameraInput = App.utils.qs('#ocrCameraInput', host);
         const btnBrowse = App.utils.qs('#btnBrowseOcr', host);
+        const btnCamera = App.utils.qs('#btnCameraOcr', host);
+
         if (btnBrowse) btnBrowse.addEventListener('click', (e) => { e.stopPropagation(); ocrInput.click(); });
+        
+        // Live camera capture with modal viewfinder & mobile fallback
+        if (btnCamera) {
+          btnCamera.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openLiveCameraScanner();
+          });
+        }
+
+        if (ocrCameraInput) {
+          ocrCameraInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) processOcrImageFile(file);
+          });
+        }
+
+        function openLiveCameraScanner() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            logOcr('WARN', 'WebRTC camera stream not available in this context; opening device camera picker');
+            if (ocrCameraInput) ocrCameraInput.click();
+            else if (ocrInput) ocrInput.click();
+            return;
+          }
+
+          let stream = null;
+          let facingMode = 'environment';
+
+          const modal = document.createElement('div');
+          modal.className = 'modal-backdrop';
+          modal.style.cssText = 'position:fixed;inset:0;background:rgba(3,7,18,0.88);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px)';
+          modal.innerHTML = `
+            <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.3);border-radius:14px;max-width:560px;width:100%;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,0.7);display:flex;flex-direction:column">
+              <div style="padding:12px 18px;background:#152238;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+                <div style="font-weight:600;font-size:14px;color:var(--gold);display:flex;align-items:center;gap:8px">
+                  <span>📷 Live Document &amp; Receipt Scanner</span>
+                </div>
+                <button class="btn btn-outline btn-sm" id="btnCloseCamModal" style="padding:2px 8px;font-size:12px">✕</button>
+              </div>
+              <div style="position:relative;background:#000;display:flex;align-items:center;justify-content:center;min-height:320px;max-height:420px;overflow:hidden">
+                <video id="camScannerVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+                <!-- Reticle / Document alignment frame -->
+                <div style="position:absolute;inset:24px;border:2px dashed rgba(22,201,163,0.7);border-radius:10px;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;padding:10px">
+                  <div style="display:flex;justify-content:space-between">
+                    <span style="width:16px;height:16px;border-top:3px solid var(--teal);border-left:3px solid var(--teal)"></span>
+                    <span style="width:16px;height:16px;border-top:3px solid var(--teal);border-right:3px solid var(--teal)"></span>
+                  </div>
+                  <div style="text-align:center;font-size:11px;color:rgba(255,255,255,0.75);background:rgba(0,0,0,0.5);padding:3px 10px;border-radius:12px;align-self:center">
+                    Align statement, receipt, or certificate inside frame
+                  </div>
+                  <div style="display:flex;justify-content:space-between">
+                    <span style="width:16px;height:16px;border-bottom:3px solid var(--teal);border-left:3px solid var(--teal)"></span>
+                    <span style="width:16px;height:16px;border-bottom:3px solid var(--teal);border-right:3px solid var(--teal)"></span>
+                  </div>
+                </div>
+              </div>
+              <div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;background:#0e1626;border-top:1px solid rgba(255,255,255,0.06);gap:10px">
+                <button class="btn btn-outline btn-sm" id="btnFlipCamera" title="Switch between front and back camera">🔄 Switch Lens</button>
+                <button class="btn btn-gold" id="btnSnapPhoto" style="font-weight:600;padding:8px 24px">📸 Capture &amp; Scan</button>
+                <button class="btn btn-outline btn-sm" id="btnCancelCam">Cancel</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(modal);
+
+          async function startStream() {
+            try {
+              if (stream) {
+                stream.getTracks().forEach((t) => t.stop());
+              }
+              logOcr('SYSTEM', `Requesting camera feed (${facingMode} lens)...`);
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: facingMode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                audio: false
+              });
+              const video = modal.querySelector('#camScannerVideo');
+              if (video) {
+                video.srcObject = stream;
+                await video.play();
+              }
+            } catch (err) {
+              logOcr('WARN', `Direct video stream permission failed: ${err.message || err}. Falling back to device capture`);
+              closeCamModal();
+              if (ocrCameraInput) ocrCameraInput.click();
+              else if (ocrInput) ocrInput.click();
+            }
+          }
+
+          function closeCamModal() {
+            if (stream) {
+              stream.getTracks().forEach((t) => t.stop());
+              stream = null;
+            }
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+          }
+
+          modal.querySelector('#btnCloseCamModal')?.addEventListener('click', closeCamModal);
+          modal.querySelector('#btnCancelCam')?.addEventListener('click', closeCamModal);
+          
+          modal.querySelector('#btnFlipCamera')?.addEventListener('click', () => {
+            facingMode = facingMode === 'environment' ? 'user' : 'environment';
+            startStream();
+          });
+
+          modal.querySelector('#btnSnapPhoto')?.addEventListener('click', () => {
+            const video = modal.querySelector('#camScannerVideo');
+            if (!video || !video.videoWidth) {
+              App.utils.toast('Camera is initializing...', 'warn');
+              return;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob((blob) => {
+              if (!blob) {
+                App.utils.toast('Failed to capture photo frame', 'err');
+                return;
+              }
+              const capturedFile = new File([blob], `Camera_Capture_${App.utils.todayISO()}_${Date.now().toString().slice(-4)}.jpg`, { type: 'image/jpeg' });
+              closeCamModal();
+              logOcr('IMAGE', `Captured live camera photo: ${capturedFile.name} (${(capturedFile.size / 1024).toFixed(1)} KB)`);
+              processOcrImageFile(capturedFile);
+            }, 'image/jpeg', 0.95);
+          });
+
+          startStream();
+        }
         if (ocrDz) {
           ocrDz.addEventListener('click', () => ocrInput.click());
           ['dragenter', 'dragover'].forEach((ev) => ocrDz.addEventListener(ev, (e) => { e.preventDefault(); ocrDz.classList.add('drag'); }));
@@ -631,24 +767,27 @@ window.App = window.App || {};
 
           logOcr('PARSER', 'Initiating tokenizer and semantic document analysis...');
 
-          // Document Type Classification
-          const isBankStatement = /statement of account|account statement|opening balance|closing balance|chq\/ref|narration|value date|withdrawal|deposit|cr\/dr|debit.*credit|hdfc bank|state bank|icici bank|axis bank|kotak|citi|chase|wells fargo|bank of america/i.test(text);
-          const isDepositCert = /fixed deposit|fdr|term deposit|deposit receipt|maturity amount|tenure|interest rate.*p\.a/i.test(text);
-          const isInterestAdvice = /interest advice|dividend payout|isin|tds deducted|gross interest|net credit/i.test(text);
+          // Document Type Classification (Prioritize specialized financial instruments over generic bank statements)
+          const isDepositCert = /fixed deposit|fdr|term deposit|deposit receipt|deposit certificate|maturity amount|payout frequency/i.test(text);
+          const isInterestAdvice = /interest advice|interest slip|dividend payout|isin|tds deducted|gross interest|net credit amount|credit account.*utr/i.test(text);
           const isTaxInvoice = /tax invoice|gstin|subtotal|cgst|sgst|igst|bill to|invoice #|invoice no/i.test(text);
+          const isBankStatement = /statement of account|account statement|opening balance|closing balance|chq\/ref|narration|value date|withdrawal|deposit|cr\/dr|debit.*credit|hdfc bank|state bank|icici bank|axis bank|kotak|citi|chase|wells fargo|bank of america/i.test(text);
 
           const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
           logOcr('PARSER', `Tokenized ${lines.length} raw text lines`);
 
-          if (isBankStatement) {
-            logOcr('PARSER', 'Classification Result: BANK_STATEMENT (Multi-Row Transaction Ledger)');
-            parseAndRenderBankStatement(text, lines, resHost);
-          } else if (isDepositCert) {
+          if (isDepositCert) {
             logOcr('PARSER', 'Classification Result: INVESTMENT_DEPOSIT_CERTIFICATE (Fixed Deposit / FDR)');
             parseAndRenderDepositCert(text, lines, resHost);
           } else if (isInterestAdvice) {
             logOcr('PARSER', 'Classification Result: INTEREST_PAYOUT_ADVICE (Bond / Deal Interest Slip)');
             parseAndRenderInterestAdvice(text, lines, resHost);
+          } else if (isTaxInvoice) {
+            logOcr('PARSER', 'Classification Result: TAX_INVOICE_EXPENSE (Single Receipt / Bill)');
+            parseAndRenderInvoice(text, lines, resHost);
+          } else if (isBankStatement || lines.some(l => /debit|credit|balance|chq|upi|neft|rtgs/i.test(l))) {
+            logOcr('PARSER', 'Classification Result: BANK_STATEMENT (Multi-Row Transaction Ledger)');
+            parseAndRenderBankStatement(text, lines, resHost);
           } else {
             logOcr('PARSER', 'Classification Result: TAX_INVOICE_EXPENSE (Single Receipt / Bill)');
             parseAndRenderInvoice(text, lines, resHost);

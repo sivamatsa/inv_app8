@@ -42,34 +42,26 @@
     <div class="auth-hint" style="margin:0 0 16px;text-align:center">Explore every feature with sample deals - nothing saved, nothing real, no Supabase project needed.</div>
     <div style="height:1px;background:var(--border2);margin-bottom:16px"></div>
 
-    <div id="authSetupPane">
-      <div class="field span2" style="margin-bottom:10px"><label>Supabase Project URL</label><input type="url" id="cfgUrl" placeholder="https://xxxxxxxxxxxx.supabase.co"></div>
-      <div class="field span2" style="margin-bottom:10px"><label>Supabase Publishable / Anon Key</label><input type="text" id="cfgKey" placeholder="sb_publishable_... or eyJ..."></div>
-      <button class="btn btn-gold" id="saveSupabaseConfig" style="width:100%">Connect</button>
-      <div class="auth-error" id="setupError"></div>
-      <div class="auth-hint">First time? Create a Supabase project, then run every file in <code>supabase/migrations/</code> (in order) via the SQL Editor - see <code>README.md</code>. Paste the Project URL and anon/publishable key here; both are safe to use client-side, RLS is what protects your data.</div>
-    </div>
-
-    <div id="authFormsPane" style="display:none">
-      <div class="auth-tabs">
+    <div id="authFormsPane">
+      <div class="auth-tabs" style="margin-bottom:14px">
         <button id="authTabSignIn" class="active">Sign In</button>
         <button id="authTabSignUp">Create Account</button>
       </div>
       <div id="signInForm">
-        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signInEmail" autocomplete="username"></div>
-        <div class="field" style="margin-bottom:10px"><label>Password</label><input type="password" id="signInPassword" autocomplete="current-password"></div>
-        <button class="btn btn-gold" id="signInBtn" style="width:100%">Sign In</button>
+        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signInEmail" placeholder="your.name@example.com" autocomplete="username"></div>
+        <div class="field" style="margin-bottom:14px"><label>Password</label><input type="password" id="signInPassword" placeholder="••••••••" autocomplete="current-password"></div>
+        <button class="btn btn-gold" id="signInBtn" style="width:100%;justify-content:center;padding:10px">Sign In</button>
         <div class="auth-error" id="signInError"></div>
       </div>
       <div id="signUpForm" style="display:none">
-        <div class="field" style="margin-bottom:10px"><label>Full Name</label><input type="text" id="signUpName" autocomplete="name"></div>
-        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signUpEmail" autocomplete="username"></div>
-        <div class="field" style="margin-bottom:10px"><label>Password (min 6 characters)</label><input type="password" id="signUpPassword" autocomplete="new-password"></div>
-        <button class="btn btn-gold" id="signUpBtn" style="width:100%">Create Account</button>
+        <div class="field" style="margin-bottom:10px"><label>Full Name</label><input type="text" id="signUpName" placeholder="Your Name" autocomplete="name"></div>
+        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signUpEmail" placeholder="your.name@example.com" autocomplete="username"></div>
+        <div class="field" style="margin-bottom:14px"><label>Password (min 6 characters)</label><input type="password" id="signUpPassword" placeholder="••••••••" autocomplete="new-password"></div>
+        <button class="btn btn-gold" id="signUpBtn" style="width:100%;justify-content:center;padding:10px">Create Account</button>
         <div class="auth-error" id="signUpError"></div>
       </div>
-      <div style="text-align:center;margin-top:10px">
-        <a href="#" id="needHelpLink" class="auth-hint" style="cursor:pointer">🤖 Need Help?</a>
+      <div style="display:flex;justify-content:center;align-items:center;margin-top:14px;font-size:12px">
+        <a href="#" id="needHelpLink" class="auth-hint" style="cursor:pointer;color:var(--text2)">🤖 Need Help?</a>
       </div>
     </div>
 
@@ -109,8 +101,11 @@
         <div class="topbar-title" id="topbarTitle">Dashboard</div>
       </div>
       <div class="topbar-search-wrap" id="topbarSearchWrap">
-        <input type="text" id="globalSearchInput" class="search-input" placeholder="Search deals, contacts, recurring, gold..." style="width:100%" autocomplete="off">
-        <div id="globalSearchResults" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:12px;max-height:70vh;overflow:auto;z-index:60;box-shadow:0 20px 50px rgba(0,0,0,0.45)"></div>
+        <div style="position:relative;display:flex;align-items:center;width:100%">
+          <input type="text" id="globalSearchInput" class="search-input" placeholder="Search deals, contacts, gold, ₹15000, 'pending'..." style="width:100%;padding-right:48px" autocomplete="off">
+          <span class="search-kbd-badge" id="searchKbdBadge" title="Press ⌘K or / to search">⌘K</span>
+        </div>
+        <div id="globalSearchResults" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-height:75vh;overflow:auto;z-index:999;box-shadow:0 24px 60px rgba(0,0,0,0.5)"></div>
       </div>
       <div class="topbar-actions">
         <!-- Mobile Search Toggle -->

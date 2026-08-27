@@ -334,6 +334,19 @@ window.App = window.App || {};
       const input = App.utils.qs('#acQuestionInput', pane);
       const question = input.value.trim();
       if (!question) return;
+
+      const user = App.auth && App.auth.getUser && App.auth.getUser();
+      const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
+      if (!user || isDemo) {
+        App.utils.toast('Please create a profile and sign in to use AI Copilot.', 'err');
+        App.utils.qs('#acLimitNote', pane).innerHTML = `
+          <div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);padding:12px 14px;border-radius:8px;color:var(--text);font-size:12px;margin-top:10px">
+            <strong style="color:#ef4444">🔒 Login Required:</strong> AI Copilot is only usable after user login. Please create a profile or sign in to analyze your portfolio.
+          </div>
+        `;
+        return;
+      }
+
       input.value = '';
       thread.push({ role: 'user', text: question });
       drawThread();
@@ -352,9 +365,36 @@ window.App = window.App || {};
           App.utils.qs('#acLimitNote', pane).innerHTML = `<div class="hint" style="color:var(--red);margin-top:8px">${App.utils.escapeHtml(e.message)}</div>`;
         } else {
           const errMsg = e.message || String(e);
-          const isFetchError = errMsg.includes('Failed to send a request') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch');
+          const isFetchError = errMsg.includes('Failed to send a request') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch') || errMsg.includes('Function not found') || errMsg.includes('404');
           if (isFetchError) {
-            // Local client-side fallback answers when edge function is unreachable
+            // Attempt direct server-side /api/chat call via Gemini
+            try {
+              const context = await assembleContext();
+              const formattedContext = JSON.stringify(context, null, 2);
+              const chatRes = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  messages: [{ role: 'user', content: question }],
+                  model: 'gemini-3.6-flash',
+                  systemInstruction: 'You are the AI Portfolio Copilot for Personal Investment OS. Analyze user portfolio data and questions with institutional precision and clarity.',
+                  portfolioContext: formattedContext,
+                }),
+              });
+              if (chatRes.ok) {
+                const chatData = await chatRes.json();
+                if (chatData?.reply) {
+                  thread.push({ role: 'assistant', text: chatData.reply, providerDisplayName: `Gemini (${chatData.model || '3.6 Flash'})` });
+                  drawThread();
+                  App.utils.qs('#acQuota', pane).textContent = 'Connected via Server-Side Gemini API.';
+                  return;
+                }
+              }
+            } catch (chatErr) {
+              console.warn('Fallback to local computation:', chatErr);
+            }
+
+            // Local client-side analytical engine fallback
             const context = await assembleContext();
             const audit = computeHealthAudit(context);
             let fallbackAnswer = `**Executive Portfolio Snapshot (Local Computation Engine)**\n\n`;
@@ -362,7 +402,7 @@ window.App = window.App || {};
             fallbackAnswer += `• **Available Cash:** ${App.utils.fmtMoney(context.cashFlow.availableCash)}\n`;
             fallbackAnswer += `• **Next 30 Days Inflow:** ${App.utils.fmtMoney(context.cashFlow.next30Days)} (Next 7 Days: ${App.utils.fmtMoney(context.cashFlow.next7Days)})\n`;
             fallbackAnswer += `• **Health Score:** ${audit.totalScore}/100 (${audit.rating})\n\n`;
-            fallbackAnswer += `*Note: To connect live LLM inference with Gemini or Claude, ensure your Supabase Edge Function is deployed (` + `supabase functions deploy ai-copilot` + `).*`;
+            fallbackAnswer += `*Tip: You can also use the floating AI Advisor widget on the bottom right for multi-turn conversational analysis.*`;
 
             thread.push({ role: 'assistant', text: fallbackAnswer, providerDisplayName: 'Local Analytical Engine' });
             drawThread();

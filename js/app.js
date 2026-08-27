@@ -401,48 +401,31 @@ function showAuthScreen() {
   if (App.callingView) App.callingView.stopListening();
   App.utils.qs('#appShell').classList.remove('active');
   App.utils.qs('#authScreen').style.display = 'flex';
-  // Only ever needs to hide the recovery pane this function itself doesn't
-  // otherwise know about - #authSetupPane/#authFormsPane's own visibility is
-  // wireAuthScreen()'s refreshSetupVisibility() responsibility and doesn't
-  // change based on sign-in/out, so it's deliberately left alone here.
-  App.utils.qs('#setNewPasswordPane').style.display = 'none';
+  const formsPane = App.utils.qs('#authFormsPane');
+  if (formsPane) formsPane.style.display = 'block';
+  const passPane = App.utils.qs('#setNewPasswordPane');
+  if (passPane) passPane.style.display = 'none';
 }
 
 function showSetNewPasswordScreen() {
   App.utils.qs('#appShell').classList.remove('active');
   App.utils.qs('#authScreen').style.display = 'flex';
-  App.utils.qs('#authSetupPane').style.display = 'none';
-  App.utils.qs('#authFormsPane').style.display = 'none';
-  App.utils.qs('#setNewPasswordPane').style.display = 'block';
+  const formsPane = App.utils.qs('#authFormsPane');
+  if (formsPane) formsPane.style.display = 'none';
+  const passPane = App.utils.qs('#setNewPasswordPane');
+  if (passPane) passPane.style.display = 'block';
 }
 
 function wireAuthScreen() {
-  const setupPane = App.utils.qs('#authSetupPane');
   const formsPane = App.utils.qs('#authFormsPane');
 
   function refreshSetupVisibility() {
-    const configured = App.auth.isConfigured();
-    setupPane.style.display = configured ? 'none' : 'block';
-    formsPane.style.display = configured ? 'block' : 'none';
-    if (configured) App.auth.init();
+    if (formsPane) formsPane.style.display = 'block';
+    if (App.auth.isConfigured()) App.auth.init();
   }
 
-  App.utils.qs('#saveSupabaseConfig').addEventListener('click', () => {
-    const url = App.utils.qs('#cfgUrl').value.trim().replace(/\/$/, '');
-    const key = App.utils.qs('#cfgKey').value.trim();
-    const errEl = App.utils.qs('#setupError');
-    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) || !key) {
-      errEl.textContent = 'Enter a valid Supabase Project URL and publishable/anon key.';
-      return;
-    }
-    errEl.textContent = '';
-    App.auth.saveConfig(url, key);
-    refreshSetupVisibility();
-    App.utils.toast('Supabase connection saved');
-  });
-
-  App.utils.qs('#authTabSignIn').addEventListener('click', () => switchAuthTab('signin'));
-  App.utils.qs('#authTabSignUp').addEventListener('click', () => switchAuthTab('signup'));
+  App.utils.qs('#authTabSignIn')?.addEventListener('click', () => switchAuthTab('signin'));
+  App.utils.qs('#authTabSignUp')?.addEventListener('click', () => switchAuthTab('signup'));
   // Changing the Supabase connection is now an admin-only, post-login
   // control (Settings -> Supabase Connection) - see supabaseClient.js's
   // DEFAULT_CONFIG comment for why. There's no pre-login path anymore

@@ -14,41 +14,57 @@
 window.App = window.App || {};
 
 (function () {
-  async function openUserDetailModal(user) {
+  async function openUserDetailModal(user, permissions = null) {
     const [deals, summary] = await Promise.all([
       App.api.listDeals({ eq: { user_id: user.id } }),
       App.api.getPortfolioSummary(user.id),
     ]);
     const s = summary || {};
+    const perms = permissions || {
+      view_net_worth: true,
+      view_deals: true,
+      view_amounts: true,
+      view_returns: true,
+      view_goals: true,
+      view_documents: true,
+      view_contacts: true
+    };
+
+    const showAmount = (val) => (perms.view_amounts !== false ? App.utils.fmtMoney(val) : '••••••');
+    const showRoi = (val) => (perms.view_returns !== false ? App.utils.fmtPct(val) : '••%');
+    const showDealName = (name, i) => (perms.view_deals !== false ? App.utils.escapeHtml(name) : `Protected Asset ${i + 1}`);
 
     const bodyHtml = `
       <div class="grid-2" style="margin-bottom:14px">
         <div>
-          <div class="stat-line"><span>Total Invested</span><span class="v">${App.utils.fmtMoney(s.total_invested)}</span></div>
-          <div class="stat-line"><span>Outstanding Principal</span><span class="v">${App.utils.fmtMoney(s.current_outstanding_principal)}</span></div>
-          <div class="stat-line"><span>Interest Earned</span><span class="v">${App.utils.fmtMoney(s.interest_earned)}</span></div>
+          <div class="stat-line"><span>Total Invested</span><span class="v">${perms.view_net_worth !== false ? showAmount(s.total_invested) : 'Protected'}</span></div>
+          <div class="stat-line"><span>Outstanding Principal</span><span class="v">${perms.view_net_worth !== false ? showAmount(s.current_outstanding_principal) : 'Protected'}</span></div>
+          <div class="stat-line"><span>Interest Earned</span><span class="v">${perms.view_net_worth !== false ? showAmount(s.interest_earned) : 'Protected'}</span></div>
         </div>
         <div>
           <div class="stat-line"><span>Active Deals</span><span class="v">${s.active_deals_count ?? 0}</span></div>
           <div class="stat-line"><span>Closed Deals</span><span class="v">${s.closed_deals_count ?? 0}</span></div>
-          <div class="stat-line"><span>Realized ROI</span><span class="v">${App.utils.fmtPct(s.realized_roi)}</span></div>
+          <div class="stat-line"><span>Realized ROI</span><span class="v">${showRoi(s.realized_roi)}</span></div>
         </div>
       </div>
       <div class="table-scroll" style="max-height:320px">
         <table class="data"><thead><tr><th>Deal</th><th>Type</th><th>Invested</th><th>ROI</th><th>Status</th><th>Maturity</th></tr></thead>
-        <tbody>${deals.map((d) => `<tr>
-          <td>${App.utils.escapeHtml(d.deal_name)}</td>
+        <tbody>${deals.map((d, idx) => `<tr>
+          <td>${showDealName(d.deal_name, idx)}</td>
           <td>${App.utils.escapeHtml(d.investment_type)}</td>
-          <td>${App.utils.fmtMoney(d.invested_amount)}</td>
-          <td>${App.utils.fmtPct(d.annual_roi)}</td>
+          <td>${showAmount(d.invested_amount)}</td>
+          <td>${showRoi(d.annual_roi)}</td>
           <td><span class="badge ${App.utils.statusBadgeClass(d.status)}">${d.status}</span></td>
           <td>${App.utils.fmtDate(d.maturity_date)}</td>
         </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No deals yet.</td></tr>'}</tbody></table>
       </div>
-      <div class="hint">Read-only - this modal never edits another user's data.</div>`;
+      <div class="hint" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+        <span>Read-only collaborator view &middot; Protected with granular access permissions</span>
+        ${perms.role ? `<span class="badge" style="background:rgba(201,168,76,0.18);color:var(--gold)">Role: ${App.utils.escapeHtml(perms.role)}</span>` : ''}
+      </div>`;
 
     App.ui.open({
-      title: `${user.full_name || user.email} - Portfolio`,
+      title: `${user.full_name || user.email} - Shared Portfolio`,
       bodyHtml,
       actions: [{ label: 'Close', className: 'btn-gold', onClick: App.ui.close }],
     });

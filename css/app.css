@@ -1553,4 +1553,62 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   }
 }
 
+/* ==========================================================================
+   OS COMMAND & SEARCH PALETTE STYLES
+   ========================================================================== */
+.topbar-search-wrap {
+  flex: 1;
+  max-width: 480px;
+  margin: 0 14px;
+  position: relative;
+  transition: max-width 0.2s ease;
+}
+.topbar-search-wrap:focus-within {
+  max-width: 560px;
+}
+.search-kbd-badge {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  background: var(--fill-2);
+  border: 1px solid var(--border2);
+  padding: 2px 6px;
+  border-radius: 5px;
+  pointer-events: none;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+}
+.search-suggest-chip {
+  cursor: pointer;
+  background: var(--fill-1);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  transition: all 0.15s ease;
+}
+.search-suggest-chip:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--fill-2);
+  transform: translateY(-1px);
+}
+.search-result-row {
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.search-result-row:hover,
+.search-result-row.is-selected {
+  background: var(--fill-2) !important;
+  border-color: rgba(201, 168, 76, 0.4) !important;
+}
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 10.5px;
+  border-radius: 5px;
+  font-weight: 500;
+}
+
+
 

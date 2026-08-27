@@ -10,9 +10,9 @@ App.chatbot = (function () {
   const DOCKED_STORAGE_KEY = 'pios_gemini_chat_docked_v1';
 
   const MODELS = [
-    { id: 'gemini-flash-latest', name: 'Gemini Flash (Latest)', tag: 'Fast & Stable', desc: 'Recommended general intelligence, financial math, and live portfolio advice' },
+    { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', tag: 'Fast & Stable', desc: 'Recommended general intelligence, financial math, and live portfolio advice' },
     { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', tag: 'Ultra-Fast', desc: 'High-speed low-latency answers for quick formulas, definitions, and scenario lookups' },
-    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', tag: 'Next-Gen Reasoning', desc: 'Extended reasoning preview for multifaceted portfolio queries' },
+    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', tag: 'Advanced Reasoning', desc: 'Extended reasoning preview for multifaceted portfolio queries' },
   ];
 
   const ROLES = {
@@ -62,7 +62,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     isDocked: false,
     fabTop: null,
     messages: [],
-    model: 'gemini-flash-latest',
+    model: 'gemini-3.6-flash',
     role: 'advisor',
     attachContext: true,
     isLoading: false,
@@ -79,7 +79,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       if (savedModel && MODELS.some((m) => m.id === savedModel)) {
         state.model = savedModel;
       } else {
-        state.model = 'gemini-flash-latest';
+        state.model = 'gemini-3.6-flash';
       }
       const savedRole = localStorage.getItem(ROLE_STORAGE_KEY);
       if (savedRole && ROLES[savedRole]) {
@@ -183,9 +183,19 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function isAuthenticatedUser() {
+    const user = window.App && window.App.auth && window.App.auth.getUser && window.App.auth.getUser();
+    const isDemo = window.App && window.App.auth && window.App.auth.isDemoMode && window.App.auth.isDemoMode();
+    return !!user && !isDemo;
+  }
+
   function formatMarkdown(text) {
     if (!text) return '';
     let html = escapeHtml(text);
+
+    // Markdown links [text](url)
+    html = html.replace(/\[([^\]]+)\]\((\#[^)]+)\)/g, '<a href="$2" class="chat-action-link" style="color:var(--gold);text-decoration:underline;cursor:pointer;font-weight:600">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" class="chat-link" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline">$1</a>');
 
     // Code blocks ``` ... ```
     html = html.replace(/```([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$1</code></pre>');
@@ -214,6 +224,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
 
     const currentRoleObj = ROLES[state.role] || ROLES.advisor;
     const currentModelObj = MODELS.find((m) => m.id === state.model) || MODELS[0];
+    const loggedIn = isAuthenticatedUser();
 
     // Compute vertical position if saved
     let posStyle = '';
@@ -296,6 +307,15 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
           <span>${currentRoleObj.icon} <b>${currentRoleObj.name}</b>: ${currentRoleObj.desc}</span>
         </div>
 
+        ${!loggedIn ? `
+          <div class="chat-auth-banner" style="margin:8px 12px;padding:10px 12px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="font-size:11.5px;color:var(--text);line-height:1.4">
+              <strong style="color:#ef4444">🔒 Login Required:</strong> AI Advisor is only usable after user login. Please create a profile to unlock AI intelligence.
+            </div>
+            <button type="button" class="btn btn-gold btn-xs" id="btnChatLoginPrompt" style="padding:4px 8px;font-size:11px;white-space:nowrap">Sign In / Join</button>
+          </div>
+        ` : ''}
+
         <!-- Messages Body -->
         <div class="chat-messages" id="chatMessagesList">
           ${state.messages.map((m) => renderMessageHtml(m)).join('')}
@@ -326,7 +346,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
             <textarea 
               id="chatTextInput" 
               class="chat-input" 
-              placeholder="Ask PIOS Financial Advisor..." 
+              placeholder="${loggedIn ? 'Ask PIOS Financial Advisor...' : 'Sign in or create profile to use AI Advisor...'}" 
               rows="1"
               maxlength="2000"
             ></textarea>
@@ -574,6 +594,25 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
 
     // Send button
     sendBtn?.addEventListener('click', handleSendMessage);
+
+    // Auth prompt action handler
+    function triggerAuthPrompt(e) {
+      if (e) e.preventDefault();
+      if (window.App && window.App.auth && window.App.auth.isDemoMode && window.App.auth.isDemoMode()) {
+        window.App.auth.exitDemoMode();
+      }
+      state.isOpen = false;
+      renderFloatingWidget();
+      const authScreen = document.getElementById('authScreen');
+      if (authScreen) authScreen.style.display = 'flex';
+      const appShell = document.getElementById('appShell');
+      if (appShell) appShell.classList.remove('active');
+    }
+
+    container.querySelector('#btnChatLoginPrompt')?.addEventListener('click', triggerAuthPrompt);
+    container.querySelectorAll('a[href^="#auth"], a[href^="#login"]').forEach((el) => {
+      el.addEventListener('click', triggerAuthPrompt);
+    });
   }
 
   async function handleSendMessage() {
@@ -584,6 +623,30 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
 
     input.value = '';
     input.style.height = 'auto';
+
+    // Verify user authentication
+    if (!isAuthenticatedUser()) {
+      const userMsg = {
+        id: 'msg_' + Date.now(),
+        role: 'user',
+        content: text,
+        timestamp: new Date().toISOString(),
+      };
+      state.messages.push(userMsg);
+      state.messages.push({
+        id: 'msg_' + (Date.now() + 1),
+        role: 'assistant',
+        content: `🔒 **Sign-In Required to Use AI Advisor**\n\nThe AI Financial Advisor is only usable after user login.\n\nPlease **create a profile** and **sign in** to start using the AI Advisor for live portfolio analytics, risk modeling, and financial insights.\n\n👉 [Click here to Sign In or Create Profile](#auth-prompt)`,
+        timestamp: new Date().toISOString(),
+        model: state.model,
+      });
+      saveState();
+      renderFloatingWidget();
+      if (window.App && window.App.utils && window.App.utils.toast) {
+        window.App.utils.toast('Please sign in or create a profile to use AI Advisor.', 'err');
+      }
+      return;
+    }
 
     // Add user message
     const userMsg = {
@@ -617,19 +680,24 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
         body: JSON.stringify(payload),
       });
 
-      let data;
+      let data = null;
       const rawText = await res.text();
       try {
-        data = JSON.parse(rawText);
+        data = rawText ? JSON.parse(rawText) : {};
       } catch (jsonErr) {
         if (!res.ok) {
-          throw new Error(`Server returned HTTP ${res.status} (${res.statusText || 'Error'}). Please verify server connectivity.`);
+          throw new Error(`Server returned HTTP ${res.status} (${res.statusText || 'Error'}).`);
         }
-        throw new Error('Unexpected non-JSON response from server.');
+        // If response is text or html, handle gracefully
+        if (rawText && rawText.length < 500 && !rawText.includes('<html')) {
+          data = { reply: rawText };
+        } else {
+          throw new Error('Server returned an invalid response format. Please retry in a moment.');
+        }
       }
 
       if (!res.ok) {
-        const errorMsg = data.error || (typeof data === 'string' ? data : 'Error communicating with Gemini API');
+        const errorMsg = data?.error || (typeof data === 'string' ? data : `Error ${res.status}: Failed to reach Gemini API`);
         throw new Error(errorMsg);
       }
 

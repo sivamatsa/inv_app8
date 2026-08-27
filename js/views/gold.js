@@ -224,6 +224,7 @@ window.App = window.App || {};
         </div>
         <div class="hint" style="margin-bottom:12px">Every price below is <b>International Spot (converted to INR)</b> via ${activeProvider ? App.utils.escapeHtml(activeProvider.display_name) : 'no provider configured'} - not an Indian jeweller's retail rate (which adds import duty, GST, and local premium on top). See Settings → Gold Price Provider to change source.</div>
         <div class="panel" id="goldLiveCard"></div>
+        <div class="panel" id="goldComparisonPanel" style="background:linear-gradient(135deg,rgba(201,168,76,0.08),rgba(22,201,163,0.08));border:1px solid rgba(201,168,76,0.25)"></div>
         <div class="panel" id="goldChartPanel"></div>
         <div class="grid-2" style="margin-bottom:16px">
           <div class="panel" id="goldRelativePanel"></div>
@@ -244,6 +245,7 @@ window.App = window.App || {};
       });
 
       drawLiveCard(latest, activeProvider, fresh);
+      drawPurchaseComparisonPanel(latest, schemeHoldings, purchases);
       drawChartPanel(allObservations);
       drawRelativePanel(allObservations);
       drawTimingScorePanel(allObservations);
@@ -292,6 +294,85 @@ window.App = window.App || {};
         const pct = prev.price ? (chg / prev.price) * 100 : 0;
         const el = App.utils.qs('#goldTodayChange', host);
         if (el) el.innerHTML = `<span style="color:${chg >= 0 ? 'var(--teal)' : 'var(--red)'}">${chg >= 0 ? '▲' : '▼'} ${App.utils.fmtMoney(Math.abs(chg))} (${App.utils.fmtPct(Math.abs(pct))})</span>`;
+      });
+    }
+
+    function drawPurchaseComparisonPanel(latest, schemeHoldings, purchases) {
+      const host = App.utils.qs('#goldComparisonPanel', pane);
+      const price22k = latest['22K'] ? latest['22K'].price : null;
+      
+      const schemeGrams = schemeHoldings.reduce((a, h) => a + (h.total_grams || 0), 0);
+      const schemePaid = schemeHoldings.reduce((a, h) => a + (h.total_paid || 0), 0);
+      
+      const purchaseGrams = purchases.reduce((a, p) => a + (p.net_grams || p.grams || 0), 0);
+      const purchasePaid = purchases.reduce((a, p) => a + (p.amount_paid || 0), 0);
+      
+      const totalGrams = schemeGrams + purchaseGrams;
+      const totalInvested = schemePaid + purchasePaid;
+      const avgCostPerGram = totalGrams > 0 ? (totalInvested / totalGrams) : 0;
+      
+      const currentValue = price22k ? (totalGrams * price22k) : 0;
+      const totalGainLoss = currentValue > 0 ? (currentValue - totalInvested) : 0;
+      const gainPct = totalInvested > 0 ? ((totalGainLoss / totalInvested) * 100) : 0;
+      
+      // Breakdown comparison against today's spot rate
+      const costDelta = price22k && avgCostPerGram ? (price22k - avgCostPerGram) : 0;
+      const costDeltaPct = avgCostPerGram > 0 ? ((costDelta / avgCostPerGram) * 100) : 0;
+
+      host.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div>
+            <div class="chart-title" style="margin:0;color:var(--gold);display:flex;align-items:center;gap:6px">
+              <span>⚖️</span>
+              <span>How does today's price compare with my previous purchases?</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">Cost-basis intelligence across all scheme installments and physical gold purchases</div>
+          </div>
+          <button class="btn btn-outline btn-sm" id="btnExportGoldCostBasis">📥 Export Basis</button>
+        </div>
+
+        <div class="grid-4" style="gap:10px;margin-bottom:14px">
+          <div class="kpi c-blue">
+            <div class="kpi-label">Weighted Avg Purchase Price</div>
+            <div class="kpi-value">${avgCostPerGram > 0 ? fmtGramPrice(avgCostPerGram) + '/g' : '—'}</div>
+            <div class="kpi-desc">Total ${App.utils.fmtMoney(totalInvested)} for ${App.utils.fmtNum(totalGrams, 2)} g</div>
+          </div>
+
+          <div class="kpi c-gold">
+            <div class="kpi-label">Today's Benchmark Price (22K)</div>
+            <div class="kpi-value">${price22k ? fmtGramPrice(price22k) + '/g' : '—'}</div>
+            <div class="kpi-desc">Current International Spot</div>
+          </div>
+
+          <div class="kpi ${costDelta >= 0 ? 'c-teal' : 'c-red'}">
+            <div class="kpi-label">Spot vs My Purchase Basis</div>
+            <div class="kpi-value">${costDelta >= 0 ? '+' : ''}${fmtGramPrice(costDelta)}/g (${costDeltaPct >= 0 ? '+' : ''}${App.utils.fmtPct(costDeltaPct)})</div>
+            <div class="kpi-desc">${costDelta >= 0 ? 'Purchased below current market' : 'Purchased above current market'}</div>
+          </div>
+
+          <div class="kpi ${totalGainLoss >= 0 ? 'c-teal' : 'c-red'}">
+            <div class="kpi-label">Unrealized Gain / Loss</div>
+            <div class="kpi-value">${totalGainLoss >= 0 ? '+' : ''}${App.utils.fmtMoney(totalGainLoss)} (${gainPct >= 0 ? '+' : ''}${App.utils.fmtPct(gainPct)})</div>
+            <div class="kpi-desc">Current valuation: ${App.utils.fmtMoney(currentValue)}</div>
+          </div>
+        </div>
+
+        <!-- Comparative Insights Box -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.5">
+          <div style="font-weight:700;color:var(--text);margin-bottom:4px">💡 Gold Acquisition Strategy Analysis:</div>
+          <div style="color:var(--text2)">
+            ${totalGrams === 0 ? 'You have not logged any gold purchases or active schemes yet. Use <b>+ Add Purchase</b> or add a scheme from Recurring Investments to enable automatic cost basis tracking.' : `
+              Your combined weighted cost basis is <b>${fmtGramPrice(avgCostPerGram)}/g</b> across <b>${App.utils.fmtNum(totalGrams, 3)} g</b>. 
+              Today's 22K rate is <b>${fmtGramPrice(price22k)}/g</b>, which represents a 
+              <b style="color:${costDelta >= 0 ? 'var(--teal)' : 'var(--red)'}">${costDelta >= 0 ? '+' : ''}${App.utils.fmtPct(costDeltaPct)} ${costDelta >= 0 ? 'profit buffer' : 'dip'}</b> 
+              relative to your historical purchase price points.
+            `}
+          </div>
+        </div>
+      `;
+
+      App.utils.qs('#btnExportGoldCostBasis', host)?.addEventListener('click', async () => {
+        try { await App.exportData.exportSection('gold_purchases'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
       });
     }
 

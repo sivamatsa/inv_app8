@@ -26,12 +26,20 @@ window.App = window.App || {};
     App.utils.qs('#sharedWithMeList', pane).innerHTML = portfolios.map((p) => `
       <div class="risk-item">
         <div style="font-size:18px;width:24px;text-align:center">&#128101;</div>
-        <div style="flex:1"><div class="risk-name">${App.utils.escapeHtml(names[p.owner_user_id] || 'User')}</div><div class="risk-desc">${App.utils.escapeHtml(p.name)} - view only</div></div>
-        <button class="btn btn-outline btn-sm" data-view-owner="${p.owner_user_id}">View Portfolio</button>
+        <div style="flex:1"><div class="risk-name">${App.utils.escapeHtml(names[p.owner_user_id] || 'User')}</div><div class="risk-desc">${App.utils.escapeHtml(p.name)} &middot; Collaborator View</div></div>
+        <button class="btn btn-outline btn-sm" data-view-owner="${p.owner_user_id}" data-portfolio-id="${p.id}">View Portfolio</button>
       </div>`).join('');
 
-    App.utils.qsa('[data-view-owner]', pane).forEach((b) => b.addEventListener('click', () => {
-      App.adminView.openUserDetailModal({ id: b.dataset.viewOwner, full_name: names[b.dataset.viewOwner] });
+    App.utils.qsa('[data-view-owner]', pane).forEach((b) => b.addEventListener('click', async () => {
+      const portfolioId = Number(b.dataset.portfolioId);
+      const members = await App.api.listPortfolioMembers(portfolioId).catch(() => []);
+      const myMembership = members.find((m) => m.member_user_id === myId) || {};
+      const perms = Object.assign({}, myMembership.permissions || {}, { role: myMembership.role || 'Viewer' });
+
+      App.adminView.openUserDetailModal(
+        { id: b.dataset.viewOwner, full_name: names[b.dataset.viewOwner] },
+        perms
+      );
     }));
   }
 
