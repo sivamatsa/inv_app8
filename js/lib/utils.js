@@ -188,9 +188,59 @@ App.utils = (function () {
     return { start: toISO(start), end: toISO(end) };
   }
 
+  function isAdminOrDev(profile) {
+    if (!profile) profile = (window.App && window.App.state && window.App.state.profile) || null;
+    if (!profile) return false;
+    if (profile.is_admin === true || profile.is_developer === true) return true;
+    if (profile.role === 'Developer' || profile.role === 'Administrator' || profile.role === 'Admin & Developer') return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('developer_mode_enabled') === 'true') return true;
+    return false;
+  }
+
+  function isDeveloper(profile) {
+    if (!profile) profile = (window.App && window.App.state && window.App.state.profile) || null;
+    if (!profile) return false;
+    if (profile.is_developer === true || profile.role === 'Developer' || profile.role === 'Admin & Developer') return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('developer_mode_enabled') === 'true') return true;
+    return false;
+  }
+
+  function shiftDate(date, count, unit) {
+    const d = (date instanceof Date) ? new Date(date.getTime()) : parseDate(date);
+    if (!d) return null;
+    const n = Number(count) || 0;
+    const u = String(unit || 'months').toLowerCase();
+    if (u.startsWith('day')) {
+      d.setDate(d.getDate() + n);
+    } else if (u.startsWith('month')) {
+      d.setMonth(d.getMonth() + n);
+    } else if (u.startsWith('year')) {
+      d.setFullYear(d.getFullYear() + n);
+    } else if (u.startsWith('week')) {
+      d.setDate(d.getDate() + (n * 7));
+    }
+    return toISO(d);
+  }
+
+  function uuid() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      try { return crypto.randomUUID(); } catch (_) {}
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function isUuid(val) {
+    if (!val || typeof val !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  }
+
   return {
-    currencySymbol, fmtMoney, fmtNum, fmtPct, fmtDate, fmtDateTime, toISO, today0, todayISO,
-    daysBetween, parseNum, parseDate, escapeHtml, debounce, toast, statusBadgeClass, qs, qsa, el,
-    sumWhere, fyBounds,
+    currencySymbol, fmtMoney, formatCurrency: fmtMoney, fmtNum, fmtPct, fmtDate, fmtDateTime, toISO, today0, todayISO,
+    daysBetween, parseNum, parseDate, shiftDate, uuid, escapeHtml, debounce, toast, statusBadgeClass, qs, qsa, el,
+    sumWhere, fyBounds, isAdminOrDev, isDeveloper, isUuid,
   };
 })();

@@ -4,12 +4,25 @@
 window.App = window.App || {};
 
 (function () {
+  const CURRENCY_OPTIONS = [
+    { value: 'INR', label: '🇮🇳 INR - Indian Rupee (₹)' },
+    { value: 'USD', label: '🇺🇸 USD - US Dollar ($)' },
+    { value: 'EUR', label: '🇪🇺 EUR - Euro (€)' },
+    { value: 'GBP', label: '🇬🇧 GBP - British Pound (£)' },
+    { value: 'AED', label: '🇦🇪 AED - UAE Dirham (AED)' },
+    { value: 'SGD', label: '🇸🇬 SGD - Singapore Dollar (S$)' },
+    { value: 'CAD', label: '🇨🇦 CAD - Canadian Dollar (C$)' },
+    { value: 'AUD', label: '🇦🇺 AUD - Australian Dollar (A$)' },
+    { value: 'JPY', label: '🇯🇵 JPY - Japanese Yen (¥)' },
+    { value: 'CHF', label: '🇨🇭 CHF - Swiss Franc (Fr)' },
+  ];
+
   const PROFILE_FIELDS = [
     { key: 'full_name', label: 'Full Name' },
     { key: 'mobile', label: 'Mobile' },
     { key: 'city', label: 'City' },
     { key: 'country', label: 'Country' },
-    { key: 'preferred_currency', label: 'Preferred Currency', placeholder: 'INR' },
+    { key: 'preferred_currency', label: 'Base Account Currency', type: 'select', options: CURRENCY_OPTIONS },
     { key: 'timezone', label: 'Timezone', placeholder: 'Asia/Kolkata' },
     { key: 'financial_year_start_month', label: 'FY Start Month (1-12)', type: 'number' },
     { key: 'financial_year_start_day', label: 'FY Start Day', type: 'number' },
@@ -71,6 +84,33 @@ window.App = window.App || {};
         <div class="chart-title" style="margin-bottom:10px">Profile</div>
         <div id="profileFormHost"></div>
         <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold" id="saveProfileBtn">Save Profile</button></div>
+      </div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <div class="chart-title">Display Currency &amp; Forex Conversion</div>
+          <button class="btn btn-outline btn-sm" id="syncForexRatesBtn">&#8635; Refresh Live Forex Rates</button>
+        </div>
+        <div class="hint" style="margin-bottom:14px">Choose your preferred portfolio display currency. All investment deals, payments, expense budgets, and net worth charts automatically convert to this currency using live exchange rates.</div>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;align-items:end">
+          <div class="field">
+            <label>Switch Display Currency</label>
+            <select id="settingsActiveCurrencySelect" class="search-input" style="width:100%"></select>
+          </div>
+          <div style="background:var(--card);padding:12px 16px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Active Format Preview (1,00,000 INR)</div>
+              <div id="settingsCurrencyPreview" style="font-size:16px;font-weight:700;color:var(--gold,#c9a84c);margin-top:2px"></div>
+            </div>
+            <div id="settingsCurrencyFlag" style="font-size:24px"></div>
+          </div>
+        </div>
+
+        <div style="font-size:12.5px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <span>Benchmark Conversion Rates (Base: 1 INR)</span>
+          <span id="settingsRatesLastSync" style="font-size:11px;font-weight:400;color:var(--text3)"></span>
+        </div>
+        <div class="table-scroll"><table class="data" id="settingsRatesTable"></table></div>
       </div>
       <div class="panel">
         <div class="chart-title" style="margin-bottom:10px">Privacy &amp; Contacts</div>
@@ -150,26 +190,15 @@ window.App = window.App || {};
       </div>
       <div class="panel">
         <div class="chart-title" style="margin-bottom:6px">Notification Delivery, by Type</div>
-        <div class="hint" style="margin-bottom:10px">Choose exactly which channels each kind of notification is allowed to reach. Unchecking every box for a type means it generates nothing on any channel - the record still exists (visible to admin in Audit History), it just never reaches you.</div>
+        <div class="hint" style="margin-bottom:10px">Choose exactly which channels each kind of notification is allowed to reach. Unchecking every box for a type means it generates nothing on any channel - the notification setting applies to all your devices.</div>
         <div class="table-scroll" style="max-height:360px"><table class="data" id="notifTypeMatrix"></table></div>
       </div>
-      ${isAdminUser ? `<div class="panel">
-        <div class="chart-title" style="margin-bottom:6px">Audit History <span style="color:var(--text3);font-weight:400;font-size:12px">(Admin Only)</span></div>
-        <div class="hint" style="margin-bottom:10px">Every change to Deals/Payments/Payment Schedule/Reinvestments/Recurring Items/Recurring Occurrences is logged to <code>audit_logs</code> for traceability. Disabling this stops FUTURE rows from being written (reduces ongoing database growth) - it does not delete history already recorded.</div>
-        <div id="auditHistoryStatus" class="hint" style="margin-bottom:8px"></div>
-        <button class="btn btn-outline btn-sm" id="toggleAuditHistoryBtn"></button>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
-          <div class="chart-title" style="margin-bottom:6px;font-size:13px">Benchmark Reference Rate</div>
-          <div class="hint" style="margin-bottom:8px">The flat comparison line on Analytics &rarr; Benchmark Comparison. A manual assumption, not a live rate - there's no clean free API for one.</div>
-          <div style="display:flex;gap:8px;align-items:center"><input id="fdReferenceRateInput" type="number" step="0.1" class="search-input" style="width:100px"> <span class="hint" style="margin:0">% per year (FD reference)</span> <button class="btn btn-outline btn-sm" id="saveFdRateBtn">Save</button></div>
-        </div>
-      </div>` : ''}
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div class="chart-title">Backup &amp; Disaster Recovery</div>
           <button class="btn btn-outline btn-sm" id="exportAllBtn">&#8595; Export All My Data</button>
         </div>
-        <div class="hint">Downloads every section you have access to as one Excel workbook (one sheet per section) - Platforms, Deals, Payment Schedule, Payments, Recurring Items/Occurrences, Contacts, Gold Purchases, Accounts, Liabilities, Expense Projects/Transactions/Vendors, Notes, Documents, Goals, Tax Records, Audit History, and Import History. Individual sections also have their own Export button on their own page.</div>
+        <div class="hint">Downloads every section you have access to as one Excel workbook (one sheet per section) - Platforms, Deals, Payment Schedule, Payments, Recurring Items/Occurrences, Contacts, Gold Purchases, Accounts, Liabilities, Expense Projects/Transactions/Vendors, Notes, Documents, Goals, Tax Records, and Import History. Individual sections also have their own Export button on their own page.</div>
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border2)">
           <div class="chart-title" style="margin-bottom:8px">Restore from Backup</div>
           <div class="hint" style="margin-bottom:10px">Restore is <b>additive only</b> - it adds new rows from a previous "Export All" workbook, it never updates or deletes anything already in your account. Only use this to rebuild an empty or damaged project after data loss - running it against a project that still has your data will create duplicates.</div>
@@ -192,46 +221,119 @@ window.App = window.App || {};
         <div class="table-scroll"><table class="data" id="platformsTable"></table></div>
       </div>
       <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <div class="chart-title">Gold Price Provider</div>
-          <button class="btn btn-outline btn-sm" id="goldRefreshNowBtn">&#8635; Refresh Now</button>
-        </div>
-        <div class="hint" style="margin-bottom:12px">Powers Gold Intelligence's live price feed. Every provider converts international spot gold to INR - none give a genuine Indian retail rate.</div>
-        <div id="goldProviderList"></div>
-        <div id="goldAdminHint"></div>
-      </div>
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:4px">AI Model Provider</div>
-        <div class="hint" style="margin-bottom:12px">Powers the AI Portfolio Copilot. Pick whichever provider you actually have an API key for - only the active one's secret needs to be set.</div>
-        <div id="aiProviderList"></div>
-        <div id="aiAdminHint"></div>
-      </div>
-      <div class="panel">
         <div class="chart-title" style="margin-bottom:4px">Future Integrations</div>
         <div class="hint" style="margin-bottom:12px">Interfaces exist for these (spec Section 50); none call an external service yet since that needs credentials and a server-side secret this build doesn't have. Status shown reflects what's actually wired up, not aspirational.</div>
         <div class="card-row" id="integrationsList"></div>
         <div class="hint" style="margin-top:10px">Note on "WhatsApp" above: that card is specifically about the official WhatsApp Business Platform/API (not connected). Plain click-to-chat WhatsApp links already work today from every Contact's action bar - no integration needed for that part.</div>
-      </div>
-      ${showConnectionPanel ? `<div class="panel">
-        <div class="chart-title" style="margin-bottom:4px">Supabase Connection <span style="color:var(--text3);font-weight:400;font-size:12px">(Admin Only)</span></div>
-        <div class="hint" style="margin-bottom:12px">Every user's browser connects to the same project by default, baked into the app itself - nobody sees a "paste your project URL" screen anymore. Saving a new connection here only reconnects <b>this one browser</b>; to change it for every user, edit the <code>DEFAULT_CONFIG</code> values in <code>web/js/lib/supabaseClient.js</code> and redeploy.</div>
-        <div class="field span2" style="margin-bottom:10px"><label>This Browser Is Connected To</label><input id="currentSupabaseUrl" readonly></div>
-        <div class="field span2" style="margin-bottom:10px"><label>New Project URL</label><input id="newSupabaseUrl" placeholder="https://xxxxxxxxxxxx.supabase.co"></div>
-        <div class="field span2" style="margin-bottom:10px"><label>New Publishable / Anon Key</label><input id="newSupabaseKey" placeholder="sb_publishable_... or eyJ..."></div>
-        <div class="auth-error" id="connectionError"></div>
-        <div class="modal-actions" style="justify-content:flex-start">
-          <button class="btn btn-outline btn-sm" id="saveConnectionBtn">Save &amp; Reconnect This Browser</button>
-          <button class="btn btn-outline btn-sm" id="resetConnectionBtn" style="display:none">Reset This Browser to App Default</button>
-        </div>
-      </div>` : ''}`;
+      </div>`;
 
     const profile = await App.api.getProfile();
     App.utils.qs('#profileFormHost', pane).innerHTML = App.ui.renderForm(PROFILE_FIELDS, profile || {});
     App.utils.qs('#saveProfileBtn', pane).addEventListener('click', async () => {
       const { values } = App.ui.readForm(PROFILE_FIELDS);
-      try { await App.api.updateProfile(values); App.state.profile = await App.api.getProfile(); App.utils.toast('Profile saved'); }
-      catch (e) { App.utils.toast('Could not save profile: ' + (e.message || e), 'err'); }
+      try {
+        await App.api.updateProfile(values);
+        App.state.profile = await App.api.getProfile();
+        if (values.preferred_currency && App.currency) {
+          App.currency.setActiveCurrency(values.preferred_currency);
+          updateCurrencySectionUI();
+        }
+        App.utils.toast('Profile saved');
+      } catch (e) {
+        App.utils.toast('Could not save profile: ' + (e.message || e), 'err');
+      }
     });
+
+    // ---- Display Currency & Forex Conversion panel ----
+    const activeCurrSelect = App.utils.qs('#settingsActiveCurrencySelect', pane);
+    const currPreviewEl = App.utils.qs('#settingsCurrencyPreview', pane);
+    const currFlagEl = App.utils.qs('#settingsCurrencyFlag', pane);
+    const ratesTable = App.utils.qs('#settingsRatesTable', pane);
+    const ratesLastSync = App.utils.qs('#settingsRatesLastSync', pane);
+    const syncRatesBtn = App.utils.qs('#syncForexRatesBtn', pane);
+
+    function updateCurrencySectionUI() {
+      const activeCurr = (App.currency && App.currency.getActiveCurrency()) || 'INR';
+      if (activeCurrSelect) {
+        activeCurrSelect.innerHTML = CURRENCY_OPTIONS.map((c) => `<option value="${c.value}" ${c.value === activeCurr ? 'selected' : ''}>${c.label}</option>`).join('');
+      }
+      const meta = (App.currency && App.currency.getCurrencyMeta(activeCurr)) || { symbol: '₹', flag: '🇮🇳' };
+      if (currPreviewEl && App.currency) {
+        currPreviewEl.textContent = App.currency.formatConverted(100000, activeCurr);
+      }
+      if (currFlagEl) {
+        currFlagEl.textContent = meta.flag || '';
+      }
+
+      if (ratesTable && App.currency) {
+        const allRates = App.currency.getAllRates();
+        const lastUpdated = App.currency.getLastUpdated();
+        if (ratesLastSync) {
+          ratesLastSync.textContent = lastUpdated ? `Last updated: ${App.utils.fmtDateTime(lastUpdated)}` : 'Benchmark default rates loaded';
+        }
+        ratesTable.innerHTML = `
+          <thead>
+            <tr>
+              <th>Currency</th>
+              <th>Code</th>
+              <th>Symbol</th>
+              <th>Rate (vs 1 INR)</th>
+              <th>1 Unit in INR</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.keys(App.currency.DEFAULT_RATES).map((code) => {
+              const cm = App.currency.getCurrencyMeta(code);
+              const rate = allRates[code] || 1;
+              const inrPerUnit = (code === 'INR') ? 1 : (1 / rate);
+              const isActive = (code === activeCurr);
+              return `
+                <tr style="${isActive ? 'background:rgba(201,168,76,0.08);font-weight:600' : ''}">
+                  <td><span style="margin-right:6px">${cm.flag || ''}</span>${App.utils.escapeHtml(cm.name || code)}</td>
+                  <td><span class="badge ${isActive ? 'st-active' : ''}">${code}</span></td>
+                  <td>${cm.symbol || code}</td>
+                  <td style="font-family:monospace">${rate < 0.01 ? rate.toFixed(6) : rate.toFixed(4)}</td>
+                  <td style="font-family:monospace">₹${inrPerUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td>${isActive ? '<span style="color:var(--gold,#c9a84c)">● Active Display</span>' : '<span style="color:var(--text3)">Available</span>'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>`;
+      }
+    }
+
+    updateCurrencySectionUI();
+
+    if (activeCurrSelect && App.currency) {
+      activeCurrSelect.addEventListener('change', async (e) => {
+        const newCurr = e.target.value;
+        App.currency.setActiveCurrency(newCurr);
+        try {
+          await App.api.updateProfile({ preferred_currency: newCurr });
+          if (App.state.profile) App.state.profile.preferred_currency = newCurr;
+        } catch (_) {}
+        const profilePrefCurr = App.utils.qs('#fld_preferred_currency', pane);
+        if (profilePrefCurr) profilePrefCurr.value = newCurr;
+        updateCurrencySectionUI();
+        App.utils.toast(`Display currency switched to ${newCurr}`);
+      });
+    }
+
+    if (syncRatesBtn && App.currency) {
+      syncRatesBtn.addEventListener('click', async () => {
+        syncRatesBtn.disabled = true;
+        syncRatesBtn.textContent = 'Syncing...';
+        const res = await App.currency.fetchLiveRates();
+        syncRatesBtn.disabled = false;
+        syncRatesBtn.innerHTML = '&#8635; Refresh Live Forex Rates';
+        if (res && res.success) {
+          App.utils.toast('Live forex exchange rates updated successfully');
+        } else {
+          App.utils.toast('Using standard benchmark exchange rates (offline / cached)');
+        }
+        updateCurrencySectionUI();
+      });
+    }
 
     // ---- Customize Sidebar (032_ui_and_notification_preferences.sql,
     // profiles.ui_preferences) - reorder within a group via up/down (not
@@ -416,7 +518,7 @@ window.App = window.App || {};
     await drawNotifTypeMatrix();
 
     if (isAdminUser) {
-      App.utils.qs('#triggerEmailsNowBtn', pane).addEventListener('click', async (e) => {
+      App.utils.qs('#triggerEmailsNowBtn', pane)?.addEventListener('click', async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true; btn.textContent = 'Sending...';
         try {
@@ -427,30 +529,6 @@ window.App = window.App || {};
           renderEmailLastSentHint(freshPrefs && freshPrefs.last_email_digest_sent_at);
         } catch (err) { App.utils.toast('Could not trigger emails: ' + (err.message || err), 'err'); }
         finally { btn.disabled = false; btn.innerHTML = '&#9993; Trigger Emails Now'; }
-      });
-
-      // ---- Audit History enable/disable (022) ----
-      async function drawAuditHistoryToggle() {
-        const appSettings = await App.api.getAppSettings();
-        const enabled = !appSettings || appSettings.audit_history_enabled !== false;
-        App.utils.qs('#auditHistoryStatus', pane).innerHTML = enabled
-          ? 'Currently <b style="color:var(--teal)">enabled</b> - every change is being logged.'
-          : 'Currently <b style="color:var(--gold)">disabled</b> - new changes are not being logged.';
-        const btn = App.utils.qs('#toggleAuditHistoryBtn', pane);
-        btn.textContent = enabled ? 'Disable Audit History' : 'Enable Audit History';
-        btn.onclick = async () => {
-          try { await App.api.updateAppSettings({ audit_history_enabled: !enabled }); App.utils.toast(enabled ? 'Audit History disabled' : 'Audit History enabled'); await drawAuditHistoryToggle(); }
-          catch (err) { App.utils.toast('Could not update: ' + (err.message || err), 'err'); }
-        };
-      }
-      drawAuditHistoryToggle();
-
-      // ---- Benchmark reference rate (026) ----
-      App.api.getAppSettings().then((s) => { App.utils.qs('#fdReferenceRateInput', pane).value = (s && s.fd_reference_rate != null) ? s.fd_reference_rate : 7.0; });
-      App.utils.qs('#saveFdRateBtn', pane).addEventListener('click', async () => {
-        const rate = App.utils.parseNum(App.utils.qs('#fdReferenceRateInput', pane).value);
-        try { await App.api.updateAppSettings({ fd_reference_rate: rate }); App.utils.toast('Reference rate saved'); }
-        catch (err) { App.utils.toast('Could not update: ' + (err.message || err), 'err'); }
       });
     }
 
@@ -607,408 +685,6 @@ window.App = window.App || {};
       }).join('');
     }
     await drawIntegrations();
-
-    // ---- Gold Price Provider (Gold Intelligence addendum) - everyone can
-    // see current provider + quota; only admin can change the active one
-    // or add a custom provider, same read/write split as the underlying
-    // gold_providers RLS policies. (isAdminUser is declared once, at the
-    // top of renderSettingsView, since the Supabase Connection panel's HTML
-    // above also needs it before this point in the file runs.) ----
-    async function drawGoldProviders() {
-      const [settings, providers] = await Promise.all([App.api.getGoldSettings(), App.api.listGoldProviders()]);
-      App.utils.qs('#goldProviderList', pane).innerHTML = providers.map((p) => {
-        const active = settings && settings.active_provider_key === p.key;
-        const quota = p.requests_limit != null ? `${p.requests_used_this_period} / ${p.requests_limit} requests this period` : 'No fixed limit';
-        const statusCls = p.last_fetch_status === 'ok' ? 'st-active' : p.last_fetch_status === 'error' ? 'st-overdue' : 'st-cancelled';
-        return `<div class="stat-line">
-          <span>${isAdminUser
-            ? `<input type="radio" name="goldActiveProvider" data-provider-key="${p.key}" ${active ? 'checked' : ''} style="margin-right:6px">`
-            : (active ? '&#9733; ' : '')}${App.utils.escapeHtml(p.display_name)}</span>
-          <span class="v" style="font-weight:400;font-size:11.5px"><span class="badge ${statusCls}">${p.last_fetch_status}</span> &middot; ${quota}${p.last_fetch_at ? ' &middot; ' + App.utils.fmtDateTime(p.last_fetch_at) : ''}
-            ${isAdminUser && p.kind === 'custom' ? `<button class="icon-btn del" data-del-provider="${p.key}" style="margin-left:8px" title="Remove">&#128465;</button>` : ''}</span>
-        </div>`;
-      }).join('');
-      App.utils.qs('#goldAdminHint', pane).innerHTML = isAdminUser
-        ? `<div class="modal-actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-outline btn-sm" id="addCustomProviderBtn">+ Add Custom Provider</button></div>`
-        : `<div class="hint" style="margin-top:8px">Only an admin account can change the active provider or add a custom one.</div>`;
-
-      if (isAdminUser) {
-        App.utils.qsa('[data-provider-key]', pane).forEach((r) => r.addEventListener('change', async () => {
-          try { await App.api.updateGoldSettings({ active_provider_key: r.dataset.providerKey }); App.utils.toast('Active gold provider updated'); }
-          catch (e) { App.utils.toast('Could not update: ' + (e.message || e), 'err'); drawGoldProviders(); }
-        }));
-        App.utils.qsa('[data-del-provider]', pane).forEach((b) => b.addEventListener('click', () => {
-          const providerKey = b.dataset.delProvider;
-          App.ui.open({
-            small: true,
-            title: 'Remove Gold Provider',
-            bodyHtml: `<div style="line-height:1.5;color:var(--text2)">Are you sure you want to remove the custom gold provider <code>${App.utils.escapeHtml(providerKey)}</code>?</div>`,
-            actions: [
-              { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-              {
-                label: 'Remove Provider',
-                className: 'btn-outline',
-                onClick: async () => {
-                  try {
-                    await App.api.deleteGoldProvider(providerKey);
-                    App.ui.close();
-                    App.utils.toast('Custom gold provider removed');
-                    drawGoldProviders();
-                  } catch (e) {
-                    App.utils.toast('Could not remove: ' + (e.message || e), 'err');
-                  }
-                },
-              },
-            ],
-          });
-        }));
-        const addBtn = App.utils.qs('#addCustomProviderBtn', pane);
-        if (addBtn) addBtn.addEventListener('click', openCustomProviderForm);
-      }
-    }
-
-    function openCustomProviderForm() {
-      const fields = [
-        { key: 'display_name', label: 'Provider Name', required: true },
-        { key: 'base_url', label: 'API Base URL (full endpoint)', required: true, span: 2 },
-        { key: 'auth_style', label: 'Where does the API key go?', type: 'select', options: ['header', 'query_param', 'bearer', 'none'], required: true },
-        { key: 'auth_key_name', label: 'Header/Param Name (e.g. x-access-token, apikey)' },
-        { key: 'auth_secret_name', label: 'Supabase Secret Name (must start with GOLD_CUSTOM_)' },
-        { key: 'spot_path', label: 'Dot-path to spot price in the response (e.g. rates.INR)', required: true },
-        { key: 'spot_unit', label: 'That price is per', type: 'select', options: [{ value: 'troy_oz', label: 'Troy Ounce' }, { value: 'gram', label: 'Gram' }], required: true },
-        { key: 'currency', label: 'Currency of that price', placeholder: 'INR' },
-      ];
-      App.ui.open({
-        title: 'Add Custom Gold Provider',
-        bodyHtml: `<div class="hint" style="margin-bottom:10px">You'll still need to set the actual API key yourself via the Supabase CLI (<code>supabase secrets set YOUR_SECRET_NAME=...</code>) - this form only tells the Edge Function how to call the API and where to find that secret. See the README's Gold Intelligence section for the full runbook.</div>${App.ui.renderForm(fields, { auth_style: 'header', spot_unit: 'troy_oz', currency: 'INR' })}`,
-        actions: [
-          { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-          { label: 'Save', className: 'btn-gold', onClick: async () => {
-            const { values, errors } = App.ui.readForm(fields);
-            if (errors.length) { App.utils.toast('Fill in the required fields', 'err'); return; }
-            if (values.auth_secret_name && !values.auth_secret_name.startsWith('GOLD_CUSTOM_')) {
-              App.utils.toast('Secret name must start with GOLD_CUSTOM_', 'err'); return;
-            }
-            const key = 'custom_' + values.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-            const { display_name, base_url, auth_style, auth_key_name, auth_secret_name, spot_path, spot_unit, currency } = values;
-            try {
-              await App.api.createGoldProvider({
-                key, kind: 'custom', display_name,
-                custom_config: { base_url, auth_style, auth_key_name, auth_secret_name, spot_path, spot_unit, currency: currency || 'INR' },
-              });
-              App.ui.close(); App.utils.toast('Custom provider added'); drawGoldProviders();
-            } catch (e) { App.utils.toast('Could not save: ' + (e.message || e), 'err'); }
-          } },
-        ],
-      });
-    }
-
-    App.utils.qs('#goldRefreshNowBtn', pane).addEventListener('click', async (e) => {
-      e.target.disabled = true;
-      try { await App.api.refreshGoldPrice(); App.utils.toast('Gold prices refreshed'); drawGoldProviders(); }
-      catch (err) { App.utils.toast('Could not refresh: ' + (err.message || err), 'err'); }
-      e.target.disabled = false;
-    });
-    await drawGoldProviders();
-
-    // ---- AI Model Provider (AI Copilot Multi-Provider addendum) - same
-    // read/write split as Gold Price Provider above: everyone sees the
-    // active provider + status, only admin can change it or add a custom
-    // one. No "Refresh Now" button - unlike gold prices there's nothing to
-    // proactively fetch, the Copilot is on-demand only. ----
-    async function drawAiProviders() {
-      const [settings, providers] = await Promise.all([App.api.getAiSettings(), App.api.listAiProviders()]);
-      const activeKey = settings && settings.active_provider_key;
-      App.utils.qs('#aiProviderList', pane).innerHTML = providers.map((p) => {
-        const active = activeKey === p.key;
-        const quota = p.requests_limit != null ? `~${p.requests_limit} requests/day free tier (reference only)` : 'No documented free-tier limit';
-        const statusCls = p.last_status === 'ok' ? 'st-active' : p.last_status === 'error' ? 'st-overdue' : 'st-cancelled';
-        return `<div class="stat-line">
-          <span>${isAdminUser
-            ? `<input type="radio" name="aiActiveProvider" data-ai-provider-key="${p.key}" ${active ? 'checked' : ''} style="margin-right:6px">`
-            : (active ? '&#9733; ' : '')}${App.utils.escapeHtml(p.display_name)} <span style="color:var(--text3);font-weight:400">(${App.utils.escapeHtml(p.model_id)})</span></span>
-          <span class="v" style="font-weight:400;font-size:11.5px"><span class="badge ${statusCls}">${p.last_status}</span> &middot; ${quota}${p.last_used_at ? ' &middot; last used ' + App.utils.fmtDateTime(p.last_used_at) : ''}
-            ${isAdminUser ? `<button class="icon-btn" data-edit-ai-provider="${p.key}" style="margin-left:8px;font-size:12px" title="Edit Provider / Model">&#9998; Edit</button>` : ''}
-            ${isAdminUser && p.kind === 'custom' ? `<button class="icon-btn del" data-del-ai-provider="${p.key}" data-provider-name="${App.utils.escapeHtml(p.display_name)}" style="margin-left:4px" title="Remove">&#128465;</button>` : ''}</span>
-        </div>`;
-      }).join('');
-      App.utils.qs('#aiAdminHint', pane).innerHTML = isAdminUser
-        ? `<div class="modal-actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-outline btn-sm" id="addCustomAiProviderBtn">+ Add Custom Provider</button></div>`
-        : `<div class="hint" style="margin-top:8px">Only an admin account can change the active provider or add a custom one.</div>`;
-
-      if (isAdminUser) {
-        App.utils.qsa('[data-ai-provider-key]', pane).forEach((r) => r.addEventListener('change', async () => {
-          try { await App.api.updateAiSettings({ active_provider_key: r.dataset.aiProviderKey }); App.utils.toast('Active AI provider updated'); }
-          catch (e) { App.utils.toast('Could not update: ' + (e.message || e), 'err'); drawAiProviders(); }
-        }));
-        App.utils.qsa('[data-edit-ai-provider]', pane).forEach((b) => b.addEventListener('click', () => {
-          const key = b.dataset.editAiProvider;
-          const provider = providers.find((p) => p.key === key);
-          if (provider) openEditAiProviderModal(provider, activeKey);
-        }));
-        App.utils.qsa('[data-del-ai-provider]', pane).forEach((b) => b.addEventListener('click', () => {
-          const key = b.dataset.delAiProvider;
-          const name = b.dataset.providerName || key;
-          confirmDeleteAiProvider(key, name);
-        }));
-        const addBtn = App.utils.qs('#addCustomAiProviderBtn', pane);
-        if (addBtn) addBtn.addEventListener('click', openCustomAiProviderForm);
-      }
-    }
-
-    function openEditAiProviderModal(p, activeKey) {
-      const isCustom = p.kind === 'custom';
-      const isGemini = p.kind === 'google_gemini';
-      const isAnthropic = p.kind === 'anthropic';
-
-      // Presets for quick selection
-      let presets = [];
-      if (isGemini) {
-        presets = [
-          { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Recommended)' },
-          { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Reasoning)' },
-          { id: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
-          { id: 'gemini-1.5-pro', label: 'gemini-1.5-pro' },
-          { id: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
-        ];
-      } else if (isAnthropic) {
-        presets = [
-          { id: 'claude-3-7-sonnet-20250219', label: 'claude-3-7-sonnet-20250219 (Latest)' },
-          { id: 'claude-sonnet-5', label: 'claude-sonnet-5' },
-          { id: 'claude-3-5-sonnet-20241022', label: 'claude-3-5-sonnet' },
-          { id: 'claude-3-5-haiku-20241022', label: 'claude-3-5-haiku' },
-        ];
-      } else {
-        presets = [
-          { id: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile' },
-          { id: 'deepseek-chat', label: 'deepseek-chat' },
-          { id: 'gpt-4o-mini', label: 'gpt-4o-mini' },
-          { id: 'mixtral-8x7b-32768', label: 'mixtral-8x7b' },
-        ];
-      }
-
-      const customCfg = p.custom_config || {};
-      const isActive = activeKey === p.key;
-
-      const bodyHtml = `
-        <div style="background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-          <div>
-            <div style="font-weight:600;font-size:13.5px;color:var(--text)">${App.utils.escapeHtml(p.display_name)}</div>
-            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Key: <code>${App.utils.escapeHtml(p.key)}</code> &middot; Kind: <span class="badge st-active" style="text-transform:uppercase;font-size:10px">${App.utils.escapeHtml(p.kind)}</span></div>
-          </div>
-          ${isActive ? '<span class="badge st-active">&#9733; Current Active Provider</span>' : ''}
-        </div>
-
-        <div class="form-grid">
-          <div class="field span2">
-            <label>Provider Display Name <span class="req">*</span></label>
-            <input type="text" id="editAiDisplayName" value="${App.utils.escapeHtml(p.display_name || '')}" placeholder="e.g. Google Gemini (AI Studio)" required>
-          </div>
-
-          <div class="field span2">
-            <label>Model ID <span class="req">*</span></label>
-            <input type="text" id="editAiModelId" value="${App.utils.escapeHtml(p.model_id || '')}" placeholder="e.g. gemini-2.5-flash" required>
-            <div style="margin-top:8px">
-              <div style="font-size:11.5px;color:var(--text2);margin-bottom:6px;font-weight:500">Quick-Select Model Presets:</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap" id="modelPresetChips">
-                ${presets.map((pr) => `
-                  <button type="button" class="btn btn-outline btn-xs model-preset-btn ${p.model_id === pr.id ? 'btn-gold' : ''}" data-model-id="${App.utils.escapeHtml(pr.id)}" style="font-size:11px;padding:3px 8px;cursor:pointer">
-                    ${App.utils.escapeHtml(pr.label)}
-                  </button>
-                `).join('')}
-              </div>
-            </div>
-          </div>
-
-          ${isCustom ? `
-            <div class="field span2">
-              <label>API Base URL (OpenAI-compatible) <span class="req">*</span></label>
-              <input type="text" id="editAiBaseUrl" value="${App.utils.escapeHtml(customCfg.base_url || '')}" placeholder="https://api.groq.com/openai/v1">
-            </div>
-            <div class="field span2">
-              <label>Supabase Secret Name (must start with COPILOT_CUSTOM_)</label>
-              <input type="text" id="editAiSecretName" value="${App.utils.escapeHtml(customCfg.auth_secret_name || '')}" placeholder="COPILOT_CUSTOM_GROQ_API_KEY">
-            </div>
-          ` : ''}
-
-          <div class="field">
-            <label>Daily Request Limit (Reference Quota)</label>
-            <input type="number" id="editAiRequestsLimit" value="${p.requests_limit != null ? p.requests_limit : ''}" placeholder="e.g. 250">
-          </div>
-
-          <div class="field" style="display:flex;flex-direction:column;justify-content:center">
-            <label style="cursor:pointer;display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px">
-              <input type="checkbox" id="editAiSetActive" ${isActive ? 'checked' : ''}>
-              <span style="font-weight:500">Set as active AI provider</span>
-            </label>
-          </div>
-        </div>
-      `;
-
-      App.ui.open({
-        title: `Edit AI Provider — ${p.display_name}`,
-        bodyHtml,
-        onMount: (modalBody) => {
-          const modelInput = App.utils.qs('#editAiModelId', modalBody);
-          const presetBtns = App.utils.qsa('.model-preset-btn', modalBody);
-          presetBtns.forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-              e.preventDefault();
-              const val = btn.dataset.modelId;
-              if (val && modelInput) {
-                modelInput.value = val;
-                presetBtns.forEach((b) => b.classList.remove('btn-gold'));
-                btn.classList.add('btn-gold');
-              }
-            });
-          });
-        },
-        actions: [
-          { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-          {
-            label: 'Save Changes',
-            className: 'btn-gold',
-            onClick: async () => {
-              const displayName = (App.utils.qs('#editAiDisplayName')?.value || '').trim();
-              const modelId = (App.utils.qs('#editAiModelId')?.value || '').trim();
-              const requestsLimitVal = App.utils.qs('#editAiRequestsLimit')?.value;
-              const requestsLimit = requestsLimitVal !== '' && requestsLimitVal != null ? parseInt(requestsLimitVal, 10) : null;
-              const setActive = App.utils.qs('#editAiSetActive')?.checked;
-
-              if (!displayName) {
-                App.utils.toast('Provider name is required', 'err');
-                return;
-              }
-              if (!modelId) {
-                App.utils.toast('Model ID is required', 'err');
-                return;
-              }
-
-              const patch = {
-                display_name: displayName,
-                model_id: modelId,
-                requests_limit: isNaN(requestsLimit) ? null : requestsLimit,
-              };
-
-              if (isCustom) {
-                const baseUrl = (App.utils.qs('#editAiBaseUrl')?.value || '').trim();
-                const secretName = (App.utils.qs('#editAiSecretName')?.value || '').trim();
-                if (!baseUrl) {
-                  App.utils.toast('API Base URL is required for custom providers', 'err');
-                  return;
-                }
-                if (secretName && !secretName.startsWith('COPILOT_CUSTOM_')) {
-                  App.utils.toast('Secret name must start with COPILOT_CUSTOM_', 'err');
-                  return;
-                }
-                patch.custom_config = {
-                  base_url: baseUrl,
-                  auth_secret_name: secretName || null,
-                };
-              }
-
-              try {
-                await App.api.updateAiProvider(p.key, patch);
-                if (setActive) {
-                  await App.api.updateAiSettings({ active_provider_key: p.key });
-                }
-                App.ui.close();
-                App.utils.toast(`AI Provider "${displayName}" updated`);
-                drawAiProviders();
-              } catch (e) {
-                App.utils.toast('Could not save provider: ' + (e.message || e), 'err');
-              }
-            },
-          },
-        ],
-      });
-    }
-
-    function confirmDeleteAiProvider(providerKey, displayName) {
-      App.ui.open({
-        small: true,
-        title: 'Remove AI Provider',
-        bodyHtml: `<div style="line-height:1.5;color:var(--text2)">Are you sure you want to remove the custom AI provider <b>${App.utils.escapeHtml(displayName)}</b> (<code>${App.utils.escapeHtml(providerKey)}</code>)?</div>`,
-        actions: [
-          { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-          {
-            label: 'Remove Provider',
-            className: 'btn-outline',
-            onClick: async () => {
-              try {
-                await App.api.deleteAiProvider(providerKey);
-                App.ui.close();
-                App.utils.toast('Custom AI provider removed');
-                drawAiProviders();
-              } catch (e) {
-                App.utils.toast('Could not remove: ' + (e.message || e), 'err');
-              }
-            },
-          },
-        ],
-      });
-    }
-
-    function openCustomAiProviderForm() {
-      const fields = [
-        { key: 'display_name', label: 'Provider Name', required: true },
-        { key: 'model_id', label: 'Model ID (e.g. llama-3.3-70b-versatile)', required: true },
-        { key: 'base_url', label: 'API Base URL (no trailing /chat/completions)', required: true, span: 2, placeholder: 'https://api.groq.com/openai/v1' },
-        { key: 'auth_secret_name', label: 'Supabase Secret Name (must start with COPILOT_CUSTOM_)', span: 2 },
-      ];
-      App.ui.open({
-        title: 'Add Custom AI Provider',
-        bodyHtml: `<div class="hint" style="margin-bottom:10px">Assumes an OpenAI-compatible chat-completions API (Groq, OpenRouter, Together, Fireworks, a local Ollama endpoint, etc.) - <code>POST {base_url}/chat/completions</code>. You'll still need to set the actual API key yourself via the Supabase CLI (<code>supabase secrets set YOUR_SECRET_NAME=...</code>) - this form only tells the Edge Function how to call it and where to find that secret.</div>${App.ui.renderForm(fields, {})}`,
-        actions: [
-          { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-          { label: 'Save', className: 'btn-gold', onClick: async () => {
-            const { values, errors } = App.ui.readForm(fields);
-            if (errors.length) { App.utils.toast('Fill in the required fields', 'err'); return; }
-            if (values.auth_secret_name && !values.auth_secret_name.startsWith('COPILOT_CUSTOM_')) {
-              App.utils.toast('Secret name must start with COPILOT_CUSTOM_', 'err'); return;
-            }
-            const key = 'custom_' + values.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-            const { display_name, model_id, base_url, auth_secret_name } = values;
-            try {
-              await App.api.createAiProvider({
-                key, kind: 'custom', display_name, model_id,
-                custom_config: { base_url, auth_secret_name },
-              });
-              App.ui.close(); App.utils.toast('Custom provider added'); drawAiProviders();
-            } catch (e) { App.utils.toast('Could not save: ' + (e.message || e), 'err'); }
-          } },
-        ],
-      });
-    }
-
-    await drawAiProviders();
-
-    // ---- Supabase Connection (admin only) - see supabaseClient.js's
-    // DEFAULT_CONFIG comment: this changes only the browser that clicks
-    // Save, never every user at once. ----
-    if (showConnectionPanel) {
-      const cfg = App.auth.getConfig();
-      App.utils.qs('#currentSupabaseUrl', pane).value = (cfg && cfg.url) || '';
-      App.utils.qs('#resetConnectionBtn', pane).style.display = App.auth.hasCustomConfig() ? 'inline-flex' : 'none';
-      App.utils.qs('#saveConnectionBtn', pane).addEventListener('click', () => {
-        const url = App.utils.qs('#newSupabaseUrl', pane).value.trim().replace(/\/$/, '');
-        const key = App.utils.qs('#newSupabaseKey', pane).value.trim();
-        const errEl = App.utils.qs('#connectionError', pane);
-        if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) || !key) {
-          errEl.textContent = 'Enter a valid Supabase Project URL and publishable/anon key.';
-          return;
-        }
-        errEl.textContent = '';
-        if (!confirm('This signs you out of THIS BROWSER and reconnects it to the new project. Other users/browsers are unaffected. Continue?')) return;
-        App.auth.saveConfig(url, key);
-        location.reload();
-      });
-      App.utils.qs('#resetConnectionBtn', pane).addEventListener('click', () => {
-        if (!confirm("Reset this browser back to the app's built-in default Supabase project?")) return;
-        App.auth.clearConfig();
-        location.reload();
-      });
-    }
   }
 
   App.router.register('settings', renderSettingsView);

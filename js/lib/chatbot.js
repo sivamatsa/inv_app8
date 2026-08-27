@@ -6,6 +6,8 @@ App.chatbot = (function () {
   const STORAGE_KEY = 'pios_gemini_chat_history_v1';
   const MODEL_STORAGE_KEY = 'pios_gemini_chat_model_v1';
   const ROLE_STORAGE_KEY = 'pios_gemini_chat_role_v1';
+  const POS_STORAGE_KEY = 'pios_gemini_chat_pos_v1';
+  const DOCKED_STORAGE_KEY = 'pios_gemini_chat_docked_v1';
 
   const MODELS = [
     { id: 'gemini-flash-latest', name: 'Gemini Flash (Latest)', tag: 'Fast & Stable', desc: 'Recommended general intelligence, financial math, and live portfolio advice' },
@@ -57,6 +59,8 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
   let state = {
     isOpen: false,
     isMinimized: false,
+    isDocked: false,
+    fabTop: null,
     messages: [],
     model: 'gemini-flash-latest',
     role: 'advisor',
@@ -81,6 +85,14 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       if (savedRole && ROLES[savedRole]) {
         state.role = savedRole;
       }
+      const savedPos = localStorage.getItem(POS_STORAGE_KEY);
+      if (savedPos != null) {
+        state.fabTop = parseFloat(savedPos);
+      }
+      const savedDocked = localStorage.getItem(DOCKED_STORAGE_KEY);
+      if (savedDocked === 'true') {
+        state.isDocked = true;
+      }
     } catch (e) {
       console.warn('Error loading chat state:', e);
     }
@@ -102,6 +114,8 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.messages.slice(-30))); // Keep last 30 turns
       localStorage.setItem(MODEL_STORAGE_KEY, state.model);
       localStorage.setItem(ROLE_STORAGE_KEY, state.role);
+      if (state.fabTop != null) localStorage.setItem(POS_STORAGE_KEY, String(state.fabTop));
+      localStorage.setItem(DOCKED_STORAGE_KEY, state.isDocked ? 'true' : 'false');
     } catch (e) {
       console.warn('Error saving chat state:', e);
     }
@@ -201,16 +215,34 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     const currentRoleObj = ROLES[state.role] || ROLES.advisor;
     const currentModelObj = MODELS.find((m) => m.id === state.model) || MODELS[0];
 
+    // Compute vertical position if saved
+    let posStyle = '';
+    if (state.fabTop != null) {
+      posStyle = `top:${state.fabTop}px;bottom:auto;`;
+    }
+
     container.innerHTML = `
-      <!-- Floating Action Button (FAB) -->
-      <div id="piosChatLauncher" class="chat-fab ${state.isOpen ? 'active' : ''}" title="Open AI Financial Intelligence (Gemini)">
-        <div class="chat-fab-glow"></div>
-        <div class="chat-fab-inner">
-          <span class="chat-fab-icon">${state.isOpen ? '✕' : '✨'}</span>
-          <span class="chat-fab-label">AI Advisor</span>
+      <!-- If docked/minimized into tab -->
+      ${state.isDocked && !state.isOpen ? `
+        <div id="piosChatDockTab" class="chat-dock-tab" title="Click to open AI Advisor (Draggable)">
+          <span>✨</span>
+          <span>AI Advisor</span>
         </div>
-        ${state.hasUnread && !state.isOpen ? '<span class="chat-fab-badge">1</span>' : ''}
-      </div>
+      ` : `
+        <!-- Floating Action Button (FAB) -->
+        <div id="piosChatLauncher" class="chat-fab ${state.isOpen ? 'active' : ''}" style="${posStyle}" title="Drag vertically to reposition • Click to open AI Advisor">
+          <div class="chat-fab-glow"></div>
+          <div class="chat-fab-inner">
+            <span class="chat-fab-drag-handle" title="Drag to move up/down">⋮⋮</span>
+            <span class="chat-fab-icon">${state.isOpen ? '✕' : '✨'}</span>
+            <span class="chat-fab-label">AI Advisor</span>
+            ${!state.isOpen ? `
+              <button type="button" class="chat-fab-hide-btn" id="btnChatHideFab" title="Minimize / Dock to edge">✕</button>
+            ` : ''}
+          </div>
+          ${state.hasUnread && !state.isOpen ? '<span class="chat-fab-badge">1</span>' : ''}
+        </div>
+      `}
 
       <!-- Floating Chat Window -->
       <div id="piosChatWindow" class="chat-window ${state.isOpen ? 'open' : ''} ${state.isMinimized ? 'minimized' : ''}">
@@ -334,6 +366,8 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
 
   function bindWidgetEvents(container) {
     const launcher = container.querySelector('#piosChatLauncher');
+    const dockTab = container.querySelector('#piosChatDockTab');
+    const hideFabBtn = container.querySelector('#btnChatHideFab');
     const chatWindow = container.querySelector('#piosChatWindow');
     const input = container.querySelector('#chatTextInput');
     const sendBtn = container.querySelector('#btnChatSend');
@@ -345,21 +379,103 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     const modelSelect = container.querySelector('#chatModelSelect');
     const contextCheck = container.querySelector('#chatAttachContextCheck');
 
-    // Launcher click
-    launcher?.addEventListener('click', () => {
-      state.isOpen = !state.isOpen;
-      if (state.isOpen) {
-        state.hasUnread = false;
-        state.isMinimized = false;
-      }
+    // Dock tab click to restore FAB
+    dockTab?.addEventListener('click', () => {
+      state.isDocked = false;
+      state.isOpen = true;
+      saveState();
       renderFloatingWidget();
-      if (state.isOpen) {
-        setTimeout(() => {
-          const inp = document.getElementById('chatTextInput');
-          if (inp) inp.focus();
-        }, 100);
+      setTimeout(() => {
+        const inp = document.getElementById('chatTextInput');
+        if (inp) inp.focus();
+      }, 100);
+    });
+
+    // Hide FAB button to dock it
+    hideFabBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.isDocked = true;
+      saveState();
+      renderFloatingWidget();
+      if (App.utils && App.utils.toast) {
+        App.utils.toast('AI Advisor docked to screen edge. Tap tab to reopen.');
       }
     });
+
+    // Dragging state variables
+    let isDragging = false;
+    let dragStartY = 0;
+    let elementStartY = 0;
+    let hasMoved = false;
+
+    function onPointerDown(e) {
+      if (e.target.closest('#btnChatHideFab')) return;
+      isDragging = true;
+      hasMoved = false;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      dragStartY = clientY;
+      const rect = launcher.getBoundingClientRect();
+      elementStartY = rect.top;
+      launcher.classList.add('dragging');
+
+      window.addEventListener('mousemove', onPointerMove, { passive: false });
+      window.addEventListener('mouseup', onPointerUp);
+      window.addEventListener('touchmove', onPointerMove, { passive: false });
+      window.addEventListener('touchend', onPointerUp);
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const deltaY = clientY - dragStartY;
+      if (Math.abs(deltaY) > 4) {
+        hasMoved = true;
+        if (e.cancelable) e.preventDefault();
+        let newTop = elementStartY + deltaY;
+        const maxTop = window.innerHeight - (launcher.offsetHeight || 48) - 10;
+        const minTop = 60; // Below header
+        newTop = Math.max(minTop, Math.min(maxTop, newTop));
+        launcher.style.top = newTop + 'px';
+        launcher.style.bottom = 'auto';
+        state.fabTop = newTop;
+      }
+    }
+
+    function onPointerUp() {
+      if (!isDragging) return;
+      isDragging = false;
+      launcher.classList.remove('dragging');
+      window.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
+      window.removeEventListener('touchmove', onPointerMove);
+      window.removeEventListener('touchend', onPointerUp);
+
+      if (hasMoved) {
+        saveState();
+      }
+    }
+
+    if (launcher) {
+      launcher.addEventListener('mousedown', onPointerDown);
+      launcher.addEventListener('touchstart', onPointerDown, { passive: true });
+
+      // Launcher click (only if not dragged)
+      launcher.addEventListener('click', (e) => {
+        if (hasMoved || e.target.closest('#btnChatHideFab')) return;
+        state.isOpen = !state.isOpen;
+        if (state.isOpen) {
+          state.hasUnread = false;
+          state.isMinimized = false;
+        }
+        renderFloatingWidget();
+        if (state.isOpen) {
+          setTimeout(() => {
+            const inp = document.getElementById('chatTextInput');
+            if (inp) inp.focus();
+          }, 100);
+        }
+      });
+    }
 
     // Close button
     closeBtn?.addEventListener('click', () => {

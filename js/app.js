@@ -44,7 +44,6 @@ const NAV_STRUCTURE = [
   { group: 'Records', items: [
     { key: 'import', label: 'Import', icon: '&#128228;' },
     { key: 'documents', label: 'Documents', icon: '&#128193;' },
-    { key: 'audit', label: 'Audit History', icon: '&#128269;' },
   ] },
   { group: 'Personal', items: [
     { key: 'notes', label: 'Notes', icon: '&#128221;' },
@@ -70,20 +69,24 @@ const NAV_STRUCTURE = [
 App.NAV_STRUCTURE = NAV_STRUCTURE;
 
 function currentNavStructure() {
-  // Admin is only added to the nav (and only rendered as a working view -
-  // see admin.js's own is_admin check) when the signed-in profile is an
-  // admin. The real gate is server-side RLS (013_admin_role.sql); this is
-  // just so a regular user never even sees a link to a section that
-  // wouldn't show them anything anyway. Same reasoning for "Shared With
-  // Me" - only shown once App.lookups.loadAll() has confirmed there's
-  // actually something to see there (App.state.sharedWithMeCount).
-  const isAdmin = App.state.profile && App.state.profile.is_admin;
+  // Admin & Developer is only added to the nav when the signed-in profile is an
+  // admin or developer, AND the app is NOT running in Demo Mode.
+  const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
+  const isAdminOrDev = !isDemo && App.utils.isAdminOrDev(App.state.profile);
   let structure = NAV_STRUCTURE;
   if (App.state.sharedWithMeCount > 0) {
     structure = structure.concat([{ group: 'Shared', items: [{ key: 'sharedWithMe', label: 'Shared With Me', icon: '&#128101;' }] }]);
   }
-  if (isAdmin) {
-    structure = structure.concat([{ group: 'Admin', items: [{ key: 'admin', label: 'Admin', icon: '&#128081;' }] }]);
+  if (isAdminOrDev) {
+    const isDev = App.utils.isDeveloper(App.state.profile);
+    structure = structure.concat([{
+      group: 'Admin & Dev',
+      items: [{
+        key: 'admin',
+        label: isDev ? 'Admin & Developer' : 'Admin & Developer',
+        icon: '&#128081;'
+      }]
+    }]);
   }
   return structure;
 }
@@ -312,7 +315,12 @@ async function enterApp() {
   App.utils.qs('#appShell').classList.add('active');
   const user = App.auth.getUser();
   const isDemo = App.auth.isDemoMode();
-  App.utils.qs('#userChipEmail').textContent = isDemo ? 'Demo Mode' : (user ? user.email : '');
+  const isBackup = App.auth.isBackupMode && App.auth.isBackupMode();
+  let userEmailText = isDemo ? 'Demo Mode' : (user ? user.email : '');
+  if (isBackup) {
+    userEmailText += ' (Backup Store)';
+  }
+  App.utils.qs('#userChipEmail').textContent = userEmailText;
   App.utils.qs('#demoBanner').style.display = isDemo ? 'flex' : 'none';
   App.utils.qs('#signOutBtn').textContent = isDemo ? 'Exit Demo' : 'Sign Out';
   try {
@@ -468,11 +476,20 @@ function wireAuthScreen() {
     if (password.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
     try {
       const res = await App.auth.signUp(email, password, name);
-      if (!res.session) {
-        errEl.style.color = 'var(--teal)';
-        errEl.textContent = 'Account created. Check your email to confirm it, then sign in.';
+      if (res && res.isBackupMode) {
+        App.utils.toast('Account created and signed in via Backup Database Store!', 'ok');
+        enterApp();
+      } else if (res && res.session) {
+        App.utils.toast('Account created and signed in successfully!', 'ok');
+        enterApp();
+      } else {
+        errEl.style.color = 'var(--teal, #0d9488)';
+        errEl.textContent = 'Account created. You can now sign in with your password.';
       }
-    } catch (e) { errEl.textContent = e.message || 'Could not create account.'; }
+    } catch (e) {
+      errEl.style.color = 'var(--red, #e74c3c)';
+      errEl.textContent = e.message || 'Could not create account.';
+    }
   });
 
   App.utils.qs('#needHelpLink').addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
@@ -533,22 +550,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Wire Topbar Currency Selector
-  const currSelect = App.utils.qs('#topbarCurrencySelect');
-  if (currSelect && App.currency) {
-    currSelect.value = App.currency.getActiveCurrency();
-    currSelect.addEventListener('change', (e) => {
-      App.currency.setActiveCurrency(e.target.value);
-      App.utils.toast(`Display currency switched to ${e.target.value}`);
-      App.router.refresh();
-    });
-  }
-
-  // Wire Topbar Calculator & Arcade Game Buttons
-  App.utils.qs('#btnTopbarCalc')?.addEventListener('click', () => {
-    App.router.navigate('calculator');
-  });
-
+  // Wire Arcade Game Button
   App.utils.qs('#btnLaunchArcadeGame')?.addEventListener('click', () => {
     if (App.offlineGame) App.offlineGame.open();
   });
@@ -559,10 +561,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Re-render views on global currency change
-  document.addEventListener('currency-changed', (e) => {
-    if (currSelect && e.detail && e.detail.currency) {
-      currSelect.value = e.detail.currency;
-    }
+  document.addEventListener('currency-changed', () => {
     App.router.refresh();
   });
 

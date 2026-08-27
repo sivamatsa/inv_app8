@@ -21,7 +21,9 @@ App.router = (function () {
   }
 
   function currentName() {
-    return (location.hash || '#dashboard').slice(1).split('?')[0];
+    const raw = (location.hash || '#dashboard').slice(1).split('?')[0].split('/')[0];
+    if (raw.startsWith('admin')) return 'admin';
+    return raw;
   }
 
   async function show(name) {

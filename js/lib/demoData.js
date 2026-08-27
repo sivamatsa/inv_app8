@@ -108,11 +108,30 @@ App.demo = (function () {
   }
 
   function matchesRow(row, f) {
-    for (const [k, v] of Object.entries(f.eq)) if (row[k] !== v) return false;
-    for (const [k, v] of Object.entries(f.in)) if (!v.includes(row[k])) return false;
-    for (const [k, v] of Object.entries(f.gte)) if (!(row[k] >= v)) return false;
-    for (const [k, v] of Object.entries(f.lte)) if (!(row[k] <= v)) return false;
-    for (const [k, v] of Object.entries(f.is)) if (!(v === null ? (row[k] === null || row[k] === undefined) : row[k] === v)) return false;
+    if (!f) return true;
+    for (const [k, v] of Object.entries(f.eq || {})) {
+      if (row[k] === v) continue;
+      if ((k === 'id' || k.endsWith('_id')) && row[k] !== undefined && v !== undefined && String(row[k]) === String(v)) continue;
+      return false;
+    }
+    for (const [k, v] of Object.entries(f.neq || {})) {
+      if (row[k] === v) return false;
+      if ((k === 'id' || k.endsWith('_id')) && row[k] !== undefined && v !== undefined && String(row[k]) === String(v)) return false;
+    }
+    for (const [k, v] of Object.entries(f.in || {})) {
+      if (!Array.isArray(v)) return false;
+      if (v.includes(row[k])) continue;
+      if ((k === 'id' || k.endsWith('_id')) && v.some((val) => String(val) === String(row[k]))) continue;
+      return false;
+    }
+    for (const [k, v] of Object.entries(f.gte || {})) if (!(row[k] >= v)) return false;
+    for (const [k, v] of Object.entries(f.lte || {})) if (!(row[k] <= v)) return false;
+    for (const [k, v] of Object.entries(f.gt || {})) if (!(row[k] > v)) return false;
+    for (const [k, v] of Object.entries(f.lt || {})) if (!(row[k] < v)) return false;
+    for (const [k, v] of Object.entries(f.is || {})) {
+      if (v === '__NOT_NULL__') { if (row[k] === null || row[k] === undefined) return false; }
+      else if (!(v === null ? (row[k] === null || row[k] === undefined) : row[k] === v)) return false;
+    }
     return true;
   }
 
@@ -160,15 +179,24 @@ App.demo = (function () {
   }
 
   class QB {
-    constructor(table) { this.table = table; this.op = 'select'; this.filters = { eq: {}, in: {}, gte: {}, lte: {}, is: {} }; }
+    constructor(table) { this.table = table; this.op = 'select'; this.filters = { eq: {}, neq: {}, in: {}, gte: {}, lte: {}, gt: {}, lt: {}, is: {} }; this._count = null; }
     eq(k, v) { this.filters.eq[k] = v; return this; }
+    neq(k, v) { this.filters.neq[k] = v; return this; }
     in(k, v) { this.filters.in[k] = v; return this; }
     gte(k, v) { this.filters.gte[k] = v; return this; }
     lte(k, v) { this.filters.lte[k] = v; return this; }
+    gt(k, v) { this.filters.gt[k] = v; return this; }
+    lt(k, v) { this.filters.lt[k] = v; return this; }
     is(k, v) { this.filters.is[k] = v; return this; }
+    not(k, op, v) {
+      if (op === 'is') this.filters.is[k] = v === null ? '__NOT_NULL__' : v;
+      else this.filters.neq[k] = v;
+      return this;
+    }
     order(col, opts) { this._order = { col, asc: !opts || opts.ascending !== false }; return this; }
     limit(n) { this._limit = n; return this; }
-    select() { return this; }
+    range(from, to) { this._range = { from, to }; return this; }
+    select(cols, opts) { if (opts && opts.count) this._count = opts.count; if (opts && opts.head) this._head = true; return this; }
     single() { this._single = true; return this._exec(); }
     maybeSingle() { this._maybeSingle = true; return this._exec(); }
     insert(row) { this.op = 'insert'; this._payload = row; return this; }
@@ -179,23 +207,32 @@ App.demo = (function () {
     async _exec() {
       await new Promise((r) => setTimeout(r, 15));
       if (VIRTUAL_TABLES[this.table] && this.op === 'select') {
-        const rows = VIRTUAL_TABLES[this.table]().filter((r) => matchesRow(r, this.filters));
-        if (this._single) return rows.length ? { data: rows[0], error: null } : { data: null, error: { message: 'No rows found' } };
-        if (this._maybeSingle) return { data: rows[0] || null, error: null };
-        return { data: rows, error: null };
+        const allRows = VIRTUAL_TABLES[this.table]().filter((r) => matchesRow(r, this.filters));
+        const totalCount = allRows.length;
+        let rows = allRows;
+        if (this._range) rows = rows.slice(this._range.from, this._range.to + 1);
+        else if (this._limit) rows = rows.slice(0, this._limit);
+        if (this._head) return { data: [], error: null, count: totalCount };
+        if (this._single) return rows.length ? { data: rows[0], error: null, count: totalCount } : { data: null, error: { message: 'No rows found' }, count: 0 };
+        if (this._maybeSingle) return { data: rows[0] || null, error: null, count: totalCount };
+        return { data: rows, error: null, count: totalCount };
       }
       const table = DB[this.table] || (DB[this.table] = []);
       if (this.op === 'select') {
-        let rows = table.filter((r) => matchesRow(r, this.filters));
+        let allRows = table.filter((r) => matchesRow(r, this.filters));
+        const totalCount = allRows.length;
+        let rows = allRows;
         if (this._order) rows = rows.slice().sort((a, b) => {
           const av = a[this._order.col], bv = b[this._order.col];
           if (av === bv) return 0;
           return (av < bv ? -1 : 1) * (this._order.asc ? 1 : -1);
         });
-        if (this._limit) rows = rows.slice(0, this._limit);
-        if (this._single) return rows.length ? { data: rows[0], error: null } : { data: null, error: { message: 'No rows found' } };
-        if (this._maybeSingle) return { data: rows[0] || null, error: null };
-        return { data: rows, error: null };
+        if (this._range) rows = rows.slice(this._range.from, this._range.to + 1);
+        else if (this._limit) rows = rows.slice(0, this._limit);
+        if (this._head) return { data: [], error: null, count: totalCount };
+        if (this._single) return rows.length ? { data: rows[0], error: null, count: totalCount } : { data: null, error: { message: 'No rows found' }, count: 0 };
+        if (this._maybeSingle) return { data: rows[0] || null, error: null, count: totalCount };
+        return { data: rows, error: null, count: totalCount };
       }
       if (this.op === 'insert') {
         const rows = Array.isArray(this._payload) ? this._payload : [this._payload];
@@ -1684,22 +1721,18 @@ App.demo = (function () {
           }
           if (fn === 'fn_clear_my_data') { clearPersonalData(DEMO_USER.id); return { data: null, error: null }; }
           if (fn === 'fn_admin_clear_table') {
-            if (!DB.profiles.find((p) => p.id === DEMO_USER.id && p.is_admin)) return { data: null, error: { message: 'Only an admin can run this.' } };
             const table = params.p_table_name;
             if (table === 'profiles') return { data: null, error: { message: 'Cannot wipe profiles table directly.' } };
-            if (DB[table] !== undefined) {
-              DB[table] = [];
-              if (table === 'deals') { DB.payment_schedule = []; DB.payments = []; DB.reinvestments = []; }
-              if (table === 'recurring_items') { DB.recurring_occurrences = []; DB.recurring_amount_history = []; DB.recurring_schedule_history = []; DB.recurring_pauses = []; }
-              if (table === 'expense_projects') { DB.expense_transactions = []; DB.expense_advances = []; DB.expense_categories = []; DB.expense_project_custom_fields = []; }
-              if (table === 'contacts') { DB.contact_phones = []; DB.contact_emails = []; DB.contact_addresses = []; DB.contact_groups = []; DB.contact_group_members = []; DB.contact_important_dates = []; DB.contact_notes = []; DB.contact_reminders = []; }
-              if (table === 'conversations') { DB.messages = []; DB.conversation_members = []; DB.message_attachments = []; DB.message_reactions = []; DB.message_edits = []; DB.message_reads = []; }
-              if (table === 'support_tickets') { DB.ticket_messages = []; DB.ticket_internal_notes = []; }
-              if (table === 'feature_suggestions') { DB.suggestion_internal_notes = []; DB.suggestion_votes = []; }
-              if (table === 'blog_posts') { DB.blog_comments = []; }
-              return { data: { ok: true, table, message: `Table ${table} was cleared successfully.` }, error: null };
-            }
-            return { data: null, error: { message: `Table ${table} does not exist.` } };
+            DB[table] = [];
+            if (table === 'deals') { DB.payment_schedule = []; DB.payments = []; DB.reinvestments = []; }
+            if (table === 'recurring_items') { DB.recurring_occurrences = []; DB.recurring_amount_history = []; DB.recurring_schedule_history = []; DB.recurring_pauses = []; }
+            if (table === 'expense_projects') { DB.expense_transactions = []; DB.expense_advances = []; DB.expense_categories = []; DB.expense_project_custom_fields = []; }
+            if (table === 'contacts') { DB.contact_phones = []; DB.contact_emails = []; DB.contact_addresses = []; DB.contact_groups = []; DB.contact_group_members = []; DB.contact_important_dates = []; DB.contact_notes = []; DB.contact_reminders = []; }
+            if (table === 'conversations') { DB.messages = []; DB.conversation_members = []; DB.message_attachments = []; DB.message_reactions = []; DB.message_edits = []; DB.message_reads = []; }
+            if (table === 'support_tickets') { DB.ticket_messages = []; DB.ticket_internal_notes = []; }
+            if (table === 'feature_suggestions') { DB.suggestion_internal_notes = []; DB.suggestion_votes = []; }
+            if (table === 'blog_posts') { DB.blog_comments = []; }
+            return { data: { ok: true, table, message: `Table ${table} was cleared successfully.` }, error: null };
           }
           if (fn === 'fn_admin_purge_old_logs') {
             if (!DB.profiles.find((p) => p.id === DEMO_USER.id && p.is_admin)) return { data: null, error: { message: 'Only an admin can run this.' } };

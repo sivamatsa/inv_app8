@@ -733,24 +733,31 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   bottom: 24px;
   right: 24px;
   z-index: 10000;
-  cursor: pointer;
+  cursor: grab;
   border-radius: 30px;
   display: flex;
   align-items: center;
   user-select: none;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  touch-action: none;
+  transition: box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.chat-fab.dragging {
+  cursor: grabbing !important;
+  transition: none !important;
+  opacity: 0.92;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5) !important;
 }
 .chat-fab:hover {
-  transform: translateY(-2px) scale(1.03);
+  transform: scale(1.03);
 }
 .chat-fab:active {
-  transform: translateY(0) scale(0.97);
+  transform: scale(0.97);
 }
 .chat-fab-inner {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 18px 10px 14px;
+  padding: 10px 16px 10px 12px;
   background: linear-gradient(135deg, var(--gold), #b8923c);
   color: var(--on-gold);
   border-radius: 30px;
@@ -767,6 +774,57 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   color: var(--text);
   border-color: var(--border);
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.chat-fab-drag-handle {
+  font-size: 12px;
+  opacity: 0.7;
+  cursor: grab;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+.chat-fab-hide-btn {
+  background: rgba(0, 0, 0, 0.2);
+  color: currentColor;
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.chat-fab-hide-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.4);
+}
+.chat-dock-tab {
+  position: fixed;
+  right: 0;
+  bottom: 80px;
+  z-index: 9999;
+  background: linear-gradient(135deg, var(--gold), #b8923c);
+  color: var(--on-gold);
+  padding: 8px 10px 8px 8px;
+  border-radius: 20px 0 0 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  box-shadow: -2px 4px 12px rgba(0,0,0,0.3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.chat-dock-tab:hover {
+  transform: translateX(-3px);
 }
 .chat-fab-icon {
   font-size: 16px;
@@ -1212,8 +1270,17 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
     border-radius: 16px 16px 0 0;
   }
   .chat-fab {
-    bottom: 16px;
-    right: 16px;
+    right: 14px;
+  }
+  .chat-fab-inner {
+    padding: 8px 12px 8px 10px;
+    font-size: 12.5px;
+    gap: 6px;
+  }
+  .chat-dock-tab {
+    bottom: 70px;
+    padding: 6px 8px;
+    font-size: 11px;
   }
 }
 
