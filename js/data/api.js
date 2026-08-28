@@ -101,7 +101,8 @@ App.api = (function () {
     opts = opts || {};
     let eq = opts.eq;
     if (SELF_SCOPED_TABLES.has(table) && !opts.allUsers && (!eq || eq.user_id === undefined)) {
-      const currentUserId = uid();
+      const activeCtx = App.state && App.state.activePortfolioContext;
+      const currentUserId = (activeCtx && activeCtx.owner_user_id) ? activeCtx.owner_user_id : uid();
       if (!App.auth.isDemoMode() && !isUuid(currentUserId)) {
         return [];
       }
@@ -120,21 +121,12 @@ App.api = (function () {
   }
 
   async function insertRow(table, row, opts) {
-    // Omit null/undefined keys rather than sending them explicitly: several
-    // columns are `not null default '...'` (status, confirmation_method,
-    // source, ...), and Postgres only applies a column default when it's
-    // left out of the insert entirely - an explicit NULL still violates
-    // NOT NULL. A form field the user left blank should mean "use the
-    // database default", not "store NULL".
     const cleaned = {};
     Object.entries(row || {}).forEach(([k, v]) => { if (v !== null && v !== undefined) cleaned[k] = v; });
-    // Almost every table's owner column is user_id - ticket_messages is the
-    // one exception (sender_id, since admin posts messages on tickets they
-    // don't own, so "owner" and "sender" are genuinely different concepts
-    // there). opts.ownerCol lets a caller override which column gets the
-    // current user's id.
     const ownerCol = (opts && opts.ownerCol) || 'user_id';
-    const payload = Object.assign({ [ownerCol]: uid() }, cleaned);
+    const activeCtx = App.state && App.state.activePortfolioContext;
+    const targetUserId = (activeCtx && activeCtx.owner_user_id) ? activeCtx.owner_user_id : uid();
+    const payload = Object.assign({ [ownerCol]: targetUserId }, cleaned);
     let q = client().from(table).insert(payload).select();
     const { data, error } = (opts && opts.many) ? await q : await q.single();
     check(error);

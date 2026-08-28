@@ -649,6 +649,31 @@ document.addEventListener('DOMContentLoaded', () => {
     App.router.refreshCurrent();
   });
 
+  let appSessionUnlocked = false;
+
+  function tryEnterApp(user) {
+    if (!user) {
+      showAuthScreen();
+      return;
+    }
+    // If user has enabled biometric authentication and session has not been unlocked
+    if (App.biometrics && App.biometrics.isEnabled(user.id) && !appSessionUnlocked) {
+      App.biometrics.openBiometricUnlockModal(
+        user,
+        () => {
+          appSessionUnlocked = true;
+          enterApp();
+        },
+        () => {
+          appSessionUnlocked = true;
+          enterApp();
+        }
+      );
+      return;
+    }
+    enterApp();
+  }
+
   App.auth.onChange((user, session, event) => {
     // A password-reset email link logs the visitor into a real, valid
     // session (that's how Supabase's recovery flow works) - entering the
@@ -657,7 +682,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // other event (including the very next one, once the password is set)
     // falls through to the normal enterApp()/showAuthScreen() branching.
     if (event === 'PASSWORD_RECOVERY') { showSetNewPasswordScreen(); return; }
-    if (user) enterApp(); else showAuthScreen();
+    if (event === 'SIGNED_IN') { appSessionUnlocked = true; }
+    if (user) tryEnterApp(user); else { appSessionUnlocked = false; showAuthScreen(); }
   });
   if (App.auth.isConfigured()) App.auth.init();
 });

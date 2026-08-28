@@ -987,6 +987,10 @@ window.App = window.App || {};
     async function drawSecurityCenter() {
       const host = App.utils.qs('#securityCenterHost', pane);
       const user = App.auth.getUser();
+      const userId = user?.id;
+      const isBioAvailable = await (App.biometrics ? App.biometrics.isAvailable() : Promise.resolve(false));
+      const isBioEnabled = App.biometrics ? App.biometrics.isEnabled(userId) : false;
+      const cred = App.biometrics ? App.biometrics.getStoredCredential(userId) : null;
       const loginLogs = await App.api.listLoginEvents({ limit: 5 }).catch(() => []);
 
       host.innerHTML = `
@@ -994,21 +998,21 @@ window.App = window.App || {};
           <!-- Active Session Card -->
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-weight:700;font-size:13px;color:var(--teal)">🖥️ Active Session</span>
-              <span class="badge st-active" style="font-size:10px">Current Device</span>
+              <span style="font-weight:700;font-size:13px;color:var(--teal)">🖥️ Persistent Mobile App Session</span>
+              <span class="badge st-active" style="font-size:10px">Always Logged In</span>
             </div>
-            <div style="font-size:12px;color:var(--text2)">${navigator.userAgent.includes('Mac') ? 'macOS' : navigator.userAgent.includes('Windows') ? 'Windows' : 'Linux / Android / iOS'} &middot; ${navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Safari') ? 'Safari' : 'Modern Browser'}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">Connected to secure session</div>
+            <div style="font-size:12px;color:var(--text2)">${navigator.userAgent.includes('Mobile') || navigator.userAgent.includes('Android') || navigator.userAgent.includes('iPhone') ? 'Mobile PWA Device' : 'Desktop / Workstation'} &middot; Keep-Alive Active</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Your session stays active across app restarts for seamless notifications.</div>
           </div>
 
-          <!-- 2FA / WebAuthn Status -->
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
+          <!-- Biometric Passkey Card -->
+          <div style="background:var(--bg2);border:1px solid ${isBioEnabled ? 'rgba(201,168,76,0.4)' : 'var(--border)'};border-radius:8px;padding:12px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-weight:700;font-size:13px;color:var(--gold)">🔑 Biometric Passkey</span>
-              <span class="badge" style="background:rgba(201,168,76,0.18);color:var(--gold);font-size:10px">WebAuthn Ready</span>
+              <span style="font-weight:700;font-size:13px;color:var(--gold)">👆 Biometric Unlock</span>
+              <span class="badge" style="background:${isBioEnabled ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.08)'};color:${isBioEnabled ? 'var(--gold)' : 'var(--text3)'};font-size:10px">${isBioEnabled ? 'Enabled' : 'Disabled'}</span>
             </div>
-            <div style="font-size:12px;color:var(--text2)">Hardware Security Key / Touch ID</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">Device-bound authentication enabled</div>
+            <div style="font-size:12px;color:var(--text2)">${isBioAvailable ? 'Face ID / Fingerprint / Touch ID' : 'WebAuthn Not Supported'}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">${isBioEnabled ? (cred?.lastVerifiedAt ? 'Last verified: ' + App.utils.fmtDateTime(cred.lastVerifiedAt) : 'Ready for app unlock') : 'Opt-in for hardware biometric security'}</div>
           </div>
 
           <!-- Encryption & Data Sovereignty -->
@@ -1019,6 +1023,30 @@ window.App = window.App || {};
             </div>
             <div style="font-size:12px;color:var(--text2)">Row-Level Security Active</div>
             <div style="font-size:11px;color:var(--text3);margin-top:4px">Only your user key can access records</div>
+          </div>
+        </div>
+
+        <!-- Interactive Biometric Security Control Box -->
+        <div style="background:rgba(201,168,76,0.06);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:14px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+              <div style="font-weight:700;font-size:13.5px;color:var(--gold);margin-bottom:4px">
+                🛡️ Biometric Login (Face ID, Touch ID &amp; Device Passkeys)
+              </div>
+              <div style="font-size:12px;color:var(--text2);max-width:560px;line-height:1.4">
+                When enabled, opening the mobile app uses your device's biometric sensor (Face ID, Fingerprint, or Windows Hello) to instantly verify your identity without re-entering passwords. You have complete rights to turn this on or off anytime.
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              ${isBioEnabled ? `
+                <button class="btn btn-outline btn-sm" id="btnTestBiometrics">🧪 Test Sensor</button>
+                <button class="btn btn-outline btn-sm" id="btnDisableBiometrics" style="color:var(--red);border-color:rgba(255,107,107,0.3)">Disable Biometrics</button>
+              ` : `
+                <button class="btn btn-gold btn-sm" id="btnEnableBiometrics" ${!isBioAvailable ? 'disabled title="Biometric hardware not detected on this browser"' : ''}>
+                  👆 Enable Biometric Login
+                </button>
+              `}
+            </div>
           </div>
         </div>
 
@@ -1038,7 +1066,7 @@ window.App = window.App || {};
               `).join('') : `
                 <tr>
                   <td>${App.utils.fmtDateTime(new Date().toISOString())}</td>
-                  <td>Current Active Browser</td>
+                  <td>Current Active Browser / PWA</td>
                   <td>Local Network / Cloud Sandbox</td>
                   <td><span class="badge st-active">Authenticated</span></td>
                 </tr>
@@ -1055,6 +1083,45 @@ window.App = window.App || {};
           </div>
         </div>
       `;
+
+      // Wire Biometric Buttons
+      App.utils.qs('#btnEnableBiometrics', host)?.addEventListener('click', async () => {
+        const btn = App.utils.qs('#btnEnableBiometrics', host);
+        btn.disabled = true;
+        btn.textContent = 'Registering Sensor...';
+        try {
+          await App.biometrics.registerBiometrics(user);
+          App.utils.toast('Biometric authentication registered successfully! Your app is now protected.', 'ok');
+          drawSecurityCenter();
+        } catch (err) {
+          App.utils.toast(err.message || 'Could not setup biometrics', 'err');
+          btn.disabled = false;
+          btn.textContent = '👆 Enable Biometric Login';
+        }
+      });
+
+      App.utils.qs('#btnTestBiometrics', host)?.addEventListener('click', async () => {
+        const btn = App.utils.qs('#btnTestBiometrics', host);
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+        try {
+          await App.biometrics.verifyBiometrics(user.id);
+          App.utils.toast('Biometric verification passed! Sensor is working perfectly.', 'ok');
+          drawSecurityCenter();
+        } catch (err) {
+          App.utils.toast('Verification notice: ' + (err.message || err), 'err');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '🧪 Test Sensor';
+        }
+      });
+
+      App.utils.qs('#btnDisableBiometrics', host)?.addEventListener('click', () => {
+        if (!confirm('Disable biometric login for this device? You will use standard password authentication.')) return;
+        App.biometrics.disable(user.id);
+        App.utils.toast('Biometric login disabled.');
+        drawSecurityCenter();
+      });
 
       App.utils.qs('#btnExportSecuredArchive', host)?.addEventListener('click', () => {
         App.utils.qs('#exportAllBtn', pane)?.click();

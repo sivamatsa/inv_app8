@@ -26,11 +26,58 @@ App.auth = (function () {
     anonKey: 'sb_publishable_JSyxn0ohlvsRMT6eCpSALg_vXAz0h3w',
   };
 
+  const PERSISTENT_MOBILE_SESSION_KEY = 'investment_persistent_mobile_session_v1';
+
   let client = null;
   let currentUser = null;
   let currentSession = null;
   let demoMode = false;
   const listeners = [];
+
+  function savePersistentMobileSession(user, session) {
+    if (!user) return;
+    try {
+      const payload = {
+        user: {
+          id: user.id,
+          email: user.email,
+          user_metadata: user.user_metadata || {},
+          role: user.role,
+        },
+        session: session ? {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          expires_at: session.expires_at,
+          token_type: session.token_type,
+        } : null,
+        persistedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(PERSISTENT_MOBILE_SESSION_KEY, JSON.stringify(payload));
+      if (App.backupProfileDb && App.backupProfileDb.saveSystemKv) {
+        App.backupProfileDb.saveSystemKv(PERSISTENT_MOBILE_SESSION_KEY, payload).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Persistent mobile session save notice:', e);
+    }
+  }
+
+  function getPersistentMobileSession() {
+    try {
+      const raw = localStorage.getItem(PERSISTENT_MOBILE_SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearPersistentMobileSession() {
+    try {
+      localStorage.removeItem(PERSISTENT_MOBILE_SESSION_KEY);
+      if (App.backupProfileDb && App.backupProfileDb.deleteSystemKv) {
+        App.backupProfileDb.deleteSystemKv(PERSISTENT_MOBILE_SESSION_KEY).catch(() => {});
+      }
+    } catch (e) {}
+  }
 
   function getConfig() {
     try {
@@ -87,17 +134,36 @@ App.auth = (function () {
     client = window.supabase.createClient(cfg.url, cfg.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
+
+    const restoreFallback = () => {
+      // 1. Check persistent mobile session first
+      const mobileSess = getPersistentMobileSession();
+      if (mobileSess && mobileSess.user) {
+        currentUser = mobileSess.user;
+        currentSession = mobileSess.session || { user: currentUser, isMobilePersistent: true };
+        notify();
+        return;
+      }
+      // 2. Check for active backup database session
+      const backupSess = App.backupProfileDb ? App.backupProfileDb.getBackupSession() : null;
+      if (backupSess && backupSess.user) {
+        currentUser = backupSess.user;
+        currentSession = { user: currentUser, isBackupSession: true };
+        notify();
+        return;
+      }
+      currentSession = null;
+      currentUser = null;
+      notify();
+    };
+
     client.auth.getSession().then(({ data }) => {
       const session = data && data.session || null;
-      // A signIn()/signUp() can complete (via onAuthStateChange, below)
-      // before this initial check resolves. Only apply this result if it
-      // reports a real session, or if nothing more recent already signed
-      // someone in - otherwise a slow, now-stale "no session" answer would
-      // clobber a sign-in that has already succeeded.
       if (session || !currentUser) {
         if (session) {
           currentSession = session;
           currentUser = session.user;
+          savePersistentMobileSession(currentUser, currentSession);
           // Dual-sync profile with backup database
           if (App.backupProfileDb && session.user) {
             App.backupProfileDb.saveProfile({
@@ -109,32 +175,35 @@ App.auth = (function () {
           }
           notify();
         } else {
-          // Check for active backup database session
-          const backupSess = App.backupProfileDb ? App.backupProfileDb.getBackupSession() : null;
-          if (backupSess && backupSess.user) {
-            currentUser = backupSess.user;
-            currentSession = { user: currentUser, isBackupSession: true };
-            notify();
-          } else {
-            currentSession = null;
-            currentUser = null;
-            notify();
-          }
+          restoreFallback();
         }
       }
     }).catch(() => {
-      const backupSess = App.backupProfileDb ? App.backupProfileDb.getBackupSession() : null;
-      if (backupSess && backupSess.user) {
-        currentUser = backupSess.user;
-        currentSession = { user: currentUser, isBackupSession: true };
-        notify();
-      }
+      restoreFallback();
     });
+
     client.auth.onAuthStateChange((event, session) => {
       currentSession = session || null;
       currentUser = session ? session.user : null;
+      if (currentUser && currentSession) {
+        savePersistentMobileSession(currentUser, currentSession);
+      }
       notify(event);
     });
+
+    // Battery-friendly keep-alive: When user switches back to mobile app,
+    // refresh token only if within 15 minutes of expiry
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && client && currentSession && currentSession.expires_at) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (currentSession.expires_at - nowSec < 900) {
+            client.auth.refreshSession().catch(() => {});
+          }
+        }
+      });
+    }
+
     return client;
   }
 
@@ -298,6 +367,7 @@ App.auth = (function () {
         if (authRes && authRes.user) {
           currentUser = authRes.user;
           currentSession = authRes.session;
+          savePersistentMobileSession(currentUser, currentSession);
           notify('SIGNED_IN');
           return { user: currentUser, session: currentSession, isBackupMode: true };
         }
@@ -310,6 +380,7 @@ App.auth = (function () {
             if (authRes && authRes.user) {
               currentUser = authRes.user;
               currentSession = authRes.session;
+              savePersistentMobileSession(currentUser, currentSession);
               notify('SIGNED_IN');
               return { user: currentUser, session: currentSession, isBackupMode: true };
             }
@@ -374,6 +445,7 @@ App.auth = (function () {
 
   async function signOut() {
     if (demoMode) { exitDemoMode(); return; }
+    clearPersistentMobileSession();
     if (App.backupProfileDb) {
       App.backupProfileDb.clearBackupSession();
     }

@@ -219,10 +219,14 @@ window.App = window.App || {};
 
       pane.innerHTML = `
         <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
-          <span>Gold Intelligence <div class="line" style="display:inline-block"></div><small>live prices, history, Gold Scheme tracking - international spot, not a retail quote</small></span>
+          <span>Gold Intelligence <div class="line" style="display:inline-block"></div><small>live prices, South Indian state retail benchmarks &amp; Gold Scheme tracking</small></span>
           <button class="btn btn-outline btn-sm" id="goldSuggestImprovementBtn">💡 Suggest Improvement</button>
         </div>
-        <div class="hint" style="margin-bottom:12px">Every price below is <b>International Spot (converted to INR)</b> via ${activeProvider ? App.utils.escapeHtml(activeProvider.display_name) : 'no provider configured'} - not an Indian jeweller's retail rate (which adds import duty, GST, and local premium on top). See Settings → Gold Price Provider to change source.</div>
+        <div class="hint" style="margin-bottom:12px">Dual Intelligence: Switch between <b>🇮🇳 Indian Regional Retail Rates (AP / Telangana / South Hubs)</b> and <b>🌐 International Spot Benchmark</b>. Active Provider: ${activeProvider ? App.utils.escapeHtml(activeProvider.display_name) : 'GoldAPI / Metals-Dev'}.</div>
+        
+        <!-- Regional India & South States Benchmark Intelligence Panel -->
+        <div class="panel" id="goldRegionalIndiaPanel" style="background:linear-gradient(135deg,rgba(201,168,76,0.12),rgba(22,201,163,0.06));border:1px solid rgba(201,168,76,0.35);margin-bottom:16px"></div>
+
         <div class="panel" id="goldLiveCard"></div>
         <div class="panel" id="goldComparisonPanel" style="background:linear-gradient(135deg,rgba(201,168,76,0.08),rgba(22,201,163,0.08));border:1px solid rgba(201,168,76,0.25)"></div>
         <div class="panel" id="goldChartPanel"></div>
@@ -244,6 +248,7 @@ window.App = window.App || {};
         if (App.supportView) App.supportView.openNewSuggestionModal('Existing Feature Improvement', 'Gold Intelligence');
       });
 
+      drawRegionalIndiaPanel(latest);
       drawLiveCard(latest, activeProvider, fresh);
       drawPurchaseComparisonPanel(latest, schemeHoldings, purchases);
       drawChartPanel(allObservations);
@@ -256,6 +261,208 @@ window.App = window.App || {};
       drawAllocationPanel(latest, schemeHoldings, purchases, deals);
       drawSummaryPanel(allObservations, latest);
       drawPurchasesPanel(purchases);
+    }
+
+    function drawRegionalIndiaPanel(latest) {
+      const host = App.utils.qs('#goldRegionalIndiaPanel', pane);
+      if (!host || !App.regionalGold) return;
+
+      const baseSpot24k = latest['24K'] ? latest['24K'].price : (latest[DEFAULT_PURITY] ? latest[DEFAULT_PURITY].price / 0.91666 : 7200);
+      const selectedRegionId = App.regionalGold.getSelectedRegionId();
+      const regionalData = App.regionalGold.calculateRegionalRates(baseSpot24k, selectedRegionId);
+      const allRegions = App.regionalGold.getAllRegions();
+      const southComparison = App.regionalGold.compareAllSouthRegions(baseSpot24k);
+
+      host.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+          <div>
+            <div class="chart-title" style="margin-bottom:4px;color:var(--gold);display:flex;align-items:center;gap:8px">
+              <span>🇮🇳</span>
+              <span>Indian Retail Gold Rates &amp; State Benchmark</span>
+              <span class="badge" style="background:rgba(201,168,76,0.2);color:var(--gold);font-size:10.5px">AP &amp; Telangana Priority</span>
+            </div>
+            <div class="hint" style="margin:0">
+              Actual domestic retail benchmark (includes 6% Customs Duty + 3% GST + Regional Bullion Spreads).
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:12px;font-weight:600;color:var(--text2)">Select State / Hub:</label>
+            <select id="selRegionalLocation" class="form-input" style="padding:6px 10px;font-size:13px;width:auto;min-width:240px;background:var(--bg2);color:var(--text);border-color:rgba(201,168,76,0.4)">
+              <optgroup label="⭐ Priority: Andhra Pradesh &amp; Telangana">
+                ${allRegions.filter((r) => r.isPriority).map((r) => `
+                  <option value="${r.id}" ${r.id === selectedRegionId ? 'selected' : ''}>${r.label}</option>
+                `).join('')}
+              </optgroup>
+              <optgroup label="Other Major South &amp; National Hubs">
+                ${allRegions.filter((r) => !r.isPriority).map((r) => `
+                  <option value="${r.id}" ${r.id === selectedRegionId ? 'selected' : ''}>${r.label}</option>
+                `).join('')}
+              </optgroup>
+            </select>
+          </div>
+        </div>
+
+        <!-- Regional Rate Cards (24K, 22K 916, 18K) -->
+        <div class="grid-3" style="gap:12px;margin-bottom:14px">
+          <div class="kpi c-gold" style="border:1px solid rgba(201,168,76,0.3);background:var(--bg2)">
+            <div class="kpi-label" style="display:flex;justify-content:space-between">
+              <span>24K (999 Pure Bar)</span>
+              <span style="font-size:10px;opacity:0.8">Per Gram</span>
+            </div>
+            <div class="kpi-value" style="font-size:24px;color:var(--gold)">${fmtGramPrice(regionalData.purities['24K'].pricePerGram)}</div>
+            <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+              <span>10g (Tola): <b>${App.utils.fmtMoney(regionalData.purities['24K'].price10g)}</b></span>
+              <span>100g: <b>${App.utils.fmtMoney(regionalData.purities['24K'].price100g)}</b></span>
+            </div>
+          </div>
+
+          <div class="kpi c-teal" style="border:1px solid rgba(22,201,163,0.3);background:var(--bg2)">
+            <div class="kpi-label" style="display:flex;justify-content:space-between">
+              <span>22K (916 Hallmarked Jewellery)</span>
+              <span style="font-size:10px;opacity:0.8">AP/TS Standard</span>
+            </div>
+            <div class="kpi-value" style="font-size:24px;color:var(--teal)">${fmtGramPrice(regionalData.purities['22K'].pricePerGram)}</div>
+            <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+              <span>8g (1 Pavan): <b>${App.utils.fmtMoney(regionalData.purities['22K'].price8g)}</b></span>
+              <span>10g: <b>${App.utils.fmtMoney(regionalData.purities['22K'].price10g)}</b></span>
+            </div>
+          </div>
+
+          <div class="kpi c-blue" style="border:1px solid rgba(59,130,246,0.3);background:var(--bg2)">
+            <div class="kpi-label" style="display:flex;justify-content:space-between">
+              <span>18K (750 Studded Jewellery)</span>
+              <span style="font-size:10px;opacity:0.8">Diamond Base</span>
+            </div>
+            <div class="kpi-value" style="font-size:24px;color:var(--blue)">${fmtGramPrice(regionalData.purities['18K'].pricePerGram)}</div>
+            <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+              <span>8g (Pavan): <b>${App.utils.fmtMoney(regionalData.purities['18K'].price8g)}</b></span>
+              <span>10g: <b>${App.utils.fmtMoney(regionalData.purities['18K'].price10g)}</b></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Regional Bullion Hubs Table & Jewellery Calculator Grid -->
+        <div class="grid-2" style="gap:14px;align-items:stretch">
+          <!-- Multi-City South Rates Matrix -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column">
+            <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+              <span>📍 South Indian Bullion Centers &amp; Spreads</span>
+              <span style="font-size:11px;color:var(--text3)">Live Daily Reference</span>
+            </div>
+            <div class="table-scroll" style="flex:1">
+              <table class="data" style="font-size:12px">
+                <thead>
+                  <tr>
+                    <th>City / Hub</th>
+                    <th>State</th>
+                    <th>22K (916) / g</th>
+                    <th>8g Pavan (22K)</th>
+                    <th>10g Tola</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${southComparison.map((c) => `
+                    <tr style="${c.id === selectedRegionId ? 'background:rgba(201,168,76,0.12);font-weight:600' : ''}">
+                      <td>${c.city} ${c.isPriority ? '<span style="color:var(--gold)">⭐</span>' : ''}</td>
+                      <td><span style="font-size:11px;color:var(--text2)">${c.state}</span></td>
+                      <td style="color:var(--teal);font-weight:700">${fmtGramPrice(c.rate22k)}</td>
+                      <td>${App.utils.fmtMoney(c.pavan22k)}</td>
+                      <td>${App.utils.fmtMoney(c.tola22k)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Jewellery Purchase & Making Charges Estimator -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
+            <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:6px">
+              💎 Regional Jewellery Purchase Cost Calculator
+            </div>
+            <div style="font-size:11.5px;color:var(--text2);margin-bottom:10px">
+              Calculate exact buying quote at Andhra / Telangana showrooms (Vaibhav, GRT, Lalitha, Malabar, Kalyan, Joyalukkas):
+            </div>
+            
+            <div class="grid-3" style="gap:8px;margin-bottom:10px">
+              <div>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Weight (Grams)</label>
+                <input type="number" id="calcGoldGrams" class="form-input" value="10" min="0.1" step="0.1" style="font-size:12.5px;padding:6px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Purity</label>
+                <select id="calcGoldPurity" class="form-input" style="font-size:12.5px;padding:6px">
+                  <option value="22K" selected>22K (916 Hallmark)</option>
+                  <option value="24K">24K (999 Pure)</option>
+                  <option value="18K">18K (Studded)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Making / VA (%)</label>
+                <input type="number" id="calcMakingPct" class="form-input" value="12" min="0" max="40" step="0.5" style="font-size:12.5px;padding:6px">
+              </div>
+            </div>
+
+            <div id="jewelleryCalcResult" style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:6px;padding:10px">
+              <!-- Rendered by helper -->
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Helper to compute and update jewellery calculator result
+      const updateJewelleryCalc = () => {
+        const grams = parseFloat(App.utils.qs('#calcGoldGrams', host)?.value) || 10;
+        const purity = App.utils.qs('#calcGoldPurity', host)?.value || '22K';
+        const makingPct = parseFloat(App.utils.qs('#calcMakingPct', host)?.value) || 12;
+        const ratePerGram = regionalData.purities[purity]?.pricePerGram || regionalData.purities['22K'].pricePerGram;
+
+        const bill = App.regionalGold.calculateJewelleryBill({
+          grams,
+          purity,
+          ratePerGram,
+          makingChargeType: 'pct',
+          makingChargeValue: makingPct,
+        });
+
+        const resEl = App.utils.qs('#jewelleryCalcResult', host);
+        if (resEl) {
+          resEl.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:12px;color:var(--text2)">Gold Value (${bill.grams}g @ ${fmtGramPrice(bill.ratePerGram)}/g):</span>
+              <span style="font-weight:600;color:var(--text)">${App.utils.fmtMoney(bill.goldValue)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:12px;color:var(--text2)">Making Charges / VA (${bill.makingChargeValue}%):</span>
+              <span style="font-weight:600;color:var(--text)">+ ${App.utils.fmtMoney(bill.makingCharges)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:12px;color:var(--text2)">GST (3% on Subtotal):</span>
+              <span style="font-weight:600;color:var(--text)">+ ${App.utils.fmtMoney(bill.gstAmount)}</span>
+            </div>
+            <div style="border-top:1px solid rgba(201,168,76,0.3);padding-top:6px;display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:13px;font-weight:700;color:var(--gold)">Estimated Showroom Bill:</span>
+              <span style="font-size:16px;font-weight:800;color:var(--teal)">${App.utils.fmtMoney(bill.totalPayable)}</span>
+            </div>
+            <div style="font-size:10.5px;color:var(--text3);margin-top:4px;text-align:right">
+              Effective Net Rate: <b>${fmtGramPrice(bill.effectivePricePerGram)} / gram</b>
+            </div>
+          `;
+        }
+      };
+
+      updateJewelleryCalc();
+
+      // Listeners for calculator & region selector
+      App.utils.qs('#selRegionalLocation', host)?.addEventListener('change', (e) => {
+        App.regionalGold.setSelectedRegionId(e.target.value);
+        drawRegionalIndiaPanel(latest);
+      });
+
+      App.utils.qs('#calcGoldGrams', host)?.addEventListener('input', updateJewelleryCalc);
+      App.utils.qs('#calcGoldPurity', host)?.addEventListener('change', updateJewelleryCalc);
+      App.utils.qs('#calcMakingPct', host)?.addEventListener('input', updateJewelleryCalc);
     }
 
     function drawLiveCard(latest, provider, fresh) {
