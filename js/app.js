@@ -325,7 +325,15 @@ async function enterApp() {
   }
   App.utils.qs('#userChipEmail').textContent = userEmailText;
   App.utils.qs('#demoBanner').style.display = isDemo ? 'flex' : 'none';
-  App.utils.qs('#signOutBtn').textContent = isDemo ? 'Exit Demo' : 'Sign Out';
+  const signOutBtn = App.utils.qs('#signOutBtn');
+  if (signOutBtn) {
+    const lbl = signOutBtn.querySelector('.signout-lbl');
+    if (lbl) {
+      lbl.textContent = isDemo ? 'Exit Demo' : 'Sign Out';
+    } else {
+      signOutBtn.innerHTML = `<span class="signout-ic">🚪</span><span class="signout-lbl">${isDemo ? 'Exit Demo' : 'Sign Out'}</span>`;
+    }
+  }
   try {
     await App.lookups.loadAll();
     if (!isDemo && App.state.profile && App.state.profile.is_active === false) {
@@ -582,13 +590,28 @@ function wireAuthScreen() {
 
   App.utils.qs('#needHelpLink')?.addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
 
-  const handleGlobalSignOut = () => {
+  const handleGlobalSignOut = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (App.security && App.security.lockSession) App.security.lockSession();
-    App.auth.signOut();
+    try {
+      if (App.auth && App.auth.signOut) await App.auth.signOut();
+    } catch (err) {
+      console.warn('SignOut err:', err);
+    }
+    showAuthScreen();
   };
 
-  App.utils.qs('#signOutBtn')?.addEventListener('click', handleGlobalSignOut);
-  App.utils.qs('#topbarMobileSignOut')?.addEventListener('click', handleGlobalSignOut);
+  const signOutEl = App.utils.qs('#signOutBtn');
+  if (signOutEl) {
+    signOutEl.addEventListener('click', handleGlobalSignOut);
+    signOutEl.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      handleGlobalSignOut(e);
+    });
+  }
 
   App.utils.qs('#setNewPasswordBtn')?.addEventListener('click', async () => {
     const pw = App.utils.qs('#newPasswordInput').value;
@@ -656,7 +679,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   App.cycleDesktopSidebar = cycleDesktopSidebar;
 
-  App.utils.qs('#desktopSidebarToggle')?.addEventListener('click', cycleDesktopSidebar);
+  const handleTopbarMenuClick = (e) => {
+    if (e) e.preventDefault();
+    if (window.innerWidth <= 900) {
+      toggleMobileSidebar();
+    } else {
+      cycleDesktopSidebar();
+    }
+  };
+
+  App.utils.qs('#mobileMenuBtn')?.addEventListener('click', handleTopbarMenuClick);
+  App.utils.qs('#desktopSidebarToggle')?.addEventListener('click', handleTopbarMenuClick);
   App.utils.qs('#mobileBottomMenuBtn')?.addEventListener('click', toggleMobileSidebar);
   App.utils.qs('#sidebarCloseBtn')?.addEventListener('click', closeMobileSidebar);
   App.utils.qs('#sidebarBackdrop')?.addEventListener('click', closeMobileSidebar);

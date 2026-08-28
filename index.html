@@ -104,10 +104,8 @@
     </div>
     <div class="topbar">
       <div class="topbar-left">
-        <!-- Desktop Sidebar Collapse / Maximize Toggle -->
-        <button class="icon-btn desktop-menu-btn" id="desktopSidebarToggle" title="Toggle Sidebar / Maximize View (Ctrl+B)" aria-label="Toggle Sidebar">☰</button>
-        <!-- Mobile Drawer Menu Trigger -->
-        <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn" title="Open Navigation Menu" aria-label="Open Navigation">☰</button>
+        <!-- Unified Menu & Sidebar Toggle (Cycles mode on Desktop, opens Drawer on Mobile) -->
+        <button type="button" class="icon-btn topbar-menu-btn" id="mobileMenuBtn" title="Toggle Navigation Menu (Ctrl+B)" aria-label="Toggle Navigation">☰</button>
         <div class="topbar-title" id="topbarTitle">Dashboard</div>
       </div>
       <div class="topbar-search-wrap" id="topbarSearchWrap">
@@ -127,10 +125,11 @@
           &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
         </div>
         <div class="user-chip"><span id="userChipEmail"></span></div>
-        <!-- Single Primary Top-Right Sign-Out Button -->
-        <button class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Sign Out">Sign Out</button>
-        <!-- Mobile Responsive Sign-Out Button / Icon -->
-        <button class="icon-btn topbar-signout-mob" id="topbarMobileSignOut" title="Sign Out" aria-label="Sign Out">🚪</button>
+        <!-- Single Unified Responsive Sign-Out Button -->
+        <button type="button" class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Sign Out" aria-label="Sign Out">
+          <span class="signout-ic">🚪</span>
+          <span class="signout-lbl">Sign Out</span>
+        </button>
       </div>
     </div>
     <div class="view-container" id="viewContainer"></div>

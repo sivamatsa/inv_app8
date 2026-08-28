@@ -986,10 +986,11 @@ window.App = window.App || {};
     // ---- Financial Data Safety & Security Center ----
     async function drawSecurityCenter() {
       const host = App.utils.qs('#securityCenterHost', pane);
-      const user = App.auth.getUser();
-      const userId = user?.id;
+      const user = App.auth.getUser() || (App.state && App.state.profile) || { id: 'local_user', email: 'user@portfolio' };
+      const userId = user?.id || 'local_user';
       const isBioAvailable = await (App.biometrics ? App.biometrics.isAvailable() : Promise.resolve(false));
       const isBioEnabled = App.biometrics ? App.biometrics.isEnabled(userId) : false;
+      const isPinSet = App.security ? App.security.isPinSet(userId) : false;
       const isPinEnabled = App.security ? App.security.isPinEnabled(userId) : false;
       const cred = App.biometrics ? App.biometrics.getStoredCredential(userId) : null;
       const loginLogs = await App.api.listLoginEvents({ limit: 5 }).catch(() => []);
@@ -1017,13 +1018,13 @@ window.App = window.App || {};
           </div>
 
           <!-- 4-Digit Security PIN Card -->
-          <div style="background:var(--bg2);border:1px solid ${isPinEnabled ? 'rgba(201,168,76,0.4)' : 'var(--border)'};border-radius:8px;padding:12px">
+          <div style="background:var(--bg2);border:1px solid ${(isPinSet && isPinEnabled) ? 'rgba(201,168,76,0.4)' : 'var(--border)'};border-radius:8px;padding:12px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <span style="font-weight:700;font-size:13px;color:var(--gold)">🔢 4-Digit App PIN</span>
-              <span class="badge" style="background:${isPinEnabled ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.08)'};color:${isPinEnabled ? 'var(--gold)' : 'var(--text3)'};font-size:10px">${isPinEnabled ? 'Active (••••)' : 'Not Set'}</span>
+              <span class="badge" style="background:${(isPinSet && isPinEnabled) ? 'rgba(201,168,76,0.18)' : (isPinSet ? 'rgba(255,107,107,0.15)' : 'rgba(255,255,255,0.08)')};color:${(isPinSet && isPinEnabled) ? 'var(--gold)' : (isPinSet ? 'var(--red)' : 'var(--text3)')};font-size:10px">${isPinSet ? (isPinEnabled ? 'Active (••••)' : 'Disabled') : 'Not Set'}</span>
             </div>
             <div style="font-size:12px;color:var(--text2)">Encrypted Device Fallback</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">${isPinEnabled ? 'Fast numeric unlock when biometrics are skipped' : 'Set a custom 4-digit code for instant unlock'}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">${isPinSet ? (isPinEnabled ? 'Fast numeric unlock active when biometrics are skipped' : 'PIN saved in vault but currently disabled') : 'Set a custom 4-digit code for instant unlock'}</div>
           </div>
         </div>
 
@@ -1031,7 +1032,7 @@ window.App = window.App || {};
         <div style="background:rgba(22,201,163,0.06);border:1px solid rgba(22,201,163,0.22);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:10px">
           <span style="font-size:20px">🛡️</span>
           <div>
-            <strong style="color:var(--teal)">Tiered Multi-Factor Protection:</strong> On app launch, authentication automatically cascades from <b>1. Hardware Biometrics</b> &rarr; <b>2. 4-Digit Security PIN</b> &rarr; <b>3. Account Password</b>. You can customize each tier below.
+            <strong style="color:var(--teal)">Tiered Multi-Factor Protection:</strong> On app launch, authentication automatically cascades from <b>1. Hardware Biometrics</b> &rarr; <b>2. 4-Digit Security PIN</b> &rarr; <b>3. Account Password</b>. If PIN is disabled, Biometrics takes precedence and falls back directly to password.
           </div>
         </div>
 
@@ -1043,18 +1044,23 @@ window.App = window.App || {};
                 🔢 4-Digit Security PIN
               </div>
               <div style="font-size:12px;color:var(--text2);max-width:560px;line-height:1.4">
-                Set a 4-digit numeric code to unlock your portfolio in seconds. If biometric verification is canceled or unavailable, you can enter this PIN instead of typing your full password.
+                Set a 4-digit numeric code to unlock your portfolio in seconds. You can update, change, temporarily disable, or delete your PIN anytime.
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              ${isPinEnabled ? `
-                <button class="btn btn-gold btn-sm" id="btnChangePin">🔄 Change PIN</button>
-                <button class="btn btn-outline btn-sm" id="btnDisablePin" style="color:var(--red);border-color:rgba(255,107,107,0.3)">Disable PIN</button>
-              ` : `
+              ${!isPinSet ? `
                 <button class="btn btn-gold btn-sm" id="btnSetupPin">
                   ➕ Set 4-Digit PIN
                 </button>
-              `}
+              ` : (isPinEnabled ? `
+                <button class="btn btn-gold btn-sm" id="btnChangePin">🔄 Change PIN</button>
+                <button class="btn btn-outline btn-sm" id="btnDisablePin" title="Temporarily disable PIN unlock">⏸️ Disable PIN</button>
+                <button class="btn btn-outline btn-sm" id="btnDeletePin" style="color:var(--red);border-color:rgba(255,107,107,0.3)" title="Delete PIN from device">🗑️ Delete</button>
+              ` : `
+                <button class="btn btn-gold btn-sm" id="btnEnablePin">▶️ Enable PIN</button>
+                <button class="btn btn-outline btn-sm" id="btnChangePin">🔄 Change PIN</button>
+                <button class="btn btn-outline btn-sm" id="btnDeletePin" style="color:var(--red);border-color:rgba(255,107,107,0.3)">🗑️ Delete</button>
+              `)}
             </div>
           </div>
         </div>
@@ -1120,22 +1126,34 @@ window.App = window.App || {};
       // Wire PIN Security Buttons
       App.utils.qs('#btnSetupPin', host)?.addEventListener('click', () => {
         if (!App.security) return;
-        App.security.openSetPinModal(userId, () => {
+        App.security.openSetPinModal(user, () => {
           drawSecurityCenter();
         });
       });
 
       App.utils.qs('#btnChangePin', host)?.addEventListener('click', () => {
         if (!App.security) return;
-        App.security.openChangePinModal(userId, () => {
+        App.security.openChangePinModal(user, () => {
           drawSecurityCenter();
         });
       });
 
       App.utils.qs('#btnDisablePin', host)?.addEventListener('click', () => {
-        if (!confirm('Are you sure you want to disable your 4-digit PIN?')) return;
         if (App.security) App.security.disablePin(userId);
-        App.utils.toast('4-Digit Security PIN has been disabled.');
+        App.utils.toast('4-Digit Security PIN has been paused/disabled.');
+        drawSecurityCenter();
+      });
+
+      App.utils.qs('#btnEnablePin', host)?.addEventListener('click', () => {
+        if (App.security) App.security.enablePin(userId);
+        App.utils.toast('4-Digit Security PIN enabled successfully.', 'ok');
+        drawSecurityCenter();
+      });
+
+      App.utils.qs('#btnDeletePin', host)?.addEventListener('click', () => {
+        if (!confirm('Are you sure you want to permanently delete your 4-digit PIN from this device?')) return;
+        if (App.security) App.security.deletePin(userId);
+        App.utils.toast('4-Digit PIN deleted from device.');
         drawSecurityCenter();
       });
 

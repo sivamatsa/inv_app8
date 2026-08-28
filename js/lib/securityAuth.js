@@ -74,7 +74,24 @@ App.security = (function () {
   function disablePin(userId) {
     if (userId) {
       localStorage.setItem(PIN_ENABLED_PREFIX + userId, 'false');
+    }
+    return true;
+  }
+
+  function enablePin(userId) {
+    if (userId && isPinSet(userId)) {
+      localStorage.setItem(PIN_ENABLED_PREFIX + userId, 'true');
+    }
+    return true;
+  }
+
+  function deletePin(userId) {
+    if (userId) {
       localStorage.removeItem(PIN_STORAGE_PREFIX + userId);
+      localStorage.removeItem(PIN_ENABLED_PREFIX + userId);
+      if (App.backupProfileDb && App.backupProfileDb.saveSystemKv) {
+        App.backupProfileDb.saveSystemKv('user_pin_' + userId, null).catch(() => {});
+      }
     }
     return true;
   }
@@ -97,10 +114,21 @@ App.security = (function () {
     isSessionUnlocked = false;
   }
 
+  function resolveUser(userOrId) {
+    if (userOrId && typeof userOrId === 'object' && userOrId.id) {
+      return userOrId;
+    }
+    const current = App.auth ? App.auth.getUser() : null;
+    if (current) return current;
+    const uid = typeof userOrId === 'string' ? userOrId : (App.state && App.state.profile && App.state.profile.id) || 'local_user';
+    return { id: uid, email: (App.state && App.state.profile && App.state.profile.email) || 'user@portfolio' };
+  }
+
   // Open 4-Digit PIN Setup / Change Modal
-  function openPinSetupModal(user, onComplete) {
+  function openPinSetupModal(userOrId, onComplete, requestedMode) {
+    const user = resolveUser(userOrId);
     const isExisting = isPinSet(user.id);
-    let step = isExisting ? 'verify_old' : 'enter_new';
+    let step = (requestedMode === 'change' || (isExisting && requestedMode !== 'force_new')) ? 'verify_old' : 'enter_new';
     let oldPinVal = '';
     let newPinVal = '';
     let confirmPinVal = '';
@@ -123,7 +151,7 @@ App.security = (function () {
         subtitle = 'Verify your existing PIN before setting a new one.';
         currentVal = oldPinVal;
       } else if (step === 'enter_new') {
-        title = isExisting ? 'Enter New 4-Digit PIN' : 'Create 4-Digit Quick PIN';
+        title = (isExisting || requestedMode === 'change') ? 'Enter New 4-Digit PIN' : 'Create 4-Digit Quick PIN';
         subtitle = 'Choose a secure 4-digit numeric passcode.';
         currentVal = newPinVal;
       } else if (step === 'confirm_new') {
@@ -537,8 +565,12 @@ App.security = (function () {
     verifyPin,
     changePin,
     disablePin,
+    enablePin,
+    deletePin,
     setPinEnabled,
     openPinSetupModal,
+    openSetPinModal: (u, cb) => openPinSetupModal(u, cb, isPinSet(resolveUser(u).id) ? 'change' : 'new'),
+    openChangePinModal: (u, cb) => openPinSetupModal(u, cb, 'change'),
     openPinUnlockModal,
     tryEnterProtectedApp,
     isUnlocked,
