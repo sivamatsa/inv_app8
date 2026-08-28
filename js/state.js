@@ -122,23 +122,36 @@ App.filters = (function () {
 App.lookups = (function () {
   async function loadAll() {
     const [platforms, categories, riskRatings, profile, sharedWithMe, typePrefs] = await Promise.all([
-      App.api.listPlatforms(), App.api.listCategories(), App.api.listRiskRatings(), App.api.getProfile(),
+      App.api.listPlatforms().catch(() => []),
+      App.api.listCategories().catch(() => []),
+      App.api.listRiskRatings().catch(() => []),
+      App.api.getProfile().catch(() => null),
       App.api.listPortfoliosSharedWithMe().catch(() => []),
       App.api.listNotificationTypePreferences().catch(() => []),
     ]);
-    App.state.platforms = platforms;
-    App.state.categories = categories;
-    App.state.riskRatings = riskRatings;
-    App.state.profile = profile;
+    App.state.platforms = Array.isArray(platforms) ? platforms : [];
+    App.state.categories = Array.isArray(categories) ? categories : [];
+    App.state.riskRatings = Array.isArray(riskRatings) ? riskRatings : [];
+    App.state.profile = profile || (App.auth.getUser() ? {
+      id: App.auth.getUser().id,
+      email: App.auth.getUser().email,
+      full_name: (App.auth.getUser().user_metadata && App.auth.getUser().user_metadata.full_name) || App.auth.getUser().email,
+      is_active: true,
+      preferred_currency: 'INR',
+    } : {});
     // Excludes a portfolio the user happens to own themselves - "Shared
     // With Me" means someone ELSE'S portfolio, not a reflection of your own.
-    App.state.sharedWithMeCount = sharedWithMe.filter((p) => p.owner_user_id !== (profile && profile.id)).length;
+    const validShared = Array.isArray(sharedWithMe) ? sharedWithMe : [];
+    App.state.sharedWithMeCount = validShared.filter((p) => p.owner_user_id !== (App.state.profile && App.state.profile.id)).length;
     const typePrefsByType = {};
-    typePrefs.forEach((p) => { typePrefsByType[p.type] = p; });
+    if (Array.isArray(typePrefs)) {
+      typePrefs.forEach((p) => { if (p && p.type) typePrefsByType[p.type] = p; });
+    }
     App.state.notificationTypePrefs = typePrefsByType;
   }
   function platformName(id) {
-    const p = App.state.platforms.find((x) => x.id === id);
+    const platforms = App.state.platforms || [];
+    const p = platforms.find((x) => x.id === id);
     return p ? p.name : '—';
   }
   return { loadAll, platformName };

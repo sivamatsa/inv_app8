@@ -120,9 +120,15 @@ window.App = window.App || {};
   }
 
   async function renderScheduleTab(container, deals) {
-    const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
-    const allSchedule = await App.api.listSchedule({ in: { status: ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_RECEIVED'] } });
-    allSchedule.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date));
+    const dealsById = {}; (deals || []).forEach((d) => { dealsById[d.id] = d; });
+    let allSchedule = [];
+    try {
+      allSchedule = (await App.api.listSchedule({ in: { status: ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_RECEIVED'] } })) || [];
+    } catch (e) {
+      console.warn('Could not fetch schedule:', e);
+      allSchedule = [];
+    }
+    allSchedule.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
     let schedQuickChip = 'all';
     container.innerHTML = `
       <div class="filter-chips-wrap" id="schedQuickChips" style="margin-top:6px">
@@ -190,8 +196,14 @@ window.App = window.App || {};
   }
 
   async function renderLedgerTab(container, deals) {
-    const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
-    const allPayments = await App.api.listPayments();
+    const dealsById = {}; (deals || []).forEach((d) => { dealsById[d.id] = d; });
+    let allPayments = [];
+    try {
+      allPayments = (await App.api.listPayments()) || [];
+    } catch (e) {
+      console.warn('Could not fetch payments:', e);
+      allPayments = [];
+    }
     let ledgerQuickChip = 'all';
     container.innerHTML = `
       <div class="filter-chips-wrap" id="ledgerQuickChips" style="margin-top:6px">
@@ -261,14 +273,19 @@ window.App = window.App || {};
   }
 
   async function renderReconciliationTab(container, deals) {
-    const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
-    const [bankTx, schedule, recurringOcc, recurringItemsAll] = await Promise.all([
-      App.api.listBankTransactions(),
-      App.api.listSchedule({ in: { status: ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_RECEIVED'] } }),
-      App.api.listRecurringOccurrences({ in: { status: ['UPCOMING', 'DUE', 'OVERDUE'] } }),
-      App.api.listRecurringItems(),
-    ]);
-    const recurringItemsById = {}; recurringItemsAll.forEach((i) => { recurringItemsById[i.id] = i; });
+    const dealsById = {}; (deals || []).forEach((d) => { dealsById[d.id] = d; });
+    let bankTx = [], schedule = [], recurringOcc = [], recurringItemsAll = [];
+    try {
+      [bankTx, schedule, recurringOcc, recurringItemsAll] = await Promise.all([
+        App.api.listBankTransactions().catch(() => []),
+        App.api.listSchedule({ in: { status: ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_RECEIVED'] } }).catch(() => []),
+        App.api.listRecurringOccurrences({ in: { status: ['UPCOMING', 'DUE', 'OVERDUE'] } }).catch(() => []),
+        App.api.listRecurringItems().catch(() => []),
+      ]);
+    } catch (e) {
+      console.warn('Could not fetch reconciliation data:', e);
+    }
+    const recurringItemsById = {}; (recurringItemsAll || []).forEach((i) => { recurringItemsById[i.id] = i; });
 
     // Generalized to score across BOTH Deal schedule rows and Recurring
     // occurrences (the Reconciliation Center addendum's "Payments/Recurring"
@@ -425,7 +442,13 @@ window.App = window.App || {};
       App.utils.qsa('.tab-pane', pane).forEach((p) => p.classList.toggle('active', p.dataset.pane === btn.dataset.tab));
     }));
 
-    const deals = await App.api.listDeals();
+    let deals = [];
+    try {
+      deals = (await App.api.listDeals()) || [];
+    } catch (e) {
+      console.warn('Could not fetch deals for payments view:', e);
+      deals = [];
+    }
     await renderScheduleTab(App.utils.qs('#scheduleTabBody', pane), deals);
     await renderLedgerTab(App.utils.qs('#ledgerTabBody', pane), deals);
     await renderReconciliationTab(App.utils.qs('#reconTabBody', pane), deals);

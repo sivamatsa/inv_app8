@@ -261,6 +261,8 @@ App.auth = (function () {
 
   async function signIn(email, password) {
     const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail) throw new Error('Please enter your email address.');
+    if (!password) throw new Error('Please enter your password.');
     let supaError = null;
 
     // 1. Try Supabase Auth
@@ -269,6 +271,8 @@ App.auth = (function () {
       if (c) {
         const { data, error } = await c.auth.signInWithPassword({ email: cleanEmail, password });
         if (!error && data && data.user) {
+          currentUser = data.user;
+          currentSession = data.session || { user: data.user };
           // Mirror profile into Backup DB
           if (App.backupProfileDb) {
             App.backupProfileDb.saveProfile({
@@ -278,7 +282,8 @@ App.auth = (function () {
               source: 'dual_synced',
             }, password).catch(() => {});
           }
-          return data;
+          notify('SIGNED_IN');
+          return { data, user: currentUser, session: currentSession };
         }
         supaError = error;
       }
@@ -293,13 +298,33 @@ App.auth = (function () {
         if (authRes && authRes.user) {
           currentUser = authRes.user;
           currentSession = authRes.session;
-          notify();
+          notify('SIGNED_IN');
           return { user: currentUser, session: currentSession, isBackupMode: true };
         }
       } catch (backupErr) {
-        // If Supabase gave an explicit invalid credentials error, prefer that
-        if (supaError) throw supaError;
-        throw backupErr;
+        // If neither Supabase nor BackupDB authenticated:
+        if (supaError && supaError.message && supaError.message.toLowerCase().includes('email not confirmed')) {
+          const backupProfile = await App.backupProfileDb.getProfileByEmail(cleanEmail);
+          if (backupProfile) {
+            const authRes = await App.backupProfileDb.authenticate(cleanEmail, password);
+            if (authRes && authRes.user) {
+              currentUser = authRes.user;
+              currentSession = authRes.session;
+              notify('SIGNED_IN');
+              return { user: currentUser, session: currentSession, isBackupMode: true };
+            }
+          }
+        }
+
+        const existingProfile = await App.backupProfileDb.getProfileByEmail(cleanEmail);
+        if (!existingProfile && (!supaError || (supaError.message && supaError.message.toLowerCase().includes('invalid login credentials')))) {
+          throw new Error('No account found for this email. If this is your first time, please click "Create Account" above to register.');
+        }
+
+        if (supaError && supaError.message) {
+          throw supaError;
+        }
+        throw new Error('Incorrect email or password. Please verify your credentials or click "Need Help?" to reset.');
       }
     }
 

@@ -426,60 +426,162 @@ function wireAuthScreen() {
 
   App.utils.qs('#authTabSignIn')?.addEventListener('click', () => switchAuthTab('signin'));
   App.utils.qs('#authTabSignUp')?.addEventListener('click', () => switchAuthTab('signup'));
-  // Changing the Supabase connection is now an admin-only, post-login
-  // control (Settings -> Supabase Connection) - see supabaseClient.js's
-  // DEFAULT_CONFIG comment for why. There's no pre-login path anymore
-  // (isConfigured() is always true once a default exists, and role can't
-  // be checked before signing in anyway).
-  App.utils.qs('#tryDemoBtn').addEventListener('click', () => App.auth.enterDemoMode());
+  App.utils.qs('#tryDemoBtn')?.addEventListener('click', () => App.auth.enterDemoMode());
 
   function switchAuthTab(tab) {
-    App.utils.qs('#authTabSignIn').classList.toggle('active', tab === 'signin');
-    App.utils.qs('#authTabSignUp').classList.toggle('active', tab === 'signup');
-    App.utils.qs('#signInForm').style.display = tab === 'signin' ? 'block' : 'none';
-    App.utils.qs('#signUpForm').style.display = tab === 'signup' ? 'block' : 'none';
+    App.utils.qs('#authTabSignIn')?.classList.toggle('active', tab === 'signin');
+    App.utils.qs('#authTabSignUp')?.classList.toggle('active', tab === 'signup');
+    const signInForm = App.utils.qs('#signInForm');
+    const signUpForm = App.utils.qs('#signUpForm');
+    if (signInForm) signInForm.style.display = tab === 'signin' ? 'block' : 'none';
+    if (signUpForm) signUpForm.style.display = tab === 'signup' ? 'block' : 'none';
+    const signInErr = App.utils.qs('#signInError');
+    const signUpErr = App.utils.qs('#signUpError');
+    if (signInErr) signInErr.textContent = '';
+    if (signUpErr) signUpErr.textContent = '';
   }
 
-  App.utils.qs('#signInBtn').addEventListener('click', async () => {
-    const email = App.utils.qs('#signInEmail').value.trim();
-    const password = App.utils.qs('#signInPassword').value;
+  async function handleSignIn() {
+    const emailInput = App.utils.qs('#signInEmail');
+    const passwordInput = App.utils.qs('#signInPassword');
+    const btn = App.utils.qs('#signInBtn');
     const errEl = App.utils.qs('#signInError');
-    errEl.textContent = '';
-    try {
-      await App.auth.signIn(email, password);
-    } catch (e) { errEl.textContent = e.message || 'Could not sign in.'; }
-  });
+    if (!emailInput || !passwordInput || !btn || !errEl) return;
 
-  App.utils.qs('#signUpBtn').addEventListener('click', async () => {
-    const email = App.utils.qs('#signUpEmail').value.trim();
-    const password = App.utils.qs('#signUpPassword').value;
-    const name = App.utils.qs('#signUpName').value.trim();
-    const errEl = App.utils.qs('#signUpError');
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
     errEl.textContent = '';
-    if (password.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+
+    if (!email) {
+      errEl.textContent = 'Please enter your email address.';
+      emailInput.focus();
+      return;
+    }
+    if (!password) {
+      errEl.textContent = 'Please enter your password.';
+      passwordInput.focus();
+      return;
+    }
+
+    const origBtnText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Signing in...';
+
+    try {
+      const res = await App.auth.signIn(email, password);
+      if (res && (res.user || res.data || App.auth.getUser())) {
+        App.utils.toast('Signed in successfully', 'ok');
+        await enterApp();
+      }
+    } catch (e) {
+      console.warn('Sign in error:', e);
+      errEl.style.color = 'var(--red, #e74c3c)';
+      errEl.textContent = e.message || 'Could not sign in with these credentials.';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+
+  async function handleSignUp() {
+    const nameInput = App.utils.qs('#signUpName');
+    const emailInput = App.utils.qs('#signUpEmail');
+    const passwordInput = App.utils.qs('#signUpPassword');
+    const btn = App.utils.qs('#signUpBtn');
+    const errEl = App.utils.qs('#signUpError');
+    if (!emailInput || !passwordInput || !btn || !errEl) return;
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const name = (nameInput?.value || '').trim();
+    errEl.textContent = '';
+
+    if (!email) {
+      errEl.textContent = 'Please enter your email address.';
+      emailInput.focus();
+      return;
+    }
+    if (password.length < 6) {
+      errEl.textContent = 'Password must be at least 6 characters.';
+      passwordInput.focus();
+      return;
+    }
+
+    const origBtnText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Creating account...';
+
     try {
       const res = await App.auth.signUp(email, password, name);
       if (res && res.isBackupMode) {
-        App.utils.toast('Account created and signed in via Backup Database Store!', 'ok');
-        enterApp();
+        App.utils.toast('Account created and signed in!', 'ok');
+        await enterApp();
       } else if (res && res.session) {
         App.utils.toast('Account created and signed in successfully!', 'ok');
-        enterApp();
+        await enterApp();
       } else {
-        errEl.style.color = 'var(--teal, #0d9488)';
-        errEl.textContent = 'Account created. You can now sign in with your password.';
+        App.utils.toast('Account registered! Signing you in...', 'ok');
+        try {
+          await App.auth.signIn(email, password);
+          await enterApp();
+        } catch (subErr) {
+          errEl.style.color = 'var(--teal, #0d9488)';
+          errEl.textContent = 'Account created. You can now sign in with your password.';
+          switchAuthTab('signin');
+          if (App.utils.qs('#signInEmail')) App.utils.qs('#signInEmail').value = email;
+        }
       }
     } catch (e) {
       errEl.style.color = 'var(--red, #e74c3c)';
       errEl.textContent = e.message || 'Could not create account.';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+
+  App.utils.qs('#signInBtn')?.addEventListener('click', handleSignIn);
+  App.utils.qs('#signUpBtn')?.addEventListener('click', handleSignUp);
+
+  // Wire Enter key in sign-in inputs
+  App.utils.qs('#signInEmail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signInPassword')?.focus();
+    }
+  });
+  App.utils.qs('#signInPassword')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSignIn();
     }
   });
 
-  App.utils.qs('#needHelpLink').addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
+  // Wire Enter key in sign-up inputs
+  App.utils.qs('#signUpName')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signUpEmail')?.focus();
+    }
+  });
+  App.utils.qs('#signUpEmail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signUpPassword')?.focus();
+    }
+  });
+  App.utils.qs('#signUpPassword')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSignUp();
+    }
+  });
 
-  App.utils.qs('#signOutBtn').addEventListener('click', () => App.auth.signOut());
+  App.utils.qs('#needHelpLink')?.addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
 
-  App.utils.qs('#setNewPasswordBtn').addEventListener('click', async () => {
+  App.utils.qs('#signOutBtn')?.addEventListener('click', () => App.auth.signOut());
+
+  App.utils.qs('#setNewPasswordBtn')?.addEventListener('click', async () => {
     const pw = App.utils.qs('#newPasswordInput').value;
     const confirm = App.utils.qs('#confirmNewPasswordInput').value;
     const errEl = App.utils.qs('#setNewPasswordError');
@@ -489,10 +591,6 @@ function wireAuthScreen() {
     try {
       await App.auth.updatePassword(pw);
       App.utils.toast('Password updated');
-      // updateUser() on an already-valid recovery session doesn't itself
-      // fire another onAuthStateChange event - re-check the session
-      // directly so enterApp() runs now instead of leaving the visitor
-      // stuck on this screen until their next page load.
       const user = App.auth.getUser();
       if (user) enterApp(); else showAuthScreen();
     } catch (e) { errEl.textContent = e.message || 'Could not update password.'; }
@@ -548,7 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Re-render views on global currency change
   document.addEventListener('currency-changed', () => {
-    App.router.refresh();
+    App.router.refreshCurrent();
   });
 
   App.auth.onChange((user, session, event) => {

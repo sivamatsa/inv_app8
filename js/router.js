@@ -38,10 +38,17 @@ App.router = (function () {
     const link = App.utils.qs(`.nav-link[data-nav="${name}"]`);
     if (titleEl && link) titleEl.textContent = link.dataset.label || name;
     current = name;
+    if (!App.auth.getUser() && !App.auth.isDemoMode()) {
+      return;
+    }
     try {
       await views[name]();
     } catch (e) {
       console.error('View render failed:', name, e);
+      if (e && e.message === 'Not signed in.') {
+        // Silent recovery if auth has not yet resolved
+        return;
+      }
       App.utils.toast('Could not load this view: ' + (e.message || e), 'err');
     }
   }
@@ -75,5 +82,5 @@ App.router = (function () {
     show(currentName());
   }
 
-  return { register, navigate, init, refreshCurrent, onLeave, currentName: () => current };
+  return { register, navigate, init, refresh: refreshCurrent, refreshCurrent, onLeave, currentName: () => current };
 })();
