@@ -169,6 +169,154 @@ app.get('/api/ai-status', (req, res) => {
   });
 });
 
+// Document & Agreement Extraction Endpoint (Sale Deeds, Dharani/Meebhoomi, Promissory Notes, Gold Schemes, Lease Agreements)
+app.post('/api/extract-document', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { documentText, imageBase64, mimeType = 'image/jpeg', documentHint = 'auto' } = req.body || {};
+
+    if (!documentText && !imageBase64) {
+      return res.status(400).json({ error: 'Either documentText or imageBase64 is required.' });
+    }
+
+    const ai = getAiClient();
+
+    const extractionPrompt = `You are the Institutional Document Analysis AI for Personal Investment OS.
+Your task is to analyze and extract financial, legal, and operational parameters from the provided document (Sale Deed, Land Registry like Dharani/Meebhoomi/Pattadar Passbook, Promissory Note, Gold Scheme Passbook, or Commercial/Residential Lease Agreement).
+
+Document Hint: ${documentHint}
+
+Rules for Extraction:
+1. Identify the exact Document Type accurately:
+   - "Sale Deed / Conveyance"
+   - "Land Registry (AP Dharani / Meebhoomi / ROR-1B)"
+   - "Promissory Note / Loan Agreement"
+   - "Gold Scheme / Chit Fund Passbook"
+   - "Rental / Lease Agreement"
+   - "Fixed Income / Bond / FD"
+2. Normalize all financial amounts to numerical values in INR / USD.
+3. Normalize all dates to ISO "YYYY-MM-DD".
+4. Calculate or extract ROI/Interest rates, tenure in months, and payout frequencies.
+5. For Land / Real Estate: extract survey numbers, village/mandal/district, sub-registrar office, and extent.
+6. For Gold Schemes: extract purity (24K/22K), gross & net weight in grams, jeweller name, and monthly installment.
+7. For Leases & Rent Agreements:
+   - Extract Tenant Name, Monthly Rent, Security Deposit, Start Date, Expiry Date.
+   - Extract Rental Escalation percentage (e.g., 5%, 7%, 10%) and Escalation Period in months (e.g. 11 months, 12 months).
+   - Compute or estimate next escalation date and new escalated rent.
+8. Output ONLY valid JSON matching this schema:
+{
+  "document_type": string,
+  "deal_name": string,
+  "investment_type": string (e.g. "Real Estate", "Private Lending", "Physical Gold", "Chit Funds", "Venture & P2P", "Fixed Deposit", "Rental Property"),
+  "category": string,
+  "party_name": string,
+  "contact_phone": string,
+  "invested_amount": number,
+  "principal_amount": number,
+  "annual_roi": number,
+  "monthly_roi": number,
+  "tenure_months": number,
+  "start_date": string (YYYY-MM-DD),
+  "maturity_date": string (YYYY-MM-DD),
+  "payment_frequency": string ("Monthly" | "Quarterly" | "Half-Yearly" | "Yearly" | "At Maturity"),
+  "payout_type": string ("Interest Only" | "Interest + Principal" | "Principal at Maturity" | "EMI" | "Rental Payout"),
+  "collateral_available": boolean,
+  "collateral_notes": string,
+  "land_details": {
+    "survey_number": string,
+    "extent": string,
+    "village_mandal_district": string,
+    "sub_registrar_office": string,
+    "document_number": string
+  },
+  "gold_details": {
+    "jeweller_name": string,
+    "purity": string,
+    "weight_grams": number,
+    "monthly_installment": number,
+    "scheme_tenure_months": number
+  },
+  "lease_details": {
+    "is_lease": boolean,
+    "tenant_name": string,
+    "monthly_rent": number,
+    "security_deposit": number,
+    "lease_start_date": string,
+    "lease_expiry_date": string,
+    "rental_escalation_pct": number,
+    "escalation_period_months": number,
+    "days_to_expiry": number,
+    "next_escalation_date": string,
+    "escalated_new_rent": number
+  },
+  "key_highlights": [string],
+  "executive_summary": string,
+  "confidence_score": number (0 to 100)
+}`;
+
+    const parts = [];
+    if (imageBase64) {
+      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+      parts.push({
+        inlineData: {
+          mimeType: mimeType,
+          data: cleanBase64,
+        },
+      });
+    }
+    if (documentText) {
+      parts.push({
+        text: `--- DOCUMENT RAW CONTENT ---\n${documentText}\n--- END DOCUMENT RAW CONTENT ---`,
+      });
+    }
+    parts.push({ text: extractionPrompt });
+
+    const modelCandidates = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+    let parsedResult = null;
+    let lastErr = null;
+
+    for (const targetModel of modelCandidates) {
+      try {
+        const response = await callWithTimeout(
+          ai.models.generateContent({
+            model: targetModel,
+            contents: [{ role: 'user', parts }],
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.2,
+            },
+          }),
+          20000
+        );
+
+        const textOut = response?.text || '';
+        if (textOut) {
+          parsedResult = JSON.parse(textOut);
+          break;
+        }
+      } catch (err) {
+        lastErr = err;
+        console.warn(`Extraction attempt with ${targetModel} notice:`, err.message || err);
+      }
+    }
+
+    if (parsedResult) {
+      return res.json({
+        success: true,
+        extracted: parsedResult,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    throw lastErr || new Error('Unable to extract structured data from document.');
+  } catch (err) {
+    return res.status(500).json({
+      error: err.message || 'Document extraction failed',
+      help: 'Please verify GEMINI_API_KEY or ensure clear image / text resolution.',
+    });
+  }
+});
+
 // Serve static assets from workspace root
 app.use(express.static(__dirname));
 

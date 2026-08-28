@@ -149,18 +149,21 @@ App.closeMobileSidebar = closeMobileSidebar;
 App.openMobileSidebar = openMobileSidebar;
 App.toggleMobileSidebar = toggleMobileSidebar;
 
-function renderSidebar() {
+  function renderSidebar() {
   const structure = currentNavStructure();
   const prefs = App.state.profile && App.state.profile.ui_preferences;
   const displayStructure = applySidebarPrefs(structure, prefs);
   const nav = App.utils.qs('#sidebarNav');
   const activeKey = App.router.currentName();
-  const isCompact = !!(prefs && prefs.sidebarCompact);
-  nav.classList.toggle('compact', isCompact);
-  // .sidebar/.main-area's actual width comes from body.sidebar-compact
-  // overriding --sidebar-w (see app.css) - #sidebarNav.compact above only
-  // ever hid label text, it never shrank the sidebar itself.
-  document.body.classList.toggle('sidebar-compact', isCompact);
+  const savedMode = localStorage.getItem('ios_desktop_sidebar_mode') || (prefs && prefs.sidebarCompact ? 'compact' : 'expanded');
+  const isCompact = savedMode === 'compact';
+  const isHidden = savedMode === 'hidden';
+
+  if (window.innerWidth > 900) {
+    document.body.classList.toggle('sidebar-compact', isCompact);
+    document.body.classList.toggle('sidebar-hidden', isHidden);
+    if (nav) nav.classList.toggle('compact', isCompact);
+  }
   nav.innerHTML = displayStructure.map((g) => `
     <div class="nav-group-label">${g.group}</div>
     ${g.items.map((it) => `
@@ -579,7 +582,13 @@ function wireAuthScreen() {
 
   App.utils.qs('#needHelpLink')?.addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
 
-  App.utils.qs('#signOutBtn')?.addEventListener('click', () => App.auth.signOut());
+  const handleGlobalSignOut = () => {
+    if (App.security && App.security.lockSession) App.security.lockSession();
+    App.auth.signOut();
+  };
+
+  App.utils.qs('#signOutBtn')?.addEventListener('click', handleGlobalSignOut);
+  App.utils.qs('#topbarMobileSignOut')?.addEventListener('click', handleGlobalSignOut);
 
   App.utils.qs('#setNewPasswordBtn')?.addEventListener('click', async () => {
     const pw = App.utils.qs('#newPasswordInput').value;
@@ -608,8 +617,46 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   App.globalSearch.wire();
 
-  // Wire Mobile Drawer & Search Triggers
-  App.utils.qs('#mobileMenuBtn')?.addEventListener('click', toggleMobileSidebar);
+  // Desktop Sidebar Toggle & Full View Maximization
+  const DESKTOP_SIDEBAR_STATE_KEY = 'ios_desktop_sidebar_mode'; // 'expanded' | 'compact' | 'hidden'
+  function getDesktopSidebarMode() {
+    return localStorage.getItem(DESKTOP_SIDEBAR_STATE_KEY) || 'expanded';
+  }
+  function setDesktopSidebarMode(mode) {
+    localStorage.setItem(DESKTOP_SIDEBAR_STATE_KEY, mode);
+    applyDesktopSidebarMode(mode);
+  }
+  function applyDesktopSidebarMode(mode) {
+    if (window.innerWidth <= 900) return; // Don't interfere with mobile drawer
+    document.body.classList.remove('sidebar-compact', 'sidebar-hidden');
+    const nav = App.utils.qs('#sidebarNav');
+    if (mode === 'compact') {
+      document.body.classList.add('sidebar-compact');
+      if (nav) nav.classList.add('compact');
+    } else if (mode === 'hidden') {
+      document.body.classList.add('sidebar-hidden');
+      if (nav) nav.classList.remove('compact');
+    } else {
+      if (nav) nav.classList.remove('compact');
+    }
+  }
+
+  function cycleDesktopSidebar() {
+    const current = getDesktopSidebarMode();
+    // Cycle: expanded -> compact (icon-only) -> hidden (maximized canvas) -> expanded
+    let next = 'compact';
+    if (current === 'expanded') next = 'compact';
+    else if (current === 'compact') next = 'hidden';
+    else next = 'expanded';
+
+    setDesktopSidebarMode(next);
+    const msg = next === 'expanded' ? 'Sidebar Expanded' : (next === 'compact' ? 'Sidebar Compact (Icons Only)' : 'Canvas Maximized (Sidebar Hidden)');
+    App.utils.toast(msg, 'info');
+  }
+
+  App.cycleDesktopSidebar = cycleDesktopSidebar;
+
+  App.utils.qs('#desktopSidebarToggle')?.addEventListener('click', cycleDesktopSidebar);
   App.utils.qs('#mobileBottomMenuBtn')?.addEventListener('click', toggleMobileSidebar);
   App.utils.qs('#sidebarCloseBtn')?.addEventListener('click', closeMobileSidebar);
   App.utils.qs('#sidebarBackdrop')?.addEventListener('click', closeMobileSidebar);
@@ -626,11 +673,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Close mobile drawer on Escape key
+  // Close mobile drawer on Escape key & shortcut for Desktop sidebar toggle (Ctrl+B / ⌘B)
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeMobileSidebar();
       if (searchWrap) searchWrap.classList.remove('mobile-open');
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+      if (window.innerWidth > 900) {
+        e.preventDefault();
+        cycleDesktopSidebar();
+      }
     }
   });
 
@@ -649,25 +702,16 @@ document.addEventListener('DOMContentLoaded', () => {
     App.router.refreshCurrent();
   });
 
-  let appSessionUnlocked = false;
-
   function tryEnterApp(user) {
     if (!user) {
       showAuthScreen();
       return;
     }
-    // If user has enabled biometric authentication and session has not been unlocked
-    if (App.biometrics && App.biometrics.isEnabled(user.id) && !appSessionUnlocked) {
-      App.biometrics.openBiometricUnlockModal(
+    if (App.security && App.security.tryEnterProtectedApp) {
+      App.security.tryEnterProtectedApp(
         user,
-        () => {
-          appSessionUnlocked = true;
-          enterApp();
-        },
-        () => {
-          appSessionUnlocked = true;
-          enterApp();
-        }
+        () => { enterApp(); },
+        () => { showAuthScreen(); }
       );
       return;
     }
@@ -676,14 +720,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   App.auth.onChange((user, session, event) => {
     // A password-reset email link logs the visitor into a real, valid
-    // session (that's how Supabase's recovery flow works) - entering the
-    // app straight away would silently skip the "set a new password" step
-    // entirely. Show that screen instead for exactly this one event; every
-    // other event (including the very next one, once the password is set)
-    // falls through to the normal enterApp()/showAuthScreen() branching.
+    // session (recovery flow) - entering the app straight away would
+    // silently skip the "set a new password" step.
     if (event === 'PASSWORD_RECOVERY') { showSetNewPasswordScreen(); return; }
-    if (event === 'SIGNED_IN') { appSessionUnlocked = true; }
-    if (user) tryEnterApp(user); else { appSessionUnlocked = false; showAuthScreen(); }
+    if (event === 'SIGNED_IN') {
+      if (App.security && App.security.markSessionUnlocked) App.security.markSessionUnlocked();
+    }
+    if (user) {
+      tryEnterApp(user);
+    } else {
+      if (App.security && App.security.lockSession) App.security.lockSession();
+      showAuthScreen();
+    }
   });
   if (App.auth.isConfigured()) App.auth.init();
 });

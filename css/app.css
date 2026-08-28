@@ -113,7 +113,7 @@ h1,h2,h3{font-family:'Cormorant Garamond',serif;font-weight:600}
 
 .main-area{flex:1;margin-left:var(--sidebar-w);min-height:100vh;position:relative;z-index:1;transition:margin-left .15s}
 
-/* Compact mode's real fix: the rules above only ever hid label TEXT inside
+/* Compact / Collapsed mode's real fix: the rules above only ever hid label TEXT inside
    #sidebarNav - the .sidebar container itself (and .main-area, which reads
    the same --sidebar-w variable) never shrank, so icons ended up centered
    in the same 230px-wide column with dead space beside them instead of a
@@ -124,6 +124,41 @@ h1,h2,h3{font-family:'Cormorant Garamond',serif;font-weight:600}
 body.sidebar-compact{--sidebar-w:76px}
 body.sidebar-compact .sidebar-brand{justify-content:center;padding:0 8px 18px}
 body.sidebar-compact .sidebar-title,body.sidebar-compact .sidebar-sub{display:none}
+body.sidebar-compact .sidebar{width:var(--sidebar-w)}
+body.sidebar-compact #sidebarNav .nav-group-label{display:none}
+body.sidebar-compact #sidebarNav .nav-link{justify-content:center;padding:9px 6px;position:relative}
+body.sidebar-compact #sidebarNav .nav-label-text{display:none}
+body.sidebar-compact #sidebarNav .nav-badge{margin-left:0;position:absolute;transform:translate(10px,-10px)}
+
+/* Fully hidden / maximized mode (toggle via hamburger on desktop) */
+body.sidebar-hidden{--sidebar-w:0px}
+body.sidebar-hidden .sidebar{transform:translateX(-100%)}
+body.sidebar-hidden .main-area{margin-left:0}
+
+/* Desktop Sidebar Toggle Button */
+.desktop-menu-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:34px;
+  height:34px;
+  font-size:16px;
+  border-radius:8px;
+  background:var(--fill-1);
+  border:1px solid var(--border2);
+  color:var(--text2);
+  cursor:pointer;
+  transition:all .18s ease;
+}
+.desktop-menu-btn:hover{
+  background:var(--fill-3);
+  color:var(--gold);
+  border-color:var(--gold);
+  transform:translateY(-1px);
+}
+.desktop-menu-btn:active{
+  transform:scale(0.95);
+}
 
 /* Sidebar Backdrop for Mobile */
 .sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(3,7,15,0.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:998;opacity:0;transition:opacity .25s ease;pointer-events:none}
@@ -140,6 +175,7 @@ body.sidebar-compact .sidebar-title,body.sidebar-compact .sidebar-sub{display:no
 .topbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 button.mobile-menu-btn, .icon-btn.mobile-menu-btn, .mobile-menu-btn{display:none !important}
 button.mobile-search-btn, .icon-btn.mobile-search-btn, .mobile-search-btn{display:none !important}
+.topbar-signout-mob{display:none !important}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)}
 .view-container{padding:22px 26px 60px;width:100%;max-width:100%;box-sizing:border-box}
 .view-pane{display:none;width:100%}
@@ -423,6 +459,9 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
     gap: 8px;
     justify-content: space-between;
   }
+  .desktop-menu-btn {
+    display: none !important;
+  }
   button.mobile-menu-btn, .icon-btn.mobile-menu-btn, .mobile-menu-btn {
     display: flex !important;
     width: 34px;
@@ -473,7 +512,22 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
     font-size: 13px;
   }
   .topbar-actions {
-    gap: 5px;
+    gap: 6px;
+  }
+  .topbar-signout-btn {
+    display: none !important;
+  }
+  .topbar-signout-mob {
+    display: flex !important;
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+  }
+  .user-chip {
+    display: none !important;
   }
 
   /* View Container & Layout */

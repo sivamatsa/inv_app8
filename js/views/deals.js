@@ -69,7 +69,17 @@ window.App = window.App || {};
   }
 
   function renderWizardBody(values) {
-    return `${stepperHtml()}<div id="wizardFieldsHost">${App.ui.renderForm(resolvedFields(wizardStep), values)}</div>`;
+    const scanPromptHtml = (wizardStep === 1 && !wizardDealId) ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);border-radius:10px;padding:8px 12px;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:12px;color:var(--text2)">
+          <span style="color:var(--gold);font-weight:700">🤖 AI Document Ingestion:</span> Auto-extract fields from Sale Deeds, Promissory Notes, Dharani passbooks, or Leases.
+        </div>
+        <button type="button" class="btn btn-gold btn-sm" id="wizardDocScanTrigger" style="padding:4px 10px;font-size:11.5px">
+          📄 Scan Agreement / Deed
+        </button>
+      </div>` : '';
+
+    return `${stepperHtml()}${scanPromptHtml}<div id="wizardFieldsHost">${App.ui.renderForm(resolvedFields(wizardStep), values)}</div>`;
   }
 
   function openDealWizard(initialOrExisting) {
@@ -87,6 +97,16 @@ window.App = window.App || {};
     }
 
     function wireStepFields() {
+      App.utils.qs('#wizardDocScanTrigger')?.addEventListener('click', () => {
+        if (App.docScanner && App.docScanner.openScannerModal) {
+          App.docScanner.openScannerModal((extracted) => {
+            Object.assign(collected, extracted);
+            renderStep();
+            App.utils.toast('Agreement extracted & applied to wizard!', 'ok');
+          });
+        }
+      });
+
       resolvedFields(wizardStep).forEach((f) => {
         const elx = App.utils.qs('#fld_' + f.key);
         if (!elx) return;
@@ -459,7 +479,8 @@ window.App = window.App || {};
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
           <input class="search-input" id="dealsSearch" placeholder="Search deal name / external id...">
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="scanAgreementBtn">🤖 Scan Agreement / Deed</button>
             <button class="btn btn-outline btn-sm" id="smartQuickAddBtn">&#9889; AI Quick Add</button>
             <button class="btn btn-outline btn-sm" id="exportDealsBtn">&#8595; Export</button>
             <button class="btn btn-gold btn-sm" id="addDealBtn">+ New Deal</button>
@@ -470,6 +491,15 @@ window.App = window.App || {};
 
     App.filters.renderBar(App.utils.qs('#dealsFilterBar'), draw);
     App.utils.qs('#addDealBtn').addEventListener('click', () => openDealWizard(null));
+    App.utils.qs('#scanAgreementBtn')?.addEventListener('click', () => {
+      if (App.docScanner && App.docScanner.openScannerModal) {
+        App.docScanner.openScannerModal((extracted) => {
+          openDealWizard(extracted);
+        });
+      } else {
+        openSmartDealQuickAdd();
+      }
+    });
     App.utils.qs('#smartQuickAddBtn').addEventListener('click', openSmartDealQuickAdd);
     App.utils.qs('#exportDealsBtn').addEventListener('click', async () => {
       try { await App.exportData.exportSection('deals'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }

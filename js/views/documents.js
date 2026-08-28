@@ -38,9 +38,12 @@ window.App = window.App || {};
     pane.innerHTML = `
       <div class="section-title">Documents <div class="line"></div><small>agreements, receipts, statements — all in one place</small></div>
       <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <select class="search-input" id="docTypeFilter"><option value="All">All types</option>${DOC_TYPES.map((t) => `<option>${t}</option>`).join('')}</select>
-          <button class="btn btn-gold btn-sm" id="uploadDocBtn">+ Upload Document</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" id="btnScanDocDocuments">🤖 AI Document Scanner</button>
+            <button class="btn btn-gold btn-sm" id="uploadDocBtn">+ Upload Document</button>
+          </div>
         </div>
         <div class="table-scroll"><table class="data" id="docsTable"></table></div>
       </div>`;
@@ -48,6 +51,14 @@ window.App = window.App || {};
     const deals = await App.api.listDeals();
     const dealsById = {}; deals.forEach((d) => { dealsById[d.id] = d; });
     App.utils.qs('#uploadDocBtn', pane).addEventListener('click', () => openUploadModal(deals));
+    App.utils.qs('#btnScanDocDocuments', pane)?.addEventListener('click', () => {
+      if (App.docScanner && App.docScanner.openScannerModal) {
+        App.docScanner.openScannerModal(async (extracted) => {
+          App.utils.toast('Agreement analyzed & saved to vault.', 'ok');
+          draw();
+        });
+      }
+    });
     App.utils.qs('#docTypeFilter', pane).addEventListener('change', draw);
 
     async function draw() {

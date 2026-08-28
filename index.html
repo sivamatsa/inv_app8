@@ -36,10 +36,10 @@
   <div class="auth-card">
     <div class="auth-logo">IOS</div>
     <div class="auth-title">Personal Investment Operating System</div>
-    <div class="auth-sub">Supabase is the authoritative store for every number in this app.</div>
+    <div class="auth-sub">Private, bank-grade encrypted portfolio vault &amp; wealth intelligence.</div>
 
     <button class="btn btn-teal" id="tryDemoBtn" style="width:100%;justify-content:center;margin-bottom:14px">&#9654; Try with Sample Data (no signup)</button>
-    <div class="auth-hint" style="margin:0 0 16px;text-align:center">Explore every feature with sample deals - nothing saved, nothing real, no Supabase project needed.</div>
+    <div class="auth-hint" style="margin:0 0 16px;text-align:center">Instant sandbox preview with sample deals — fully interactive, zero configuration required.</div>
     <div style="height:1px;background:var(--border2);margin-bottom:16px"></div>
 
     <div id="authFormsPane">
@@ -93,7 +93,7 @@
 
   <div class="main-area">
     <div id="demoBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:linear-gradient(90deg,rgba(22,201,163,0.18),rgba(201,168,76,0.18));border-bottom:1px solid var(--border);padding:7px;font-size:11.5px;color:var(--text)">
-      &#9654; <b>Demo Mode</b> — sample data only, nothing is saved, no Supabase project connected.
+      &#9654; <b>Interactive Sandbox Mode</b> — exploring with live simulated portfolio data. No changes are saved to your private vault.
     </div>
     <div id="sharedPortfolioBanner" style="display:none;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(201,168,76,0.22),rgba(34,197,94,0.18));border-bottom:1px solid rgba(201,168,76,0.4);padding:8px 16px;font-size:12.5px;color:var(--text);z-index:90">
       <div style="display:flex;align-items:center;gap:8px">
@@ -104,6 +104,9 @@
     </div>
     <div class="topbar">
       <div class="topbar-left">
+        <!-- Desktop Sidebar Collapse / Maximize Toggle -->
+        <button class="icon-btn desktop-menu-btn" id="desktopSidebarToggle" title="Toggle Sidebar / Maximize View (Ctrl+B)" aria-label="Toggle Sidebar">☰</button>
+        <!-- Mobile Drawer Menu Trigger -->
         <button class="icon-btn mobile-menu-btn" id="mobileMenuBtn" title="Open Navigation Menu" aria-label="Open Navigation">☰</button>
         <div class="topbar-title" id="topbarTitle">Dashboard</div>
       </div>
@@ -124,29 +127,32 @@
           &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
         </div>
         <div class="user-chip"><span id="userChipEmail"></span></div>
-        <button class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn">Sign Out</button>
+        <!-- Single Primary Top-Right Sign-Out Button -->
+        <button class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Sign Out">Sign Out</button>
+        <!-- Mobile Responsive Sign-Out Button / Icon -->
+        <button class="icon-btn topbar-signout-mob" id="topbarMobileSignOut" title="Sign Out" aria-label="Sign Out">🚪</button>
       </div>
     </div>
     <div class="view-container" id="viewContainer"></div>
   </div>
 
-  <!-- Mobile Bottom Navigation Bar -->
+  <!-- Mobile Bottom Navigation Bar: Deals, Recurring, Payments, Projects, More -->
   <nav class="mobile-bottom-bar" id="mobileBottomBar">
-    <a href="#dashboard" class="mobile-bottom-item active" data-tab="dashboard" id="mobTabDashboard">
-      <span class="m-ic">&#9670;</span>
-      <span class="m-lbl">Overview</span>
-    </a>
     <a href="#deals" class="mobile-bottom-item" data-tab="deals" id="mobTabDeals">
       <span class="m-ic">&#128188;</span>
       <span class="m-lbl">Deals</span>
+    </a>
+    <a href="#recurring" class="mobile-bottom-item" data-tab="recurring" id="mobTabRecurring">
+      <span class="m-ic">&#128257;</span>
+      <span class="m-lbl">Recurring</span>
     </a>
     <a href="#payments" class="mobile-bottom-item" data-tab="payments" id="mobTabPayments">
       <span class="m-ic">&#128179;</span>
       <span class="m-lbl">Payments</span>
     </a>
-    <a href="#analytics" class="mobile-bottom-item" data-tab="analytics" id="mobTabAnalytics">
-      <span class="m-ic">&#128200;</span>
-      <span class="m-lbl">Analytics</span>
+    <a href="#expenses" class="mobile-bottom-item" data-tab="expenses" id="mobTabProjects">
+      <span class="m-ic">&#128184;</span>
+      <span class="m-lbl">Projects</span>
     </a>
     <button type="button" class="mobile-bottom-item m-menu-trigger" id="mobileBottomMenuBtn" aria-label="Open Full Menu">
       <span class="m-ic">&#9776;</span>
@@ -163,6 +169,8 @@
 <script src="js/lib/demoData.js"></script>
 <script src="js/lib/backupProfileDb.js"></script>
 <script src="js/lib/biometricAuth.js"></script>
+<script src="js/lib/securityAuth.js"></script>
+<script src="js/lib/docScanner.js"></script>
 <script src="js/lib/regionalGoldRates.js"></script>
 <script src="js/lib/permissions.js"></script>
 <script src="js/lib/supabaseClient.js"></script>
