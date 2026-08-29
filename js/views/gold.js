@@ -300,6 +300,7 @@ window.App = window.App || {};
                 `).join('')}
               </optgroup>
             </select>
+            <button class="btn btn-outline btn-sm" id="btnCalibrateGoldBenchmark" style="font-size:12px;padding:6px 10px;border-color:rgba(201,168,76,0.4);color:var(--gold)" title="Calibrate exact daily bullion rate per gram">⚙️ Calibrate Benchmark</button>
           </div>
         </div>
 
@@ -463,6 +464,61 @@ window.App = window.App || {};
       App.utils.qs('#calcGoldGrams', host)?.addEventListener('input', updateJewelleryCalc);
       App.utils.qs('#calcGoldPurity', host)?.addEventListener('change', updateJewelleryCalc);
       App.utils.qs('#calcMakingPct', host)?.addEventListener('input', updateJewelleryCalc);
+
+      App.utils.qs('#btnCalibrateGoldBenchmark', host)?.addEventListener('click', () => {
+        const curCustom = App.regionalGold.getCustomBenchmark();
+        const cur24k = curCustom ? curCustom.rate24k : regionalData.purities['24K'].pricePerGram;
+
+        App.ui.open({
+          title: '⚙️ Calibrate Daily Bullion Benchmark',
+          bodyHtml: `
+            <div style="font-size:13px;line-height:1.6;color:var(--text)">
+              <div style="margin-bottom:12px;color:var(--text2)">
+                Adjust the 24K domestic retail benchmark rate (₹ / gram). 22K (916) and 18K rates, jewellery bills, and multi-city spreads across AP &amp; Telangana will automatically derive from this reference.
+              </div>
+              <div class="field" style="margin-bottom:14px">
+                <label style="font-weight:600">24K Retail Rate (₹ / gram):</label>
+                <input type="number" id="inpBenchmarkRate24k" class="form-input" value="${cur24k}" style="font-size:16px;font-weight:700;color:var(--gold);padding:8px 12px;width:100%">
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+                <button type="button" class="btn btn-outline btn-sm" id="btnPresetHydToday">📍 Hyderabad Standard (₹15,824)</button>
+                <button type="button" class="btn btn-outline btn-sm" id="btnPresetResetDefault">↺ Reset to Default</button>
+              </div>
+              <div style="background:var(--bg2);padding:10px 12px;border-radius:6px;font-size:11.5px;color:var(--text3);border:1px solid var(--border)">
+                <b>Derivation Formula:</b> 22K = 24K &times; (22/24) | 18K = 24K &times; (18/24) + Regional Association Hub Spreads.
+              </div>
+            </div>
+          `,
+          onMount: (body) => {
+            const inp = body.querySelector('#inpBenchmarkRate24k');
+            body.querySelector('#btnPresetHydToday')?.addEventListener('click', () => {
+              if (inp) inp.value = '15824';
+            });
+            body.querySelector('#btnPresetResetDefault')?.addEventListener('click', () => {
+              if (inp) inp.value = '15824';
+            });
+          },
+          actions: [
+            { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+            {
+              label: 'Apply Benchmark',
+              className: 'btn-gold',
+              onClick: () => {
+                const val = Number(document.querySelector('#inpBenchmarkRate24k')?.value);
+                if (val > 0) {
+                  App.regionalGold.setCustomBenchmark(val);
+                  App.utils.toast(`Benchmark calibrated: 24K = ₹${val.toLocaleString('en-IN')}/g`, 'ok');
+                } else {
+                  App.regionalGold.setCustomBenchmark(null);
+                  App.utils.toast('Reset to default market benchmark', 'ok');
+                }
+                App.ui.close();
+                drawRegionalIndiaPanel(latest);
+              }
+            }
+          ]
+        });
+      });
     }
 
     function drawLiveCard(latest, provider, fresh) {

@@ -22,7 +22,7 @@ window.App = window.App || {};
     { key: 'liabilities', label: 'Liabilities' },
     { key: 'timemachine', label: 'Time Machine' },
   ];
-  const ACCOUNT_TYPES = ['Bank', 'Cash', 'Wallet', 'Investment Account', 'Other'];
+  const ACCOUNT_TYPES = ['Bank', 'Savings', 'Fixed Deposit', 'Deposit', 'Checking', 'Cash', 'Emergency Reserve', 'Wallet', 'Investment Account', 'Other'];
   const LIABILITY_TYPES = ['Credit Card', 'Personal Loan', 'Home Loan', 'Vehicle Loan', 'Other Loan'];
 
   let state = { tab: 'networth' };
@@ -166,16 +166,34 @@ window.App = window.App || {};
           </div>
         </div>
         <div class="hint" style="margin-bottom:8px">Total across active accounts: <b>${App.utils.fmtMoney(total)}</b></div>
-        <div class="table-scroll"><table class="data"><thead><tr><th>Name</th><th>Type</th><th>Institution</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>${accounts.map((a) => `<tr>
-          <td>${App.utils.escapeHtml(a.account_name)}</td><td>${a.account_type}</td>
-          <td>${App.utils.escapeHtml(a.institution || '—')}</td><td>${App.utils.fmtMoney(a.current_balance)}</td>
-          <td><span class="badge ${a.is_active ? 'st-active' : 'st-cancelled'}">${a.is_active ? 'Active' : 'Inactive'}</span></td>
-          <td style="white-space:nowrap">
-            <button class="btn btn-sm btn-outline" data-edit-acct="${a.id}">Edit</button>
-            <button class="icon-btn del" data-del-acct="${a.id}">&#128465;</button>
-          </td>
-        </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No accounts yet.</td></tr>'}</tbody></table></div>`;
+        <div class="table-scroll"><table class="data"><thead><tr><th>Name</th><th>Type</th><th>Institution</th><th>Maturity / ROI</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${accounts.map((a) => {
+          let maturityStr = '—';
+          if (a.maturity_date) {
+            const diff = Math.round((new Date(a.maturity_date) - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24));
+            maturityStr = diff < 0
+              ? `<span class="badge" style="background:rgba(235,87,87,0.18);color:#ff7a7a;font-size:10px">Matured (${App.utils.fmtDate(a.maturity_date)})</span>`
+              : (diff === 0 ? `<span class="badge" style="background:rgba(201,168,76,0.22);color:var(--gold);font-size:10px">Matures Today</span>` : `<div style="font-size:11px"><span style="color:var(--gold);font-weight:600">${diff}d left</span> <span style="font-size:10px;color:var(--text3)">(${App.utils.fmtDate(a.maturity_date)})</span></div>`);
+          } else if (a.start_date) {
+            maturityStr = `<span style="font-size:11px;color:var(--text3)">Started ${App.utils.fmtDate(a.start_date)}</span>`;
+          }
+          const roiStr = a.interest_rate ? `<div style="font-size:10.5px;color:var(--teal);margin-top:2px">${a.interest_rate}% p.a.</div>` : '';
+          return `<tr>
+            <td>
+              <b>${App.utils.escapeHtml(a.account_name)}</b>
+              ${a.account_number_masked ? `<div style="font-size:10px;color:var(--text3)">${App.utils.escapeHtml(a.account_number_masked)}</div>` : ''}
+            </td>
+            <td><span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);font-size:10px">${App.utils.escapeHtml(a.account_type || 'Savings')}</span></td>
+            <td>${App.utils.escapeHtml(a.institution || '—')}</td>
+            <td>${maturityStr}${roiStr}</td>
+            <td style="font-weight:700;color:var(--teal)">${App.utils.fmtMoney(a.current_balance)}</td>
+            <td><span class="badge ${a.is_active ? 'st-active' : 'st-cancelled'}">${a.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-sm btn-outline" data-edit-acct="${a.id}">Edit</button>
+              <button class="icon-btn del" data-del-acct="${a.id}">&#128465;</button>
+            </td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">No accounts yet.</td></tr>'}</tbody></table></div>`;
 
       App.utils.qs('#nwAddAccountBtn', host).addEventListener('click', () => openAccountForm(null, () => drawAccountsTab(host)));
       App.utils.qs('#nwExportAccountsBtn', host).addEventListener('click', async () => {
@@ -328,13 +346,17 @@ window.App = window.App || {};
 
     function openAccountForm(existing, onDone) {
       const fields = [
-        { key: 'account_name', label: 'Account Name', required: true },
+        { key: 'account_name', label: 'Account Name', required: true, span: 2 },
         { key: 'account_type', label: 'Type', type: 'select', options: ACCOUNT_TYPES, required: true },
         { key: 'institution', label: 'Institution / Bank' },
-        { key: 'account_number_masked', label: 'Account Number (masked)' },
+        { key: 'current_balance', label: 'Current Balance (₹)', type: 'number', required: true },
+        { key: 'interest_rate', label: 'Interest Rate / ROI (% p.a.)', type: 'number', placeholder: 'e.g. 7.25' },
+        { key: 'start_date', label: 'Start / Deposit Date', type: 'date' },
+        { key: 'maturity_date', label: 'Maturity Date (FDs / Deposits)', type: 'date' },
+        { key: 'maturity_amount', label: 'Expected Maturity Amount (₹)', type: 'number' },
+        { key: 'opening_balance', label: 'Opening Balance (optional)', type: 'number' },
+        { key: 'account_number_masked', label: 'Account Number (masked)', placeholder: '••••1234' },
         { key: 'currency', label: 'Currency' },
-        { key: 'opening_balance', label: 'Opening Balance', type: 'number' },
-        { key: 'current_balance', label: 'Current Balance', type: 'number', required: true },
         { key: 'is_active', label: 'Active', type: 'select', options: [{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }] },
         { key: 'notes', label: 'Notes', type: 'textarea', span: 2 },
       ];
@@ -349,6 +371,10 @@ window.App = window.App || {};
             const { values: v, errors } = App.ui.readForm(fields);
             if (errors.length) { App.utils.qs('#acctFormError').textContent = 'Fill in the required fields.'; return; }
             v.is_active = v.is_active === 'true' || v.is_active === true;
+            if (v.interest_rate === '') v.interest_rate = null;
+            if (v.maturity_amount === '') v.maturity_amount = null;
+            if (v.start_date === '') v.start_date = null;
+            if (v.maturity_date === '') v.maturity_date = null;
             try {
               if (existing) await App.api.updateAccount(existing.id, v); else await App.api.createAccount(v);
               App.ui.close(); App.utils.toast('Account saved'); if (onDone) onDone();

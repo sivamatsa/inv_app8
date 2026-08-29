@@ -277,9 +277,16 @@ window.App = window.App || {};
       // 2. Financial Health Score Engine
       // -------------------------------------------------------------------------
       // Pillars: Emergency Fund (15), Discipline (20), Debt-to-Asset (20), Diversification (15), Goal Progress (15), Cash Flow Safety (15)
-      const monthlyBurn = (totalLiabilities * 0.03) + 30000; // estimated monthly commitment baseline
-      const emergencyMonths = monthlyBurn > 0 ? (liquidCash / monthlyBurn) : 6;
-      const emergencyScore = Math.min(100, Math.round((emergencyMonths / 6) * 100));
+      const emergencyCfg = getEmergencyFundConfig();
+      const targetMonths = emergencyCfg.targetMonths || 6;
+      const autoMonthlyBurn = (totalLiabilities * 0.03) + 30000;
+      const monthlyBurn = emergencyCfg.customMonthlyBurn > 0 ? emergencyCfg.customMonthlyBurn : autoMonthlyBurn;
+      
+      const liquidAccountsList = accounts.filter((a) => a.is_active && (a.account_type === 'Savings' || a.account_type === 'Checking' || a.account_type === 'Cash' || a.account_type === 'Bank Account' || a.account_type === 'Deposit' || a.account_type === 'Fixed Deposit' || a.account_type === 'Emergency Reserve'));
+      const emergencyReserveAmount = liquidAccountsList.reduce((a, r) => a + (r.current_balance || 0), 0);
+      const emergencyMonths = monthlyBurn > 0 ? (emergencyReserveAmount / monthlyBurn) : targetMonths;
+      const emergencyScore = Math.min(100, Math.round((emergencyMonths / targetMonths) * 100));
+      const targetFundAmount = monthlyBurn * targetMonths;
 
       const overdueCount = relevantSchedule.filter((sc) => sc.status === 'OVERDUE').length + recurringOccAll.filter((o) => o.status === 'OVERDUE').length;
       const disciplineScore = Math.max(20, Math.round(100 - (overdueCount * 18)));
@@ -321,13 +328,20 @@ window.App = window.App || {};
 
       App.utils.qs('#dashHealthBreakdown', pane).innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-          <div style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid var(--border)">
-            <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
-              <span style="color:var(--text2)">🛡️ Emergency Fund</span>
-              <span style="font-weight:700;color:${emergencyScore >= 70 ? 'var(--teal)' : 'var(--gold)'}">${emergencyMonths.toFixed(1)} mo (${emergencyScore}%)</span>
+          <div id="btnOpenEmergencyFundCard" style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid rgba(201,168,76,0.3);cursor:pointer;transition:all 0.15s ease" title="Click to view &amp; add Emergency Fund details, configure target months, or add liquid accounts">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;margin-bottom:4px">
+              <span style="color:var(--text);font-weight:600;display:flex;align-items:center;gap:4px">
+                <span>🛡️ Emergency Fund</span>
+                <span class="badge" style="font-size:9.5px;padding:1px 5px;background:rgba(201,168,76,0.2);color:var(--gold);font-weight:600">+ Add / Edit</span>
+              </span>
+              <span style="font-weight:700;color:${emergencyScore >= 70 ? 'var(--teal)' : 'var(--gold)'}">${emergencyMonths.toFixed(1)} / ${targetMonths} mo (${emergencyScore}%)</span>
             </div>
             <div style="height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
               <div style="width:${emergencyScore}%;height:100%;background:var(--teal)"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:4px">
+              <span>Saved: <b>${App.utils.fmtMoney(emergencyReserveAmount)}</b></span>
+              <span>Target: <b>${App.utils.fmtMoney(targetFundAmount)}</b></span>
             </div>
           </div>
 
@@ -362,6 +376,10 @@ window.App = window.App || {};
           </div>
         </div>
       `;
+
+      App.utils.qs('#btnOpenEmergencyFundCard', pane)?.addEventListener('click', () => {
+        openEmergencyFundModal(accounts, totalLiabilities, draw);
+      });
 
       App.utils.qs('#btnWhyHealthScore', pane)?.addEventListener('click', () => {
         openCalculationAuditModal('Financial Health Diagnostic Report', `
@@ -666,6 +684,481 @@ window.App = window.App || {};
           </div>
         </div>
       `;
+    }
+
+    // Emergency Fund Configuration & Management Engine
+    function getEmergencyFundConfig() {
+      try {
+        const raw = localStorage.getItem('pios_emergency_fund_config_v1');
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      return { targetMonths: 6, customMonthlyBurn: 0 };
+    }
+
+    function setEmergencyFundConfig(cfg) {
+      try {
+        localStorage.setItem('pios_emergency_fund_config_v1', JSON.stringify(cfg));
+      } catch (e) {}
+    }
+
+    function openEmergencyFundModal(currentAccounts, totalLiabilities, onUpdate) {
+      let accountsState = currentAccounts.slice();
+      const cfg = getEmergencyFundConfig();
+      let targetMonths = cfg.targetMonths || 6;
+      const autoMonthlyBurn = Math.round((totalLiabilities * 0.03) + 30000);
+      let customMonthlyBurn = cfg.customMonthlyBurn || 0;
+      let effectiveMonthlyBurn = customMonthlyBurn > 0 ? customMonthlyBurn : autoMonthlyBurn;
+
+      function getLiquidList() {
+        return accountsState.filter((a) => a.is_active && (
+          a.account_type === 'Savings' || a.account_type === 'Checking' || a.account_type === 'Cash' ||
+          a.account_type === 'Bank Account' || a.account_type === 'Deposit' || a.account_type === 'Fixed Deposit' ||
+          a.account_type === 'Emergency Reserve'
+        ));
+      }
+
+      function getMaturityInfo(a) {
+        if (!a.maturity_date) {
+          if (a.start_date) return `<span style="font-size:11px;color:var(--text3)">Started ${App.utils.fmtDate(a.start_date)}</span>`;
+          return `<span style="font-size:11px;color:var(--text3)">Liquid / On-Demand</span>`;
+        }
+        const matDate = new Date(a.maturity_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        matDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((matDate - today) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          return `<span class="badge" style="background:rgba(235,87,87,0.18);color:#ff7a7a;font-size:10px" title="Matured on ${App.utils.fmtDate(a.maturity_date)}">🎉 Matured (${App.utils.fmtDate(a.maturity_date)})</span>`;
+        } else if (diffDays === 0) {
+          return `<span class="badge" style="background:rgba(201,168,76,0.22);color:var(--gold);font-size:10px">⏳ Matures Today!</span>`;
+        } else {
+          return `<div><span style="color:var(--gold);font-weight:600;font-size:11.5px">⏳ ${diffDays}d left</span> <span style="font-size:10px;color:var(--text3)">(${App.utils.fmtDate(a.maturity_date)})</span></div>`;
+        }
+      }
+
+      function renderModalContent(container) {
+        const liquidAccounts = getLiquidList();
+        const totalLiquidSavings = liquidAccounts.reduce((sum, a) => sum + (a.current_balance || 0), 0);
+        effectiveMonthlyBurn = customMonthlyBurn > 0 ? customMonthlyBurn : autoMonthlyBurn;
+        const targetAmount = effectiveMonthlyBurn * targetMonths;
+        const coverageMonths = effectiveMonthlyBurn > 0 ? (totalLiquidSavings / effectiveMonthlyBurn) : targetMonths;
+        const fundedPct = Math.min(100, Math.round((totalLiquidSavings / targetAmount) * 100));
+        const shortfall = Math.max(0, targetAmount - totalLiquidSavings);
+        const surplus = Math.max(0, totalLiquidSavings - targetAmount);
+
+        container.innerHTML = `
+          <div style="font-size:13px;line-height:1.6;color:var(--text)">
+            <!-- Top Metric Banner -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+              <div style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid var(--border)">
+                <div style="font-size:11px;color:var(--text2)">Total Liquid Reserves</div>
+                <div style="font-size:18px;font-weight:700;color:var(--teal)">${App.utils.fmtMoney(totalLiquidSavings)}</div>
+                <div style="font-size:10px;color:var(--text3)">Across ${liquidAccounts.length} designated accounts</div>
+              </div>
+              <div style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid var(--border)">
+                <div style="font-size:11px;color:var(--text2)">Monthly Burn Rate</div>
+                <div style="font-size:18px;font-weight:700;color:var(--gold)">${App.utils.fmtMoney(effectiveMonthlyBurn)}</div>
+                <div style="font-size:10px;color:var(--text3)">${customMonthlyBurn > 0 ? 'Custom override' : 'Auto calculated'}</div>
+              </div>
+              <div style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid var(--border)">
+                <div style="font-size:11px;color:var(--text2)">Target Safety Net</div>
+                <div style="font-size:18px;font-weight:700;color:var(--text)">${App.utils.fmtMoney(targetAmount)}</div>
+                <div style="font-size:10px;color:var(--text3)">${targetMonths} months coverage</div>
+              </div>
+              <div style="background:var(--bg2);padding:10px 12px;border-radius:8px;border:1px solid var(--border)">
+                <div style="font-size:11px;color:var(--text2)">Coverage Status</div>
+                <div style="font-size:18px;font-weight:700;color:${coverageMonths >= targetMonths ? 'var(--teal)' : 'var(--gold)'}">${coverageMonths.toFixed(1)} mo (${fundedPct}%)</div>
+                <div style="font-size:10px;color:${shortfall > 0 ? 'var(--red)' : 'var(--teal)'}">${shortfall > 0 ? `Shortfall: ${App.utils.fmtMoney(shortfall)}` : `Surplus: ${App.utils.fmtMoney(surplus)}`}</div>
+              </div>
+            </div>
+
+            <!-- Progress Visualizer -->
+            <div style="background:var(--bg2);padding:12px;border-radius:8px;border:1px solid var(--border);margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px">
+                <span>Emergency Runway Readiness</span>
+                <span style="color:${fundedPct >= 100 ? 'var(--teal)' : 'var(--gold)'}">${fundedPct}% Funded</span>
+              </div>
+              <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden">
+                <div style="width:${fundedPct}%;height:100%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:4px"></div>
+              </div>
+            </div>
+
+            <!-- Configuration Section -->
+            <div style="background:#131c2e;padding:14px;border-radius:8px;border:1px solid rgba(201,168,76,0.3);margin-bottom:16px">
+              <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:10px;display:flex;align-items:center;gap:6px">
+                <span>⚙️ Target &amp; Expense Settings</span>
+              </div>
+
+              <div class="grid-2" style="gap:12px;margin-bottom:10px">
+                <div>
+                  <label style="font-size:11.5px;color:var(--text2);display:block;margin-bottom:4px">Target Coverage Runway:</label>
+                  <div style="display:flex;gap:6px">
+                    ${[3, 6, 9, 12].map((m) => `
+                      <button type="button" class="btn btn-sm ${targetMonths === m ? 'btn-gold' : 'btn-outline'}" data-month-target="${m}" style="flex:1;padding:5px 0;font-size:11.5px">${m} Mo</button>
+                    `).join('')}
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:11.5px;color:var(--text2);display:block;margin-bottom:4px">Monthly Living Burn (₹ / month):</label>
+                  <input type="number" id="inpCustomMonthlyBurn" class="form-input" value="${customMonthlyBurn > 0 ? customMonthlyBurn : ''}" placeholder="Auto (₹${autoMonthlyBurn.toLocaleString('en-IN')})" style="font-size:12px;padding:6px 10px;width:100%;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px">
+                </div>
+              </div>
+              <div style="font-size:11px;color:var(--text3)">Auto burn combines active EMI/liability obligations + ₹30,000 household living baseline.</div>
+            </div>
+
+            <!-- Designated Liquid Accounts List -->
+            <div style="margin-bottom:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-weight:700;font-size:13px;color:var(--teal)">🏦 Liquid &amp; Emergency Accounts (${liquidAccounts.length})</span>
+                <button class="btn btn-teal btn-sm" id="btnAddEmergencyAccountBtn" style="font-size:11.5px;padding:4px 10px">➕ Add New Account / FD</button>
+              </div>
+
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:220px;overflow-y:auto">
+                <table class="data" style="margin:0;font-size:12px;width:100%">
+                  <thead>
+                    <tr>
+                      <th style="padding:8px 10px">Account / Institution</th>
+                      <th style="padding:8px 10px">Type</th>
+                      <th style="padding:8px 10px">Maturity / Timeline</th>
+                      <th style="padding:8px 10px;text-align:right">Amount / Balance</th>
+                      <th style="padding:8px 10px;text-align:center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${liquidAccounts.length ? liquidAccounts.map((a) => `
+                      <tr>
+                        <td style="padding:8px 10px">
+                          <b>${App.utils.escapeHtml(a.account_name)}</b>
+                          ${a.institution ? `<div style="font-size:10px;color:var(--text3)">${App.utils.escapeHtml(a.institution)}${a.account_number_masked ? ` • ${App.utils.escapeHtml(a.account_number_masked)}` : ''}</div>` : ''}
+                        </td>
+                        <td style="padding:8px 10px">
+                          <span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);font-size:10px">${App.utils.escapeHtml(a.account_type || 'Savings')}</span>
+                          ${a.interest_rate ? `<div style="font-size:10px;color:var(--gold);margin-top:2px">${a.interest_rate}% p.a.</div>` : ''}
+                        </td>
+                        <td style="padding:8px 10px">
+                          ${getMaturityInfo(a)}
+                        </td>
+                        <td style="padding:8px 10px;text-align:right;font-weight:700;color:var(--teal)">
+                          ${App.utils.fmtMoney(a.current_balance)}
+                        </td>
+                        <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+                          <button class="btn btn-outline btn-sm" data-view-ef-acct="${a.id}" title="View Details" style="padding:2px 6px;font-size:11px;margin-right:3px">👁️</button>
+                          <button class="btn btn-gold btn-sm" data-edit-ef-acct="${a.id}" title="Edit Account / Update Amount" style="padding:2px 6px;font-size:11px;margin-right:3px">✏️</button>
+                          <button class="btn btn-outline btn-sm" data-del-ef-acct="${a.id}" title="Delete Account" style="padding:2px 6px;font-size:11px;color:#ff7a7a;border-color:rgba(235,87,87,0.4)">🗑️</button>
+                        </td>
+                      </tr>
+                    `).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:18px">No liquid accounts found. Click "+ Add New Account / FD" above to add your emergency reserve fund.</td></tr>`}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Wire target months buttons
+        container.querySelectorAll('[data-month-target]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            targetMonths = Number(btn.dataset.monthTarget);
+            renderModalContent(container);
+          });
+        });
+
+        // Wire burn input
+        const inpBurn = container.querySelector('#inpCustomMonthlyBurn');
+        if (inpBurn) {
+          inpBurn.addEventListener('change', () => {
+            const val = Number(inpBurn.value);
+            customMonthlyBurn = val > 0 ? val : 0;
+            renderModalContent(container);
+          });
+        }
+
+        // Wire Add Account button
+        container.querySelector('#btnAddEmergencyAccountBtn')?.addEventListener('click', () => {
+          openAccountEditOrAddModal(null, async () => {
+            accountsState = await App.api.listAccounts();
+            renderModalContent(container);
+            if (typeof onUpdate === 'function') onUpdate();
+          });
+        });
+
+        // Wire View Account buttons
+        container.querySelectorAll('[data-view-ef-acct]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const acctId = Number(btn.dataset.viewEfAcct);
+            const acct = accountsState.find((a) => a.id === acctId);
+            if (acct) {
+              openAccountViewModal(acct, () => {
+                openAccountEditOrAddModal(acct, async () => {
+                  accountsState = await App.api.listAccounts();
+                  renderModalContent(container);
+                  if (typeof onUpdate === 'function') onUpdate();
+                });
+              });
+            }
+          });
+        });
+
+        // Wire Edit Account buttons
+        container.querySelectorAll('[data-edit-ef-acct]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const acctId = Number(btn.dataset.editEfAcct);
+            const acct = accountsState.find((a) => a.id === acctId);
+            if (acct) {
+              openAccountEditOrAddModal(acct, async () => {
+                accountsState = await App.api.listAccounts();
+                renderModalContent(container);
+                if (typeof onUpdate === 'function') onUpdate();
+              });
+            }
+          });
+        });
+
+        // Wire Delete Account buttons
+        container.querySelectorAll('[data-del-ef-acct]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const acctId = Number(btn.dataset.delEfAcct);
+            const acct = accountsState.find((a) => a.id === acctId);
+            if (!acct) return;
+            if (!confirm(`Are you sure you want to delete "${acct.account_name}"?`)) return;
+            try {
+              await App.api.deleteAccount(acctId);
+              App.utils.toast('Account deleted successfully.', 'ok');
+              accountsState = await App.api.listAccounts();
+              renderModalContent(container);
+              if (typeof onUpdate === 'function') onUpdate();
+            } catch (err) {
+              App.utils.toast('Could not delete account: ' + (err.message || err), 'err');
+            }
+          });
+        });
+      }
+
+      function openAccountViewModal(acct, onEdit) {
+        const viewModal = document.createElement('div');
+        viewModal.className = 'modal-backdrop';
+        viewModal.style.cssText = 'position:fixed;inset:0;background:rgba(3,7,18,0.85);z-index:10060;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px)';
+
+        let timelineHtml = '';
+        if (acct.start_date || acct.maturity_date) {
+          let progressPct = 0;
+          let daysLeftText = '';
+          if (acct.start_date && acct.maturity_date) {
+            const start = new Date(acct.start_date).getTime();
+            const end = new Date(acct.maturity_date).getTime();
+            const now = new Date().getTime();
+            const totalDuration = end - start;
+            if (totalDuration > 0) {
+              progressPct = Math.min(100, Math.max(0, Math.round(((now - start) / totalDuration) * 100)));
+            }
+          }
+          if (acct.maturity_date) {
+            const diff = Math.round((new Date(acct.maturity_date) - new Date()) / (1000 * 60 * 60 * 24));
+            daysLeftText = diff < 0 ? `🎉 Matured on ${App.utils.fmtDate(acct.maturity_date)}` : (diff === 0 ? '⏳ Matures Today!' : `⏳ Matures in ${diff} days (${App.utils.fmtDate(acct.maturity_date)})`);
+          }
+
+          timelineHtml = `
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:14px">
+              <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:6px;display:flex;justify-content:space-between">
+                <span>🗓️ Deposit &amp; Maturity Timeline</span>
+                <span>${daysLeftText}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text2);margin-bottom:6px">
+                <span>Start: ${acct.start_date ? App.utils.fmtDate(acct.start_date) : '—'}</span>
+                <span>Maturity: ${acct.maturity_date ? App.utils.fmtDate(acct.maturity_date) : '—'}</span>
+              </div>
+              ${acct.start_date && acct.maturity_date ? `
+                <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                  <div style="width:${progressPct}%;height:100%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:3px"></div>
+                </div>
+                <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:3px">${progressPct}% tenure completed</div>
+              ` : ''}
+            </div>
+          `;
+        }
+
+        viewModal.innerHTML = `
+          <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.4);border-radius:12px;max-width:500px;width:100%;overflow:hidden;box-shadow:0 24px 48px rgba(0,0,0,0.85)">
+            <div style="padding:14px 18px;background:#152238;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:700;font-size:14px;color:var(--gold);display:flex;align-items:center;gap:6px">
+                <span>🏦 ${App.utils.escapeHtml(acct.account_name)}</span>
+              </div>
+              <button class="btn btn-outline btn-sm" id="btnCloseViewAcct" style="padding:2px 8px;font-size:12px">✕</button>
+            </div>
+            <div style="padding:18px;max-height:75vh;overflow-y:auto">
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px">
+                <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                  <div style="font-size:10.5px;color:var(--text3)">Account Type</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--teal)">${App.utils.escapeHtml(acct.account_type || 'Savings')}</div>
+                </div>
+                <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                  <div style="font-size:10.5px;color:var(--text3)">Current Balance</div>
+                  <div style="font-size:15px;font-weight:700;color:var(--teal)">${App.utils.fmtMoney(acct.current_balance)}</div>
+                </div>
+                <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                  <div style="font-size:10.5px;color:var(--text3)">Institution / Bank</div>
+                  <div style="font-size:13px;color:var(--text)">${App.utils.escapeHtml(acct.institution || '—')}</div>
+                </div>
+                <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                  <div style="font-size:10.5px;color:var(--text3)">Interest Rate / ROI</div>
+                  <div style="font-size:13px;font-weight:600;color:var(--gold)">${acct.interest_rate ? `${acct.interest_rate}% p.a.` : '—'}</div>
+                </div>
+                ${acct.maturity_amount ? `
+                  <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                    <div style="font-size:10.5px;color:var(--text3)">Maturity Payout Amount</div>
+                    <div style="font-size:13px;font-weight:700;color:var(--gold)">${App.utils.fmtMoney(acct.maturity_amount)}</div>
+                  </div>
+                ` : ''}
+                ${acct.account_number_masked ? `
+                  <div style="background:var(--bg3);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                    <div style="font-size:10.5px;color:var(--text3)">Masked Account No</div>
+                    <div style="font-size:13px;color:var(--text)">${App.utils.escapeHtml(acct.account_number_masked)}</div>
+                  </div>
+                ` : ''}
+              </div>
+
+              ${timelineHtml}
+
+              ${acct.notes ? `
+                <div style="margin-top:12px;padding:10px;background:var(--bg3);border-radius:6px;border:1px solid var(--border);font-size:12px;color:var(--text2)">
+                  <b style="color:var(--text)">Notes:</b> ${App.utils.escapeHtml(acct.notes)}
+                </div>
+              ` : ''}
+            </div>
+            <div style="padding:12px 18px;background:#090f1d;border-top:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center">
+              <button class="btn btn-outline btn-sm" id="btnDismissViewAcct">Close</button>
+              <button class="btn btn-gold btn-sm" id="btnEditFromViewAcct">✏️ Edit Account</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(viewModal);
+
+        const closeView = () => { if (viewModal.parentNode) viewModal.parentNode.removeChild(viewModal); };
+        viewModal.querySelector('#btnCloseViewAcct')?.addEventListener('click', closeView);
+        viewModal.querySelector('#btnDismissViewAcct')?.addEventListener('click', closeView);
+        viewModal.addEventListener('click', (e) => { if (e.target === viewModal) closeView(); });
+        viewModal.querySelector('#btnEditFromViewAcct')?.addEventListener('click', () => {
+          closeView();
+          if (onEdit) onEdit();
+        });
+      }
+
+      function openAccountEditOrAddModal(existing, onDone) {
+        const isEdit = Boolean(existing && existing.id);
+        const subModal = document.createElement('div');
+        subModal.className = 'modal-backdrop';
+        subModal.style.cssText = 'position:fixed;inset:0;background:rgba(3,7,18,0.85);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(6px)';
+        subModal.innerHTML = `
+          <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.4);border-radius:12px;max-width:560px;width:100%;overflow:hidden;box-shadow:0 24px 48px rgba(0,0,0,0.85)">
+            <div style="padding:14px 18px;background:#152238;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:700;font-size:14px;color:var(--gold);display:flex;align-items:center;gap:6px">
+                <span>${isEdit ? '✏️ Edit Account / Fixed Deposit' : '➕ Add Emergency Reserve / Fixed Deposit'}</span>
+              </div>
+              <button class="btn btn-outline btn-sm" id="btnCloseQuickAddAccount" style="padding:2px 8px;font-size:12px">✕</button>
+            </div>
+            <div style="padding:18px;max-height:75vh;overflow-y:auto">
+              <div id="efQuickAcctFormHost"></div>
+              <div class="auth-error" id="efQuickAcctFormError" style="margin-top:12px;padding:8px 12px;background:rgba(235,87,87,0.15);border:1px solid rgba(235,87,87,0.3);border-radius:6px;font-size:12px;color:#ff7a7a;display:none"></div>
+            </div>
+            <div style="padding:12px 18px;background:#090f1d;border-top:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center">
+              <button class="btn btn-outline btn-sm" id="btnCancelQuickAddAccount">Cancel</button>
+              <button class="btn btn-gold btn-sm" id="btnSaveQuickAddAccount">${isEdit ? 'Save Changes' : 'Add Account'}</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(subModal);
+
+        const fields = [
+          { key: 'account_name', label: 'Account / Reserve Name', placeholder: 'e.g. HDFC Emergency FD or SBI Savings', required: true, span: 2 },
+          { key: 'account_type', label: 'Account Type', type: 'select', options: ['Savings', 'Fixed Deposit', 'Deposit', 'Bank Account', 'Checking', 'Cash', 'Emergency Reserve', 'Investment Account', 'Other'], required: true },
+          { key: 'institution', label: 'Institution / Bank', placeholder: 'e.g. HDFC Bank, SBI, ICICI' },
+          { key: 'current_balance', label: 'Current Balance / Deposit Amount (₹)', type: 'number', required: true },
+          { key: 'interest_rate', label: 'Interest Rate / ROI (% p.a.)', type: 'number', placeholder: 'e.g. 7.25' },
+          { key: 'start_date', label: 'Start / Deposit Date', type: 'date' },
+          { key: 'maturity_date', label: 'Maturity Date (FDs / Deposits)', type: 'date' },
+          { key: 'maturity_amount', label: 'Expected Maturity Amount (₹)', type: 'number', placeholder: 'e.g. 107250' },
+          { key: 'account_number_masked', label: 'Account No (optional)', placeholder: '••••1234' },
+          { key: 'notes', label: 'Notes', type: 'textarea', span: 2, placeholder: 'Designated emergency reserve fund' },
+        ];
+
+        const defaultVals = isEdit
+          ? Object.assign({ currency: 'INR', is_active: true }, existing)
+          : { account_type: 'Savings', currency: 'INR', is_active: true };
+
+        const formHost = subModal.querySelector('#efQuickAcctFormHost');
+        formHost.innerHTML = App.ui.renderForm(fields, defaultVals);
+
+        const closeSub = () => { if (subModal.parentNode) subModal.parentNode.removeChild(subModal); };
+        subModal.querySelector('#btnCloseQuickAddAccount')?.addEventListener('click', closeSub);
+        subModal.querySelector('#btnCancelQuickAddAccount')?.addEventListener('click', closeSub);
+        subModal.addEventListener('click', (e) => { if (e.target === subModal) closeSub(); });
+
+        subModal.querySelector('#btnSaveQuickAddAccount')?.addEventListener('click', async () => {
+          const { values: v, errors } = App.ui.readForm(fields);
+          const errEl = subModal.querySelector('#efQuickAcctFormError');
+          if (errors.length) {
+            errEl.textContent = 'Please fill in the required fields.';
+            errEl.style.display = 'block';
+            return;
+          }
+          v.is_active = true;
+          v.currency = 'INR';
+          if (v.interest_rate === '') v.interest_rate = null;
+          if (v.maturity_amount === '') v.maturity_amount = null;
+          if (v.start_date === '') v.start_date = null;
+          if (v.maturity_date === '') v.maturity_date = null;
+
+          try {
+            if (isEdit) {
+              await App.api.updateAccount(existing.id, v);
+              App.utils.toast('Account updated successfully!', 'ok');
+            } else {
+              await App.api.createAccount(v);
+              App.utils.toast('Emergency account added successfully!', 'ok');
+            }
+            closeSub();
+            if (onDone) onDone();
+          } catch (e) {
+            errEl.textContent = 'Could not save account: ' + (e.message || e);
+            errEl.style.display = 'block';
+          }
+        });
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(3,7,18,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(5px)';
+      modal.innerHTML = `
+        <div style="background:#0e1626;border:1px solid rgba(201,168,76,0.3);border-radius:12px;max-width:680px;width:100%;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.6)">
+          <div style="padding:14px 18px;background:#152238;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+            <div style="font-weight:700;font-size:15px;color:var(--gold);display:flex;align-items:center;gap:6px">
+              <span>🛡️</span>
+              <span>Emergency Fund Intelligence &amp; Management</span>
+            </div>
+            <button class="btn btn-outline btn-sm" id="btnCloseEFModal" style="padding:2px 8px;font-size:12px">✕</button>
+          </div>
+          <div id="efModalContentHost" style="padding:18px;max-height:70vh;overflow-y:auto"></div>
+          <div style="padding:12px 18px;background:#090f1d;border-top:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center">
+            <button class="btn btn-outline btn-sm" id="btnCancelEF">Close</button>
+            <button class="btn btn-gold btn-sm" id="btnSaveEFConfig">Save Settings &amp; Apply</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const contentHost = modal.querySelector('#efModalContentHost');
+      renderModalContent(contentHost);
+
+      const close = () => { if (modal.parentNode) modal.parentNode.removeChild(modal); };
+      modal.querySelector('#btnCloseEFModal')?.addEventListener('click', close);
+      modal.querySelector('#btnCancelEF')?.addEventListener('click', close);
+      modal.querySelector('#btnSaveEFConfig')?.addEventListener('click', () => {
+        setEmergencyFundConfig({ targetMonths, customMonthlyBurn });
+        App.utils.toast('Emergency Fund settings saved!', 'ok');
+        close();
+        if (typeof onUpdate === 'function') onUpdate();
+      });
+      modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
     }
 
     // Interactive Calculation Transparency Drawer / Modal

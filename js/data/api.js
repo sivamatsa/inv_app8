@@ -354,19 +354,75 @@ App.api = (function () {
   const createRiskRating = (row) => insertRow('risk_ratings', row);
 
   // ---- deals ----
-  const listDeals = (opts) => selectAll('deals', Object.assign({ order: { column: 'created_at', ascending: false } }, opts));
+  const listDeals = async (opts) => {
+    const deals = await selectAll('deals', Object.assign({ order: { column: 'created_at', ascending: false } }, opts));
+    try {
+      const extra = JSON.parse(localStorage.getItem('pios_deals_extra_meta_v1') || '{}');
+      (deals || []).forEach((d) => {
+        if (!d.whatsapp_group && extra[d.id] && extra[d.id].whatsapp_group) {
+          d.whatsapp_group = extra[d.id].whatsapp_group;
+        }
+      });
+    } catch (_) {}
+    return deals;
+  };
+
   async function getDeal(id) {
-    // Deliberately scoped to the caller's own deals only, same as listDeals
-    // - nothing in this app's UI opens a deal detail modal for an id that
-    // didn't come from the caller's own (already self-scoped) list, so this
-    // is defense in depth rather than a change in behavior: it just makes
-    // that assumption a real guarantee instead of an incidental one.
     const { data, error } = await client().from('deals').select('*').eq('id', id).eq('user_id', uid()).single();
     check(error);
+    if (data && !data.whatsapp_group) {
+      try {
+        const extra = JSON.parse(localStorage.getItem('pios_deals_extra_meta_v1') || '{}');
+        if (extra[id] && extra[id].whatsapp_group) {
+          data.whatsapp_group = extra[id].whatsapp_group;
+        }
+      } catch (_) {}
+    }
     return data;
   }
-  const createDeal = (row) => insertRow('deals', row);
-  const updateDeal = (id, patch) => updateRow('deals', id, patch);
+
+  const createDeal = async (row) => {
+    try {
+      return await insertRow('deals', row);
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      if (msg && msg.includes('whatsapp_group')) {
+        const { whatsapp_group, ...fallbackRow } = row;
+        const saved = await insertRow('deals', fallbackRow);
+        if (saved && whatsapp_group) {
+          saved.whatsapp_group = whatsapp_group;
+          try {
+            const extra = JSON.parse(localStorage.getItem('pios_deals_extra_meta_v1') || '{}');
+            extra[saved.id] = { whatsapp_group };
+            localStorage.setItem('pios_deals_extra_meta_v1', JSON.stringify(extra));
+          } catch (_) {}
+        }
+        return saved;
+      }
+      throw e;
+    }
+  };
+
+  const updateDeal = async (id, patch) => {
+    try {
+      return await updateRow('deals', id, patch);
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      if (msg && msg.includes('whatsapp_group')) {
+        const { whatsapp_group, ...fallbackPatch } = patch;
+        const saved = await updateRow('deals', id, fallbackPatch);
+        if (whatsapp_group !== undefined) {
+          try {
+            const extra = JSON.parse(localStorage.getItem('pios_deals_extra_meta_v1') || '{}');
+            extra[id] = Object.assign(extra[id] || {}, { whatsapp_group });
+            localStorage.setItem('pios_deals_extra_meta_v1', JSON.stringify(extra));
+          } catch (_) {}
+        }
+        return saved;
+      }
+      throw e;
+    }
+  };
   const deleteDeal = (id) => deleteRow('deals', id);
   const listDealMetrics = (opts) => selectAll('v_deal_metrics', opts);
   async function getPortfolioSummary(forUserId) {
@@ -1311,11 +1367,122 @@ App.api = (function () {
     return data;
   }
 
-  // Accounts & Liabilities, and Net Worth (035_accounts_liabilities_net_worth.sql)
-  const listAccounts = (opts) => selectAll('accounts', Object.assign({ order: { column: 'account_name', ascending: true } }, opts));
-  const createAccount = (row) => insertRow('accounts', row);
-  const updateAccount = (id, patch) => updateRow('accounts', id, patch);
-  const deleteAccount = (id) => deleteRow('accounts', id);
+  // Accounts & Liabilities, and Net Worth (035_accounts_liabilities_net_worth.sql & 048_add_account_fd_dates.sql)
+  const getAccountExtraMeta = () => {
+    try { return JSON.parse(localStorage.getItem('pios_accounts_extra_meta_v1') || '{}'); } catch (_) { return {}; }
+  };
+  const saveAccountExtraMeta = (meta) => {
+    try { localStorage.setItem('pios_accounts_extra_meta_v1', JSON.stringify(meta)); } catch (_) {}
+  };
+
+  const listAccounts = async (opts) => {
+    const list = await selectAll('accounts', Object.assign({ order: { column: 'account_name', ascending: true } }, opts));
+    const extra = getAccountExtraMeta();
+    return list.map((a) => {
+      const ex = extra[a.id];
+      if (ex) {
+        return Object.assign({}, ex, a, {
+          start_date: a.start_date || ex.start_date || null,
+          maturity_date: a.maturity_date || ex.maturity_date || null,
+          interest_rate: a.interest_rate !== undefined && a.interest_rate !== null ? a.interest_rate : (ex.interest_rate !== undefined ? ex.interest_rate : null),
+          maturity_amount: a.maturity_amount !== undefined && a.maturity_amount !== null ? a.maturity_amount : (ex.maturity_amount !== undefined ? ex.maturity_amount : null),
+          account_type: ex.account_type || a.account_type,
+        });
+      }
+      return a;
+    });
+  };
+
+  const createAccount = async (row) => {
+    let payload = Object.assign({}, row);
+    const extraData = {
+      start_date: row.start_date || null,
+      maturity_date: row.maturity_date || null,
+      interest_rate: row.interest_rate !== undefined ? row.interest_rate : null,
+      maturity_amount: row.maturity_amount !== undefined ? row.maturity_amount : null,
+      account_type: row.account_type || 'Savings',
+    };
+
+    try {
+      const saved = await insertRow('accounts', payload);
+      const extra = getAccountExtraMeta();
+      extra[saved.id] = extraData;
+      saveAccountExtraMeta(extra);
+      return Object.assign({}, saved, extraData);
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      // Handle schema column missing for start_date / maturity_date / etc.
+      if (msg && (msg.includes('start_date') || msg.includes('maturity_date') || msg.includes('interest_rate') || msg.includes('maturity_amount') || msg.includes('schema cache'))) {
+        const { start_date, maturity_date, interest_rate, maturity_amount, ...stripped } = payload;
+        payload = stripped;
+      }
+      // Handle check constraint on legacy account_type
+      if (msg && (msg.includes('accounts_account_type_check') || msg.includes('account_type'))) {
+        const rawType = row.account_type || 'Bank';
+        const legacyType = ['Bank', 'Cash', 'Wallet', 'Investment Account', 'Other'].includes(rawType)
+          ? rawType
+          : (rawType.toLowerCase().includes('cash') ? 'Cash' : 'Bank');
+        payload.account_type = legacyType;
+        payload.notes = row.notes ? `${row.notes} [Type: ${rawType}]` : `[Type: ${rawType}]`;
+      }
+      
+      const saved = await insertRow('accounts', payload);
+      const extra = getAccountExtraMeta();
+      extra[saved.id] = extraData;
+      saveAccountExtraMeta(extra);
+      return Object.assign({}, saved, extraData);
+    }
+  };
+
+  const updateAccount = async (id, patch) => {
+    let payload = Object.assign({}, patch);
+    const extra = getAccountExtraMeta();
+    const existingExtra = extra[id] || {};
+    const updatedExtra = Object.assign({}, existingExtra);
+
+    if (patch.start_date !== undefined) updatedExtra.start_date = patch.start_date;
+    if (patch.maturity_date !== undefined) updatedExtra.maturity_date = patch.maturity_date;
+    if (patch.interest_rate !== undefined) updatedExtra.interest_rate = patch.interest_rate;
+    if (patch.maturity_amount !== undefined) updatedExtra.maturity_amount = patch.maturity_amount;
+    if (patch.account_type !== undefined) updatedExtra.account_type = patch.account_type;
+
+    try {
+      const saved = await updateRow('accounts', id, payload);
+      extra[id] = updatedExtra;
+      saveAccountExtraMeta(extra);
+      return Object.assign({}, saved, updatedExtra);
+    } catch (e) {
+      const msg = e && (e.message || String(e));
+      if (msg && (msg.includes('start_date') || msg.includes('maturity_date') || msg.includes('interest_rate') || msg.includes('maturity_amount') || msg.includes('schema cache'))) {
+        const { start_date, maturity_date, interest_rate, maturity_amount, ...stripped } = payload;
+        payload = stripped;
+      }
+      if (msg && (msg.includes('accounts_account_type_check') || msg.includes('account_type'))) {
+        const rawType = patch.account_type || 'Bank';
+        const legacyType = ['Bank', 'Cash', 'Wallet', 'Investment Account', 'Other'].includes(rawType)
+          ? rawType
+          : (rawType.toLowerCase().includes('cash') ? 'Cash' : 'Bank');
+        payload.account_type = legacyType;
+        if (patch.notes) {
+          payload.notes = `${patch.notes} [Type: ${rawType}]`;
+        }
+      }
+      const saved = await updateRow('accounts', id, payload);
+      extra[id] = updatedExtra;
+      saveAccountExtraMeta(extra);
+      return Object.assign({}, saved, updatedExtra);
+    }
+  };
+
+  const deleteAccount = async (id) => {
+    const res = await deleteRow('accounts', id);
+    const extra = getAccountExtraMeta();
+    if (extra[id]) {
+      delete extra[id];
+      saveAccountExtraMeta(extra);
+    }
+    return res;
+  };
   const listLiabilities = (opts) => selectAll('liabilities', Object.assign({ order: { column: 'liability_name', ascending: true } }, opts));
   const createLiability = (row) => insertRow('liabilities', row);
   const updateLiability = (id, patch) => updateRow('liabilities', id, patch);

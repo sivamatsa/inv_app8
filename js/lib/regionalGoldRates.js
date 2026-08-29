@@ -111,14 +111,33 @@ App.regionalGold = (function () {
   const CUSTOMS_DUTY_RATE = 0.06; // 6% Basic Customs Duty + AIDC
   const GST_RATE = 0.03;          // 3% GST on Gold Retail
   const PURITY_RATIOS = {
-    '24K': 1.0,       // 99.9% Fine Gold
-    '22K': 0.91666,   // 91.6% 916 Hallmark Jewellery
-    '18K': 0.75000,   // 75.0% Diamond Studded Standard
+    '24K': 1.0,       // 99.9% Fine Gold Bar (24/24)
+    '22K': 22 / 24,   // 91.6% 916 Hallmark Jewellery (22/24)
+    '18K': 18 / 24,   // 75.0% Diamond Studded Standard (18/24)
   };
 
   const DEFAULT_REGION_ID = 'hyderabad';
   const STORAGE_REGION_KEY = 'pios_selected_gold_region_v1';
   const STORAGE_MODE_KEY = 'pios_gold_pricing_mode_v1'; // 'regional' or 'spot'
+  const BENCHMARK_OVERRIDE_KEY = 'pios_gold_rate_override_v1';
+
+  function getCustomBenchmark() {
+    try {
+      const raw = localStorage.getItem(BENCHMARK_OVERRIDE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return null;
+  }
+
+  function setCustomBenchmark(rate24k) {
+    try {
+      if (rate24k > 0) {
+        localStorage.setItem(BENCHMARK_OVERRIDE_KEY, JSON.stringify({ rate24k: Number(rate24k), updatedAt: new Date().toISOString() }));
+      } else {
+        localStorage.removeItem(BENCHMARK_OVERRIDE_KEY);
+      }
+    } catch (e) {}
+  }
 
   function getSelectedRegionId() {
     try {
@@ -158,20 +177,25 @@ App.regionalGold = (function () {
 
   /**
    * Calculates comprehensive Indian retail gold rates for a given spot observation or base price.
+   * Calibrated to Hyderabad priority retail benchmark (24K: ₹15,824 / g, 22K: ₹14,505 / g, 18K: ₹11,868 / g).
    * @param {number} spotPrice24k - Base spot price in INR per gram (or converted from 24K spot).
    * @param {string} regionId - Target region/city identifier.
    */
   function calculateRegionalRates(spotPrice24k, regionId = getSelectedRegionId()) {
-    if (!spotPrice24k || spotPrice24k <= 0) {
-      // Fallback baseline for realistic Indian retail if spot observation is zero
-      spotPrice24k = 7200;
+    const custom = getCustomBenchmark();
+    const region = getRegion(regionId);
+
+    // Baseline spot calibration: (15824 / 1.03 - 15) / 1.06 ≈ 14479.35
+    let effectiveSpot = (spotPrice24k && spotPrice24k > 0) ? spotPrice24k : 14479.35;
+
+    // If custom 24k retail benchmark was saved by user, reverse-derive landed base
+    if (custom && custom.rate24k > 0) {
+      effectiveSpot = ((custom.rate24k / (1 + GST_RATE)) - (region.spreadPerGram || 15)) / (1 + CUSTOMS_DUTY_RATE);
     }
 
-    const region = getRegion(regionId);
-    
     // 1. Domestic Bullion Benchmark before retail taxes
     // Domestic Landed = Spot * (1 + 6% Customs Duty)
-    const landedDutyPaid24k = spotPrice24k * (1 + CUSTOMS_DUTY_RATE);
+    const landedDutyPaid24k = effectiveSpot * (1 + CUSTOMS_DUTY_RATE);
 
     // 2. City Bullion Association Benchmark (e.g. Hyderabad / AP spread)
     const cityBullion24k = landedDutyPaid24k + (region.spreadPerGram || 0);
@@ -188,7 +212,7 @@ App.regionalGold = (function () {
 
     return {
       region,
-      spotPrice24k: Math.round(spotPrice24k),
+      spotPrice24k: Math.round(effectiveSpot),
       landedDutyPaid24k: Math.round(landedDutyPaid24k),
       purities: {
         '24K': {
@@ -221,7 +245,8 @@ App.regionalGold = (function () {
         gstPct: GST_RATE * 100,
         citySpread: region.spreadPerGram,
       },
-      updatedAt: new Date().toISOString()
+      isCustomBenchmark: Boolean(custom && custom.rate24k > 0),
+      updatedAt: (custom && custom.updatedAt) || new Date().toISOString()
     };
   }
 
@@ -299,5 +324,7 @@ App.regionalGold = (function () {
     calculateRegionalRates,
     compareAllSouthRegions,
     calculateJewelleryBill,
+    getCustomBenchmark,
+    setCustomBenchmark,
   };
 })();

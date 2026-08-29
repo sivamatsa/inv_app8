@@ -443,6 +443,50 @@ App.auth = (function () {
     }
   }
 
+  async function restoreQuickAuthSession(user) {
+    if (!user) return null;
+    currentUser = {
+      id: user.id,
+      email: user.email,
+      user_metadata: user.user_metadata || { full_name: user.name || user.email },
+      role: user.role || 'authenticated',
+    };
+
+    const saved = getPersistentMobileSession();
+    if (saved && saved.session) {
+      currentSession = saved.session;
+    } else {
+      currentSession = { user: currentUser, isQuickAuthSession: true };
+    }
+
+    savePersistentMobileSession(currentUser, currentSession);
+
+    // If Supabase client is available, synchronize active session
+    const c = getClient();
+    if (c) {
+      try {
+        const { data } = await c.auth.getSession();
+        if (data && data.session) {
+          currentSession = data.session;
+          currentUser = data.session.user;
+          savePersistentMobileSession(currentUser, currentSession);
+        }
+      } catch (_) {}
+    }
+
+    if (App.backupProfileDb) {
+      App.backupProfileDb.saveProfile({
+        id: currentUser.id,
+        email: currentUser.email,
+        full_name: (currentUser.user_metadata && currentUser.user_metadata.full_name) || currentUser.email,
+        source: 'quick_auth',
+      }).catch(() => {});
+    }
+
+    notify('SIGNED_IN');
+    return { user: currentUser, session: currentSession };
+  }
+
   async function signOut() {
     if (demoMode) { exitDemoMode(); return; }
     clearPersistentMobileSession();
@@ -461,5 +505,6 @@ App.auth = (function () {
   return {
     isConfigured, hasCustomConfig, saveConfig, clearConfig, getConfig, init, getClient, getUser, onChange,
     signUp, signIn, signOut, isDemoMode, isBackupMode, enterDemoMode, exitDemoMode, requestPasswordReset, updatePassword,
+    restoreQuickAuthSession,
   };
 })();

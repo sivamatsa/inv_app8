@@ -1415,18 +1415,24 @@ App.demo = (function () {
     (function seedGoldHistory() {
       let rngSeed = 42;
       const rng = () => { rngSeed = (rngSeed * 9301 + 49297) % 233280; return rngSeed / 233280; };
-      let price24k = 13800;
+      const targetTodayPrice24k = 14479.35; // Calibrated for Hyderabad retail: 24K ₹15,824 / 22K ₹14,505 / 18K ₹11,868
       const days = 90;
+      const prices = [];
+      let cur = targetTodayPrice24k;
+      for (let i = 0; i <= days; i++) {
+        prices.unshift(cur);
+        const drift = 1 - (0.08 / days);
+        const noise = 1 + (rng() - 0.5) * 0.008;
+        cur = cur * drift * noise;
+      }
       for (let i = days; i >= 0; i--) {
         const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-        const drift = 1 + (0.10 / days); // ~10% total drift over the window, matching gold's real 2025-26 run
-        const noise = 1 + (rng() - 0.5) * 0.01; // +-0.5% daily wobble
-        price24k = Math.round(price24k * drift * noise);
+        const p24 = Math.round(prices[days - i] * 100) / 100;
         const observedAt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 10, 30).toISOString();
         [['24K', 1], ['22K', 22 / 24], ['18K', 18 / 24]].forEach(([purity, ratio]) => {
           DB.gold_price_observations.push({
             id: genId('gold_price_observations'), provider_key: 'goldprice_dev', price_type: 'SPOT', purity,
-            currency: 'INR', unit: 'gram', price: Math.round(price24k * ratio * 100) / 100,
+            currency: 'INR', unit: 'gram', price: Math.round(p24 * ratio * 100) / 100,
             observed_at: observedAt, market: null, city: null, is_benchmark: false, is_retail: false, created_at: observedAt,
           });
         });

@@ -4,6 +4,18 @@
 window.App = window.App || {};
 
 (function () {
+  function formatWhatsAppUrl(groupVal) {
+    if (!groupVal) return '#';
+    const str = String(groupVal).trim();
+    if (!str) return '#';
+    if (str.startsWith('http://') || str.startsWith('https://')) return str;
+    if (str.startsWith('chat.whatsapp.com/')) return 'https://' + str;
+    if (str.startsWith('wa.me/')) return 'https://' + str;
+    const digitsOnly = str.replace(/[^\d]/g, '');
+    if (digitsOnly.length >= 10) return `https://wa.me/${digitsOnly}`;
+    return `https://chat.whatsapp.com/`;
+  }
+
   const DEAL_FIELDS = [
     // Step 1: identity
     { key: 'deal_name', label: 'Deal Name', required: true, step: 1, span: 2 },
@@ -15,6 +27,7 @@ window.App = window.App || {};
     { key: 'platform_id', label: 'Platform / Lender', step: 1, numeric: true,
       type: 'select', options: () => App.state.platforms.map((p) => ({ value: p.id, label: p.name })) },
     { key: 'account_reference', label: 'Account / Reference Number', step: 1 },
+    { key: 'whatsapp_group', label: 'WhatsApp Group (Link or Group Name)', step: 1, span: 2, placeholder: 'e.g. https://chat.whatsapp.com/AbCdEf12345 or Deal Provider Support' },
     // Step 2: financial + dates
     { key: 'invested_amount', label: 'Invested Amount', required: true, type: 'number', step: 2 },
     { key: 'principal_amount', label: 'Principal Amount', required: true, type: 'number', step: 2 },
@@ -245,6 +258,20 @@ window.App = window.App || {};
     ]);
     const metrics = metricsAll.find((m) => m.deal_id === dealId) || {};
 
+    const whatsappHtml = deal.whatsapp_group ? `
+      <div style="grid-column:1 / -1;display:flex;justify-content:space-between;align-items:center;background:rgba(37,211,102,0.08);border:1px solid rgba(37,211,102,0.3);border-radius:8px;padding:10px 14px;margin-top:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">💬</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#25D366">WhatsApp Group</div>
+            <div style="font-size:12px;color:var(--text)">${App.utils.escapeHtml(deal.whatsapp_group)}</div>
+          </div>
+        </div>
+        <a href="${formatWhatsAppUrl(deal.whatsapp_group)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#25D366;color:#000;font-weight:700;text-decoration:none;padding:6px 14px;border-radius:6px;display:inline-flex;align-items:center;gap:6px">
+          <span>Open Group</span> ↗
+        </a>
+      </div>` : '';
+
     const overviewHtml = `
       <div class="grid-2">
         <div>
@@ -261,6 +288,7 @@ window.App = window.App || {};
           <div class="stat-line"><span>Payment Frequency</span><span class="v">${deal.payment_frequency || '—'}</span></div>
           <div class="stat-line"><span>Payout Type</span><span class="v">${deal.payout_type || '—'}</span></div>
         </div>
+        ${whatsappHtml}
       </div>`;
 
     const performanceHtml = `
@@ -568,8 +596,13 @@ window.App = window.App || {};
       const thead = `<thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}">${l}${sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th>Reliability</th><th>Actions</th></tr></thead>`;
       const body = list.map((d) => {
         const m = metricsById[d.id] || {};
+        const waLinkHtml = d.whatsapp_group ? `
+          <a href="${formatWhatsAppUrl(d.whatsapp_group)}" target="_blank" rel="noopener noreferrer" title="WhatsApp Group: ${App.utils.escapeHtml(d.whatsapp_group)}" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;min-width:20px;background:rgba(37,211,102,0.15);color:#25D366;border:1px solid rgba(37,211,102,0.4);border-radius:50%;margin-left:6px;vertical-align:middle;transition:all 0.15s ease" onmouseover="this.style.background='#25D366';this.style.color='#0a0f1d';this.style.transform='scale(1.15)'" onmouseout="this.style.background='rgba(37,211,102,0.15)';this.style.color='#25D366';this.style.transform='scale(1)'" onclick="event.stopPropagation()">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766 0-3.18-2.586-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.073-2.146-.532-1.745-.728-2.885-2.502-2.973-2.617-.088-.116-.708-.941-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.007c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.181-.076.355.101.174.449.741.964 1.2.662.591 1.221.774 1.394.861.173.087.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.144.39-.086s1.011.477 1.184.564.289.13.332.203c.043.072.043.419-.101.824z"/></svg>
+          </a>` : '';
+
         return `<tr>
-          <td>${App.utils.escapeHtml(d.deal_name)} ${d.collateral_available ? '<span title="Secured with Collateral" style="color:var(--teal)">&#128274;</span>' : ''}</td>
+          <td>${App.utils.escapeHtml(d.deal_name)} ${d.collateral_available ? '<span title="Secured with Collateral" style="color:var(--teal)">&#128274;</span>' : ''}${waLinkHtml}</td>
           <td>${App.utils.escapeHtml(d.external_deal_id || '—')}</td>
           <td>${App.utils.escapeHtml(d.investment_type)}</td>
           <td>${App.utils.fmtMoney(d.invested_amount)}</td>

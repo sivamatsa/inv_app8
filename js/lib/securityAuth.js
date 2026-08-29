@@ -9,7 +9,32 @@ window.App = window.App || {};
 App.security = (function () {
   const PIN_STORAGE_PREFIX = 'pios_pin_sec_v1_';
   const PIN_ENABLED_PREFIX = 'pios_pin_enabled_v1_';
+  const LAST_USER_KEY = 'pios_last_auth_user_v1';
   let isSessionUnlocked = false;
+
+  function getLastRegisteredUser() {
+    try {
+      const raw = localStorage.getItem(LAST_USER_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return null;
+  }
+
+  function saveLastRegisteredUser(user) {
+    if (!user) return;
+    try {
+      const id = user.id || 'default_user';
+      const email = user.email || 'user@example.com';
+      const name = (user.user_metadata && user.user_metadata.full_name) || email.split('@')[0];
+      localStorage.setItem(LAST_USER_KEY, JSON.stringify({ id, email, name }));
+    } catch (e) {}
+  }
+
+  function clearLastRegisteredUser() {
+    try {
+      localStorage.removeItem(LAST_USER_KEY);
+    } catch (e) {}
+  }
 
   // Compute SHA-256 hash of PIN with user-specific salt
   async function hashPin(pin, userIdentifier) {
@@ -387,6 +412,9 @@ App.security = (function () {
             if (ok) {
               markUnlocked();
               close();
+              if (App.auth && App.auth.restoreQuickAuthSession) {
+                await App.auth.restoreQuickAuthSession(user);
+              }
               if (typeof onSuccess === 'function') onSuccess();
             } else {
               shake();
@@ -443,6 +471,7 @@ App.security = (function () {
 
   // Master Protected Entrance Flow (Biometric -> PIN -> Password)
   function tryEnterProtectedApp(user, onAllowed, onDenied) {
+    if (user) saveLastRegisteredUser(user);
     if (!user || !user.id || isSessionUnlocked) {
       if (typeof onAllowed === 'function') onAllowed();
       return;
@@ -575,6 +604,10 @@ App.security = (function () {
     tryEnterProtectedApp,
     isUnlocked,
     markUnlocked,
+    markSessionUnlocked: markUnlocked,
     lockSession,
+    getLastRegisteredUser,
+    saveLastRegisteredUser,
+    clearLastRegisteredUser,
   };
 })();

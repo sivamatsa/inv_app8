@@ -416,6 +416,78 @@ function showAuthScreen() {
   if (formsPane) formsPane.style.display = 'block';
   const passPane = App.utils.qs('#setNewPasswordPane');
   if (passPane) passPane.style.display = 'none';
+
+  // Check if a registered user with Biometrics or PIN is remembered on this device
+  const quickUnlockWrap = App.utils.qs('#authQuickUnlockWrap');
+  if (quickUnlockWrap && App.security) {
+    const lastUser = App.security.getLastRegisteredUser ? App.security.getLastRegisteredUser() : null;
+    const bioEnabled = lastUser && App.biometrics && App.biometrics.isEnabled && App.biometrics.isEnabled(lastUser.id);
+    const pinEnabled = lastUser && App.security.isPinEnabled && App.security.isPinEnabled(lastUser.id);
+
+    if (lastUser && (bioEnabled || pinEnabled)) {
+      quickUnlockWrap.style.display = 'block';
+      quickUnlockWrap.innerHTML = `
+        <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.3);border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">⚡ Quick Device Unlock</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
+            <span>👤</span>
+            <span>${App.utils.escapeHtml(lastUser.email)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${bioEnabled ? `<button class="btn btn-gold" id="btnQuickAuthBio" style="width:100%;justify-content:center;padding:10px;font-size:13px;font-weight:700">👆 Unlock with Face ID / Fingerprint</button>` : ''}
+            ${pinEnabled ? `<button class="btn ${bioEnabled ? 'btn-outline' : 'btn-gold'}" id="btnQuickAuthPin" style="width:100%;justify-content:center;padding:9px;font-size:12.5px;font-weight:600">🔢 Unlock with 4-Digit PIN</button>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px">No password required on this registered device.</div>
+        </div>
+      `;
+
+      quickUnlockWrap.querySelector('#btnQuickAuthBio')?.addEventListener('click', () => {
+        App.security.tryEnterProtectedApp(
+          lastUser,
+          async () => {
+            if (App.auth && App.auth.restoreQuickAuthSession) {
+              await App.auth.restoreQuickAuthSession(lastUser);
+            }
+            enterApp();
+          },
+          () => { App.utils.toast('Biometric verification cancelled.'); }
+        );
+      });
+
+      quickUnlockWrap.querySelector('#btnQuickAuthPin')?.addEventListener('click', () => {
+        App.security.openPinUnlockModal(
+          lastUser,
+          async () => {
+            App.security.markUnlocked();
+            if (App.auth && App.auth.restoreQuickAuthSession) {
+              await App.auth.restoreQuickAuthSession(lastUser);
+            }
+            enterApp();
+          },
+          () => {
+            switchAuthTab('signin');
+            if (App.utils.qs('#signInEmail')) App.utils.qs('#signInEmail').value = lastUser.email;
+          },
+          bioEnabled ? () => {
+            App.security.tryEnterProtectedApp(lastUser, async () => {
+              if (App.auth && App.auth.restoreQuickAuthSession) {
+                await App.auth.restoreQuickAuthSession(lastUser);
+              }
+              enterApp();
+            });
+          } : null
+        );
+      });
+
+      // Pre-fill email in sign-in form for convenience
+      if (App.utils.qs('#signInEmail') && !App.utils.qs('#signInEmail').value) {
+        App.utils.qs('#signInEmail').value = lastUser.email;
+      }
+    } else {
+      quickUnlockWrap.style.display = 'none';
+      quickUnlockWrap.innerHTML = '';
+    }
+  }
 }
 
 function showSetNewPasswordScreen() {
@@ -480,7 +552,12 @@ function wireAuthScreen() {
 
     try {
       const res = await App.auth.signIn(email, password);
+      const user = (res && res.user) || (res && res.data && res.data.user) || App.auth.getUser() || { email, id: email };
       if (res && (res.user || res.data || App.auth.getUser())) {
+        if (App.security) {
+          if (App.security.markUnlocked) App.security.markUnlocked();
+          if (App.security.saveLastRegisteredUser) App.security.saveLastRegisteredUser(user);
+        }
         App.utils.toast('Signed in successfully', 'ok');
         await enterApp();
       }
@@ -524,6 +601,11 @@ function wireAuthScreen() {
 
     try {
       const res = await App.auth.signUp(email, password, name);
+      const user = (res && res.user) || (res && res.session && res.session.user) || App.auth.getUser() || { email, id: email, user_metadata: { full_name: name } };
+      if (App.security) {
+        if (App.security.markUnlocked) App.security.markUnlocked();
+        if (App.security.saveLastRegisteredUser) App.security.saveLastRegisteredUser(user);
+      }
       if (res && res.isBackupMode) {
         App.utils.toast('Account created and signed in!', 'ok');
         await enterApp();
@@ -740,6 +822,10 @@ document.addEventListener('DOMContentLoaded', () => {
       showAuthScreen();
       return;
     }
+    if (App.security && App.security.isUnlocked && App.security.isUnlocked()) {
+      enterApp();
+      return;
+    }
     if (App.security && App.security.tryEnterProtectedApp) {
       App.security.tryEnterProtectedApp(
         user,
@@ -757,7 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // silently skip the "set a new password" step.
     if (event === 'PASSWORD_RECOVERY') { showSetNewPasswordScreen(); return; }
     if (event === 'SIGNED_IN') {
-      if (App.security && App.security.markSessionUnlocked) App.security.markSessionUnlocked();
+      if (App.security && App.security.markUnlocked) App.security.markUnlocked();
     }
     if (user) {
       tryEnterApp(user);
