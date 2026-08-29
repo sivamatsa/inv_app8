@@ -94,10 +94,14 @@ window.App = window.App || {};
       const today = App.utils.todayISO();
       const alreadyToday = snapshots.find((s) => s.snapshot_date === today);
       if (!alreadyToday) {
-        await App.api.upsertNetWorthSnapshot({
-          snapshot_date: today, total_assets: nw.totalAssets, total_liabilities: nw.liabilitiesTotal,
-          net_worth: nw.netWorth, breakdown: nw.breakdown,
-        });
+        try {
+          await App.api.upsertNetWorthSnapshot({
+            snapshot_date: today, total_assets: nw.totalAssets, total_liabilities: nw.liabilitiesTotal,
+            net_worth: nw.netWorth, breakdown: nw.breakdown,
+          });
+        } catch (snapErr) {
+          console.warn('Daily net worth snapshot notice:', snapErr);
+        }
       }
       const allSnapshots = alreadyToday ? snapshots : snapshots.concat([{ snapshot_date: today, net_worth: nw.netWorth }]);
 

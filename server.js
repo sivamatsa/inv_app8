@@ -9,6 +9,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
+// CORS & Preflight middleware for cross-origin and iframe support
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
 app.use(express.json({ limit: '5mb' }));
 
 let aiClient = null;
@@ -70,10 +81,19 @@ function callWithTimeout(promise, timeoutMs = 12000) {
 }
 
 // Gemini Multi-turn Chat Endpoint with robust retry & fallback
-app.post('/api/chat', async (req, res) => {
+app.all(['/api/chat', '/api/chat/'], async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const { messages, model = 'gemini-3.6-flash', systemInstruction, portfolioContext } = req.body || {};
+    if (req.method === 'GET') {
+      return res.json({
+        status: 'ok',
+        endpoint: '/api/chat',
+        description: 'Gemini AI Investment Intelligence chat endpoint',
+        supported_methods: ['POST', 'GET', 'OPTIONS']
+      });
+    }
+
+    const { messages, model = 'gemini-3.6-flash', systemInstruction, portfolioContext } = (req.body || {});
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required.' });
@@ -161,7 +181,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // Check AI status
-app.get('/api/ai-status', (req, res) => {
+app.all(['/api/ai-status', '/api/ai-status/'], (req, res) => {
   const hasKey = Boolean(getApiKey());
   res.json({
     configured: hasKey,
@@ -170,7 +190,7 @@ app.get('/api/ai-status', (req, res) => {
 });
 
 // Document & Agreement Extraction Endpoint (Sale Deeds, Dharani/Meebhoomi, Promissory Notes, Gold Schemes, Lease Agreements)
-app.post('/api/extract-document', async (req, res) => {
+app.all(['/api/extract-document', '/api/extract-document/'], async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { documentText, imageBase64, mimeType = 'image/jpeg', documentHint = 'auto' } = req.body || {};
@@ -324,10 +344,11 @@ let liveGoldSearchCache = {
 };
 
 // Endpoint: Fetch live Indian Gold & Silver prices via Google Search Grounding
-app.post('/api/gold-live-search', async (req, res) => {
+app.all(['/api/gold-live-search', '/api/gold-live-search/'], async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const { forceRefresh = false, region = 'hyderabad' } = req.body || {};
+    const forceRefresh = Boolean(req.body?.forceRefresh || req.query?.forceRefresh);
+    const region = String(req.body?.region || req.query?.region || 'hyderabad');
     const now = Date.now();
     const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes fresh cache
 
