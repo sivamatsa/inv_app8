@@ -1103,6 +1103,58 @@ App.api = (function () {
     check(error);
     return data;
   }
+
+  // Live Google Search Grounding for current Indian Gold & Silver prices
+  const GOLD_LIVE_SEARCH_STORAGE_KEY = 'pios_gold_live_search_v1';
+
+  function getStoredLiveGoldSearch() {
+    try {
+      const raw = localStorage.getItem(GOLD_LIVE_SEARCH_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return null;
+  }
+
+  async function fetchLiveGoldSearch(opts) {
+    opts = opts || {};
+    const forceRefresh = Boolean(opts.forceRefresh);
+    const region = opts.region || 'hyderabad';
+
+    try {
+      const response = await fetch('/api/gold-live-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRefresh, region }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || `Server responded with ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data && data.prices) {
+        try {
+          localStorage.setItem(GOLD_LIVE_SEARCH_STORAGE_KEY, JSON.stringify({
+            ...data,
+            client_saved_at: new Date().toISOString(),
+          }));
+        } catch (e) {}
+      }
+      return data;
+    } catch (err) {
+      console.warn('fetchLiveGoldSearch error, returning stored cache if available:', err);
+      const cached = getStoredLiveGoldSearch();
+      if (cached) {
+        return {
+          ...cached,
+          fallback_cached: true,
+          error: err.message,
+        };
+      }
+      throw err;
+    }
+  }
   const listGoldPriceObservations = (opts) => selectAll('gold_price_observations', Object.assign({ order: { column: 'observed_at', ascending: false } }, opts));
   async function getLatestGoldPrice(purity) {
     const rows = await selectAll('gold_price_observations', { eq: { purity }, order: { column: 'observed_at', ascending: false }, limit: 1 });
@@ -3168,6 +3220,7 @@ App.api = (function () {
     initiateCall, updateCall, listCalls, subscribeToIncomingCalls, subscribeToCallUpdates, callSignalChannel,
     listGoldProviders, createGoldProvider, updateGoldProvider, deleteGoldProvider,
     getGoldSettings, updateGoldSettings, refreshGoldPrice,
+    fetchLiveGoldSearch, getStoredLiveGoldSearch,
     listGoldPriceObservations, getLatestGoldPrice, listGoldSchemeHoldings,
     listGoldPurchases, createGoldPurchase, updateGoldPurchase, deleteGoldPurchase,
     listGoldAlerts, createGoldAlert, updateGoldAlert, deleteGoldAlert,

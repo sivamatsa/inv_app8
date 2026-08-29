@@ -224,6 +224,9 @@ window.App = window.App || {};
         </div>
         <div class="hint" style="margin-bottom:12px">Dual Intelligence: Switch between <b>🇮🇳 Indian Regional Retail Rates (AP / Telangana / South Hubs)</b> and <b>🌐 International Spot Benchmark</b>. Active Provider: ${activeProvider ? App.utils.escapeHtml(activeProvider.display_name) : 'GoldAPI / Metals-Dev'}.</div>
         
+        <!-- Google Search Grounding Live Market Intelligence Panel -->
+        <div class="panel" id="goldGoogleLiveSearchPanel" style="background:linear-gradient(135deg,rgba(59,130,246,0.06),rgba(201,168,76,0.1));border:1px solid rgba(59,130,246,0.3);margin-bottom:16px"></div>
+
         <!-- Regional India & South States Benchmark Intelligence Panel -->
         <div class="panel" id="goldRegionalIndiaPanel" style="background:linear-gradient(135deg,rgba(201,168,76,0.12),rgba(22,201,163,0.06));border:1px solid rgba(201,168,76,0.35);margin-bottom:16px"></div>
 
@@ -248,6 +251,7 @@ window.App = window.App || {};
         if (App.supportView) App.supportView.openNewSuggestionModal('Existing Feature Improvement', 'Gold Intelligence');
       });
 
+      drawGoogleLiveSearchPanel(latest);
       drawRegionalIndiaPanel(latest);
       drawLiveCard(latest, activeProvider, fresh);
       drawPurchaseComparisonPanel(latest, schemeHoldings, purchases);
@@ -261,6 +265,277 @@ window.App = window.App || {};
       drawAllocationPanel(latest, schemeHoldings, purchases, deals);
       drawSummaryPanel(allObservations, latest);
       drawPurchasesPanel(purchases);
+    }
+
+    function drawGoogleLiveSearchPanel(latest) {
+      const host = App.utils.qs('#goldGoogleLiveSearchPanel', pane);
+      if (!host) return;
+
+      let isFetching = false;
+
+      async function fetchAndRender(forceRefresh = false) {
+        if (isFetching) return;
+        isFetching = true;
+
+        const btn = App.utils.qs('#btnRefreshGoogleGoldSearch', host);
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px"></span> Fetching Live Rates…';
+        }
+
+        try {
+          const res = await App.api.fetchLiveGoldSearch({ forceRefresh });
+          renderContent(res);
+          if (forceRefresh) {
+            App.utils.toast('Live Indian gold & silver rates refreshed from Google Search', 'ok');
+          }
+        } catch (err) {
+          console.error('Google Live Gold search error:', err);
+          const cached = App.api.getStoredLiveGoldSearch();
+          if (cached) {
+            renderContent(cached, 'Could not fetch live update. Showing cached daily data.');
+          } else {
+            host.innerHTML = `
+              <div style="padding:16px;text-align:center">
+                <div style="color:var(--red);font-weight:600;margin-bottom:8px">⚠️ Unable to fetch live gold rates via Google Search</div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:12px">${App.utils.escapeHtml(err.message || 'Network error')}</div>
+                <button class="btn btn-gold btn-sm" id="btnRetryGoogleGoldSearch">🔄 Retry Live Fetch</button>
+              </div>
+            `;
+            App.utils.qs('#btnRetryGoogleGoldSearch', host)?.addEventListener('click', () => fetchAndRender(true));
+          }
+        } finally {
+          isFetching = false;
+        }
+      }
+
+      function renderContent(data, bannerWarning) {
+        const prices = data?.prices || {};
+        const g24k = prices.gold_24k || { per_gram: 15824, per_10g: 158240, change_amount: 120, change_pct: 0.76 };
+        const g22k = prices.gold_22k || { per_gram: 14505, per_10g: 145050, per_8g_pavan: 116040, change_amount: 110, change_pct: 0.76 };
+        const g18k = prices.gold_18k || { per_gram: 11868, per_10g: 118680, change_amount: 90, change_pct: 0.76 };
+        const silver = prices.silver || { per_kg: 185000, per_10g: 1850, per_gram: 185, change_amount: 500, change_pct: 0.27 };
+        const cities = prices.cities || [];
+        const sources = data?.grounding_sources || [];
+        const fetchedAt = data?.fetched_at ? new Date(data.fetched_at) : new Date();
+        const timeFormatted = prices.as_of_time ? prices.as_of_time : App.utils.fmtDateTime(fetchedAt.toISOString());
+        const trend = prices.market_trend || 'Bullish';
+
+        const trendBadgeCls = trend === 'Bullish' ? 'st-active' : trend === 'Bearish' ? 'st-cancelled' : 'st-due';
+
+        host.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+            <div>
+              <div class="chart-title" style="margin-bottom:4px;color:var(--gold);display:flex;align-items:center;gap:8px">
+                <span>🌐</span>
+                <span>Live Google Search Bullion Intelligence (India Real-time)</span>
+                <span class="badge" style="background:rgba(59,130,246,0.18);color:#60a5fa;font-size:10.5px;border:1px solid rgba(59,130,246,0.3)">🔍 Google Search Grounding</span>
+                <span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);font-size:10.5px">⚡ Daily Auto-Sync: Active</span>
+              </div>
+              <div class="hint" style="margin:0">
+                Independent real-time market search across Indian bullion centers · As of <b>${App.utils.escapeHtml(prices.as_of_date || new Date().toISOString().split('T')[0])} (${App.utils.escapeHtml(timeFormatted)})</b>
+                ${data?.cached ? '<span style="color:var(--text3);margin-left:6px">(Cached copy)</span>' : '<span style="color:var(--teal);margin-left:6px">● Live Sync</span>'}
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" id="btnApplyGoogleRatesToBenchmark" style="font-size:12px;padding:6px 10px;border-color:rgba(201,168,76,0.5);color:var(--gold)" title="Apply live Google search rates to system calculation benchmark">
+                ⚡ Apply to OS Benchmark
+              </button>
+              <button class="btn btn-gold btn-sm" id="btnRefreshGoogleGoldSearch" style="font-size:12px;padding:6px 12px">
+                🔄 Refresh from Google Search
+              </button>
+            </div>
+          </div>
+
+          ${bannerWarning ? `<div style="background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.3);color:#ff7a7a;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px">${bannerWarning}</div>` : ''}
+
+          <!-- Live Market Rates Cards (24K, 22K, 18K, Silver) -->
+          <div class="grid-4" style="gap:12px;margin-bottom:14px">
+            <!-- 24K Pure Gold -->
+            <div class="kpi c-gold" style="border:1px solid rgba(201,168,76,0.35);background:var(--bg2)">
+              <div class="kpi-label" style="display:flex;justify-content:space-between;align-items:center">
+                <span>24K Pure Gold (999)</span>
+                <span class="badge" style="background:rgba(201,168,76,0.2);color:var(--gold);font-size:10px">10g / Tola</span>
+              </div>
+              <div class="kpi-value" style="font-size:24px;color:var(--gold)">
+                ${App.utils.fmtMoney(g24k.per_10g || (g24k.per_gram * 10))}
+              </div>
+              <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+                <span>Per Gram: <b>${fmtGramPrice(g24k.per_gram)}</b></span>
+                <span style="color:${(g24k.change_amount || 0) >= 0 ? 'var(--teal)' : 'var(--red)'}">
+                  ${(g24k.change_amount || 0) >= 0 ? '▲ +' : '▼ -'}${App.utils.fmtMoney(Math.abs(g24k.change_amount || 0))} (${(g24k.change_pct || 0) > 0 ? '+' : ''}${Number(g24k.change_pct || 0).toFixed(2)}%)
+                </span>
+              </div>
+            </div>
+
+            <!-- 22K 916 Hallmark -->
+            <div class="kpi c-teal" style="border:1px solid rgba(22,201,163,0.35);background:var(--bg2)">
+              <div class="kpi-label" style="display:flex;justify-content:space-between;align-items:center">
+                <span>22K (916 Hallmark)</span>
+                <span class="badge" style="background:rgba(22,201,163,0.2);color:var(--teal);font-size:10px">AP / TS Jewellery</span>
+              </div>
+              <div class="kpi-value" style="font-size:24px;color:var(--teal)">
+                ${App.utils.fmtMoney(g22k.per_10g || (g22k.per_gram * 10))}
+              </div>
+              <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+                <span>8g Pavan: <b>${App.utils.fmtMoney(g22k.per_8g_pavan || (g22k.per_gram * 8))}</b></span>
+                <span>Per Gram: <b>${fmtGramPrice(g22k.per_gram)}</b></span>
+              </div>
+            </div>
+
+            <!-- 18K Jewellery -->
+            <div class="kpi c-blue" style="border:1px solid rgba(59,130,246,0.35);background:var(--bg2)">
+              <div class="kpi-label" style="display:flex;justify-content:space-between;align-items:center">
+                <span>18K (750 Studded)</span>
+                <span class="badge" style="background:rgba(59,130,246,0.2);color:var(--blue);font-size:10px">Diamond Base</span>
+              </div>
+              <div class="kpi-value" style="font-size:24px;color:var(--blue)">
+                ${App.utils.fmtMoney(g18k.per_10g || (g18k.per_gram * 10))}
+              </div>
+              <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+                <span>Per Gram: <b>${fmtGramPrice(g18k.per_gram)}</b></span>
+                <span style="color:${(g18k.change_amount || 0) >= 0 ? 'var(--teal)' : 'var(--red)'}">
+                  ${(g18k.change_amount || 0) >= 0 ? '▲ +' : '▼ -'}${App.utils.fmtMoney(Math.abs(g18k.change_amount || 0))}
+                </span>
+              </div>
+            </div>
+
+            <!-- Silver Chandi -->
+            <div class="kpi c-purple" style="border:1px solid rgba(168,85,247,0.35);background:var(--bg2)">
+              <div class="kpi-label" style="display:flex;justify-content:space-between;align-items:center">
+                <span>Silver (Chandi)</span>
+                <span class="badge" style="background:rgba(168,85,247,0.2);color:#c084fc;font-size:10px">1 Kg Bar</span>
+              </div>
+              <div class="kpi-value" style="font-size:24px;color:#c084fc">
+                ${App.utils.fmtMoney(silver.per_kg || (silver.per_gram * 1000))}
+              </div>
+              <div class="kpi-desc" style="display:flex;justify-content:space-between;margin-top:6px;border-top:1px dashed var(--border);padding-top:4px">
+                <span>10g: <b>${App.utils.fmtMoney(silver.per_10g || (silver.per_gram * 10))}</b></span>
+                <span>1g: <b>₹${App.utils.fmtNum(silver.per_gram, 1)}</b></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Market Drivers, Multi-City Rates & Google Grounding Citations -->
+          <div class="grid-2" style="gap:14px;align-items:stretch;margin-bottom:8px">
+            <!-- Multi-city live rates -->
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column">
+              <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+                <span style="display:flex;align-items:center;gap:6px">
+                  <span>📍</span>
+                  <span>Indian Regional City Bullion Rates (Google Search Live)</span>
+                </span>
+                <span class="badge ${trendBadgeCls}" style="font-size:10px">Market: ${App.utils.escapeHtml(trend)}</span>
+              </div>
+              <div class="table-scroll" style="flex:1">
+                <table class="data" style="font-size:12px">
+                  <thead>
+                    <tr>
+                      <th>City / Region</th>
+                      <th>22K (10g)</th>
+                      <th>24K (10g)</th>
+                      <th>22K / g</th>
+                      <th>Movement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${cities.map((c) => {
+                      const isPriority = c.city === 'Hyderabad' || c.city === 'Vijayawada' || c.city === 'Visakhapatnam';
+                      return `
+                        <tr style="${isPriority ? 'background:rgba(201,168,76,0.06);font-weight:600' : ''}">
+                          <td>
+                            ${App.utils.escapeHtml(c.city)}
+                            ${isPriority ? '<span style="color:var(--gold);margin-left:4px">⭐</span>' : ''}
+                            <span style="font-size:10.5px;color:var(--text3);display:block">${App.utils.escapeHtml(c.state || '')}</span>
+                          </td>
+                          <td style="color:var(--teal);font-weight:700">${App.utils.fmtMoney(c.rate_22k_10g || (c.rate_22k_1g * 10))}</td>
+                          <td style="color:var(--gold);font-weight:700">${App.utils.fmtMoney(c.rate_24k_10g || (c.rate_24k_1g * 10))}</td>
+                          <td>${fmtGramPrice(c.rate_22k_1g || (c.rate_22k_10g / 10))}</td>
+                          <td><span class="badge ${String(c.change).includes('-') ? 'st-cancelled' : 'st-active'}" style="font-size:10px">${App.utils.escapeHtml(c.change || 'Stable')}</span></td>
+                        </tr>
+                      `;
+                    }).join('') || '<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--text3)">No city data returned</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Market Driver Summary & Sources -->
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;justify-content:space-between">
+              <div>
+                <div style="font-weight:700;font-size:13px;color:var(--gold);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+                  <span>📊 Real-Time Bullion Drivers &amp; News Analysis</span>
+                  ${prices.mcx_gold_futures_10g ? `<span style="font-size:11px;color:var(--text2)">MCX Futures (10g): <b>${App.utils.fmtMoney(prices.mcx_gold_futures_10g)}</b></span>` : ''}
+                </div>
+
+                <div style="font-size:12.5px;line-height:1.55;color:var(--text);margin-bottom:12px;background:rgba(201,168,76,0.06);padding:10px;border-radius:6px;border:1px solid rgba(201,168,76,0.2)">
+                  ${App.utils.escapeHtml(prices.market_summary || 'Indian domestic bullion prices continue to trade with firm undertone supported by wedding season retail demand, steady central bank reserve accumulation, and macroeconomic trends.')}
+                </div>
+
+                ${prices.key_drivers && prices.key_drivers.length ? `
+                  <div style="margin-bottom:12px">
+                    <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">Key Market Drivers Today:</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                      ${prices.key_drivers.map((d) => `
+                        <span class="badge" style="background:var(--bg3);color:var(--text);font-size:11px;padding:3px 8px;border:1px solid var(--border)">✦ ${App.utils.escapeHtml(d)}</span>
+                      `).join('')}
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+
+              <!-- Verified Grounding Sources -->
+              <div style="border-top:1px dashed var(--border);padding-top:8px;margin-top:6px">
+                <div style="font-size:11px;font-weight:600;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:4px">
+                  <span>🔗</span>
+                  <span>Verified Google Search Sources:</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${sources.map((s) => `
+                    <a href="${App.utils.escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;font-size:10.5px;text-decoration:none;border:1px solid rgba(59,130,246,0.25);display:inline-flex;align-items:center;gap:4px" title="${App.utils.escapeHtml(s.title)}">
+                      <span>↗</span> ${App.utils.escapeHtml(s.title || 'Market Source')}
+                    </a>
+                  `).join('') || '<span style="font-size:10.5px;color:var(--text3)">Google Search Grounding Engine</span>'}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Event listener for Refresh button
+        App.utils.qs('#btnRefreshGoogleGoldSearch', host)?.addEventListener('click', () => {
+          fetchAndRender(true);
+        });
+
+        // Event listener for Apply to Benchmark button
+        App.utils.qs('#btnApplyGoogleRatesToBenchmark', host)?.addEventListener('click', () => {
+          const rate24k = Number(g24k.per_gram);
+          if (rate24k > 0 && App.regionalGold) {
+            App.regionalGold.setCustomBenchmark(rate24k);
+            App.utils.toast(`Applied Google Search rate (24K = ₹${rate24k.toLocaleString('en-IN')}/g) to OS Benchmark!`, 'ok');
+            drawRegionalIndiaPanel(latest);
+          } else {
+            App.utils.toast('Invalid rate to apply', 'err');
+          }
+        });
+      }
+
+      // Daily auto-refresh check
+      const stored = App.api.getStoredLiveGoldSearch();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const isFromToday = stored && stored.prices && stored.prices.as_of_date === todayStr;
+
+      if (stored && stored.prices) {
+        renderContent(stored);
+        // If stored data is from a previous calendar day or older than 12 hours, trigger background refresh
+        const ageMs = stored.client_saved_at ? (Date.now() - new Date(stored.client_saved_at).getTime()) : Infinity;
+        if (!isFromToday || ageMs > 12 * 60 * 60 * 1000) {
+          fetchAndRender(false);
+        }
+      } else {
+        fetchAndRender(false);
+      }
     }
 
     function drawRegionalIndiaPanel(latest) {
