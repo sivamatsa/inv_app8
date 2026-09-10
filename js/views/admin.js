@@ -1000,7 +1000,11 @@ window.App = window.App || {};
           }
           if (!confirm(`Delete record #${rowId} from ${tableName}?`)) return;
           try {
-            await App.api.adminDeleteTableRow(tableName, rowId);
+            const res = await App.api.adminDeleteTableRow(tableName, rowId);
+            if (res && res.deleted_count === 0) {
+              App.utils.toast(`Could not delete record #${rowId}: record not found or restricted by database policy.`, 'warn');
+              return;
+            }
             currentRows = currentRows.filter((item) => item.id !== rowId);
             App.utils.toast(`Record #${rowId} deleted from ${tableName}`);
             renderInspectTable(currentRows);

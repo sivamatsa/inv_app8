@@ -205,6 +205,20 @@ window.App = window.App || {};
           delete patch.updated_at;
           await App.api.updateDeal(initialOrExisting.id, patch);
           App.utils.toast('Deal updated');
+
+          // If maturity date, frequency, start date, or ROI was changed, automatically re-sync payment schedule
+          const termsChanged = patch.maturity_date !== initialOrExisting.maturity_date ||
+            patch.payment_frequency !== initialOrExisting.payment_frequency ||
+            patch.start_date !== initialOrExisting.start_date ||
+            patch.annual_roi !== initialOrExisting.annual_roi;
+          if (termsChanged && (patch.maturity_date || initialOrExisting.maturity_date) && !['Irregular', 'Custom'].includes(patch.payment_frequency || initialOrExisting.payment_frequency)) {
+            try {
+              await App.api.generateSchedule(initialOrExisting.id);
+              App.utils.toast('Payment schedule updated to match new maturity date/terms');
+            } catch (schedErr) {
+              console.warn('Auto schedule update notice:', schedErr);
+            }
+          }
         }
         App.ui.close();
         App.router.refreshCurrent();
@@ -308,9 +322,15 @@ window.App = window.App || {};
       </div>`;
 
     const historyHtml = `
-      <div class="table-scroll" style="max-height:280px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text2)">Installment schedule & payment tracking (${schedule.length} installments)</span>
+        <button id="btnSyncSchedule" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px;display:flex;align-items:center;gap:4px">
+          <span>&#128260;</span> Sync Schedule with Maturity Date
+        </button>
+      </div>
+      <div class="table-scroll" id="dealScheduleTableWrap" style="max-height:280px">
         <table class="data"><thead><tr><th>Scheduled</th><th>Expected</th><th>Status</th><th>Actual Date</th><th>Actual Amount</th></tr></thead>
-        <tbody>${schedule.map((s) => {
+        <tbody id="dealScheduleTbody">${schedule.map((s) => {
           const actual = payments.find((p) => p.id === s.actual_payment_id);
           return `<tr><td>${App.utils.fmtDate(s.scheduled_date)}</td><td>${App.utils.fmtMoney(s.expected_total)}</td>
             <td><span class="badge ${App.utils.statusBadgeClass(s.status)}">${s.status}</span></td>
@@ -351,6 +371,34 @@ window.App = window.App || {};
             App.utils.qsa('.tab-pane', body).forEach((p) => p.classList.toggle('active', p.dataset.pane === btn.dataset.tab));
           });
         });
+
+        const syncBtn = App.utils.qs('#btnSyncSchedule', body);
+        if (syncBtn) {
+          syncBtn.addEventListener('click', async () => {
+            syncBtn.disabled = true;
+            syncBtn.textContent = 'Syncing...';
+            try {
+              await App.api.generateSchedule(deal.id);
+              const refreshedSched = await App.api.listSchedule({ eq: { deal_id: deal.id } });
+              const tbody = App.utils.qs('#dealScheduleTbody', body);
+              if (tbody) {
+                tbody.innerHTML = refreshedSched.map((s) => {
+                  const actual = payments.find((p) => p.id === s.actual_payment_id);
+                  return `<tr><td>${App.utils.fmtDate(s.scheduled_date)}</td><td>${App.utils.fmtMoney(s.expected_total)}</td>
+                    <td><span class="badge ${App.utils.statusBadgeClass(s.status)}">${s.status}</span></td>
+                    <td>${actual ? App.utils.fmtDate(actual.transaction_date) : '—'}</td>
+                    <td>${actual ? App.utils.fmtMoney(actual.amount) : '—'}</td></tr>`;
+                }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">No schedule yet</td></tr>';
+              }
+              App.utils.toast('Payment schedule successfully synced with current deal terms');
+            } catch (err) {
+              App.utils.toast('Could not sync schedule: ' + (err.message || err), 'err');
+            } finally {
+              syncBtn.disabled = false;
+              syncBtn.innerHTML = '<span>&#128260;</span> Sync Schedule with Maturity Date';
+            }
+          });
+        }
       },
     });
   }

@@ -85,32 +85,43 @@ window.App = window.App || {};
         <div id="profileFormHost"></div>
         <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold" id="saveProfileBtn">Save Profile</button></div>
       </div>
-      <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-          <div class="chart-title">Display Currency &amp; Forex Conversion</div>
-          <button class="btn btn-outline btn-sm" id="syncForexRatesBtn">&#8635; Refresh Live Forex Rates</button>
-        </div>
-        <div class="hint" style="margin-bottom:14px">Choose your preferred portfolio display currency. All investment deals, payments, expense budgets, and net worth charts automatically convert to this currency using live exchange rates.</div>
-        
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;align-items:end">
-          <div class="field">
-            <label>Switch Display Currency</label>
-            <select id="settingsActiveCurrencySelect" class="search-input" style="width:100%"></select>
-          </div>
-          <div style="background:var(--card);padding:12px 16px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Active Format Preview (1,00,000 INR)</div>
-              <div id="settingsCurrencyPreview" style="font-size:16px;font-weight:700;color:var(--gold,#c9a84c);margin-top:2px"></div>
+      <div class="panel" id="settingsForexPanel">
+        <details id="settingsForexDetails" style="cursor:pointer">
+          <summary style="list-style:none;outline:none;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="settingsForexToggleArrow" style="font-size:11px;transition:transform 0.2s">▶</span>
+              <div class="chart-title" style="margin:0;font-size:14px">Display Currency &amp; Forex Conversion</div>
+              <span id="settingsActiveCurrBadge" class="badge st-active" style="font-size:11px;margin-left:6px"></span>
             </div>
-            <div id="settingsCurrencyFlag" style="font-size:24px"></div>
-          </div>
-        </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:11.5px;color:var(--text3)">Click to expand / switch</span>
+              <button class="btn btn-outline btn-sm" id="syncForexRatesBtn" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation()">&#8635; Refresh Live Forex Rates</button>
+            </div>
+          </summary>
+          <div style="margin-top:14px;cursor:default" onclick="event.stopPropagation()">
+            <div class="hint" style="margin-bottom:14px">Choose your preferred portfolio display currency. All investment deals, payments, expense budgets, and net worth charts automatically convert to this currency using live exchange rates.</div>
+            
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;align-items:end">
+              <div class="field">
+                <label>Switch Display Currency</label>
+                <select id="settingsActiveCurrencySelect" class="search-input" style="width:100%"></select>
+              </div>
+              <div style="background:var(--card);padding:12px 16px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+                <div>
+                  <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Active Format Preview (1,00,000 INR)</div>
+                  <div id="settingsCurrencyPreview" style="font-size:16px;font-weight:700;color:var(--gold,#c9a84c);margin-top:2px"></div>
+                </div>
+                <div id="settingsCurrencyFlag" style="font-size:24px"></div>
+              </div>
+            </div>
 
-        <div style="font-size:12.5px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-          <span>Benchmark Conversion Rates (Base: 1 INR)</span>
-          <span id="settingsRatesLastSync" style="font-size:11px;font-weight:400;color:var(--text3)"></span>
-        </div>
-        <div class="table-scroll"><table class="data" id="settingsRatesTable"></table></div>
+            <div style="font-size:12.5px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <span>Benchmark Conversion Rates (Base: 1 INR)</span>
+              <span id="settingsRatesLastSync" style="font-size:11px;font-weight:400;color:var(--text3)"></span>
+            </div>
+            <div class="table-scroll"><table class="data" id="settingsRatesTable"></table></div>
+          </div>
+        </details>
       </div>
       <div class="panel">
         <div class="chart-title" style="margin-bottom:10px">Privacy &amp; Contacts</div>
@@ -281,9 +292,22 @@ window.App = window.App || {};
     const ratesTable = App.utils.qs('#settingsRatesTable', pane);
     const ratesLastSync = App.utils.qs('#settingsRatesLastSync', pane);
     const syncRatesBtn = App.utils.qs('#syncForexRatesBtn', pane);
+    const forexDetails = App.utils.qs('#settingsForexDetails', pane);
+    const forexArrow = App.utils.qs('#settingsForexToggleArrow', pane);
+    const activeCurrBadge = App.utils.qs('#settingsActiveCurrBadge', pane);
+
+    if (forexDetails && forexArrow) {
+      forexDetails.addEventListener('toggle', () => {
+        forexArrow.textContent = forexDetails.open ? '▼' : '▶';
+      });
+    }
 
     function updateCurrencySectionUI() {
       const activeCurr = (App.currency && App.currency.getActiveCurrency()) || 'INR';
+      if (activeCurrBadge) {
+        const metaB = (App.currency && App.currency.getCurrencyMeta(activeCurr)) || { symbol: '₹', flag: '🇮🇳' };
+        activeCurrBadge.textContent = `${metaB.flag || ''} ${activeCurr} (${metaB.symbol || activeCurr})`;
+      }
       if (activeCurrSelect) {
         activeCurrSelect.innerHTML = CURRENCY_OPTIONS.map((c) => `<option value="${c.value}" ${c.value === activeCurr ? 'selected' : ''}>${c.label}</option>`).join('');
       }
