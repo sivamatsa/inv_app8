@@ -188,14 +188,23 @@ App.api = (function () {
         const { data, error } = await client().from('profiles').select('*').eq('id', currentId).maybeSingle();
         if (!error && data) {
           supaData = data;
-          if (data && data.email && data.email.toLowerCase().trim() === 'radhakrishna108566@gmail.com') {
+          const em = (data && data.email ? data.email.toLowerCase().trim() : '');
+          if (em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local') {
             supaData.is_developer = true;
             supaData.is_admin = true;
             supaData.role = 'Developer';
           }
-          // Keep backup DB synchronized
+          // Cross-reconcile role flags from Backup DB if stored there
           if (App.backupProfileDb) {
-            App.backupProfileDb.saveProfile(Object.assign({}, supaData, { source: 'dual_synced' })).catch(() => {});
+            try {
+              const bp = await App.backupProfileDb.getProfileById(currentId) || (data.email ? await App.backupProfileDb.getProfileByEmail(data.email) : null);
+              if (bp) {
+                if (bp.is_admin) supaData.is_admin = true;
+                if (bp.is_developer) supaData.is_developer = true;
+                if (bp.role === 'Developer' || bp.role === 'Administrator' || bp.role === 'Admin & Developer') supaData.role = bp.role;
+              }
+              App.backupProfileDb.saveProfile(Object.assign({}, bp || {}, supaData, { source: 'dual_synced' })).catch(() => {});
+            } catch (_) {}
           }
         } else {
           supaErr = error;
@@ -221,23 +230,25 @@ App.api = (function () {
       if (!backupProfile && user) {
         // Auto-heal: generate valid default profile for signed-in user
         const cleanName = (user.user_metadata && user.user_metadata.full_name) || (user.email ? user.email.split('@')[0] : 'User');
-        const isRadha = user.email && user.email.toLowerCase().trim() === 'radhakrishna108566@gmail.com';
+        const em = user.email ? user.email.toLowerCase().trim() : '';
+        const isMaster = em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local';
         backupProfile = await App.backupProfileDb.saveProfile({
           id: currentId,
           email: user.email,
           full_name: cleanName,
           preferred_currency: 'INR',
           timezone: 'Asia/Kolkata',
-          is_admin: isRadha ? true : false,
-          is_developer: isRadha ? true : false,
-          role: isRadha ? 'Developer' : 'User',
+          is_admin: isMaster ? true : false,
+          is_developer: isMaster ? true : false,
+          role: isMaster ? 'Developer' : 'User',
           is_active: true,
           source: 'backup_db',
         });
       }
 
       if (backupProfile) {
-        if (backupProfile.email && backupProfile.email.toLowerCase().trim() === 'radhakrishna108566@gmail.com') {
+        const em = backupProfile.email ? backupProfile.email.toLowerCase().trim() : '';
+        if (em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local') {
           backupProfile.is_developer = true;
           backupProfile.is_admin = true;
           backupProfile.role = 'Developer';
@@ -350,6 +361,37 @@ App.api = (function () {
       }
     });
 
+    // Ensure the currently logged-in account is always represented and up-to-date
+    const myProfile = (window.App && window.App.state && window.App.state.profile) || null;
+    const currentUser = window.App && window.App.auth ? window.App.auth.getUser() : null;
+    if (myProfile || currentUser) {
+      const activeP = myProfile || { id: currentUser.id, email: currentUser.email };
+      const myId = activeP.id;
+      const myEmail = (activeP.email || '').trim().toLowerCase();
+      let matchedKey = null;
+      for (const [id, p] of mergedMap.entries()) {
+        if (id === myId || (myEmail && (p.email || '').trim().toLowerCase() === myEmail)) {
+          matchedKey = id;
+          break;
+        }
+      }
+      if (matchedKey) {
+        mergedMap.set(matchedKey, Object.assign({}, mergedMap.get(matchedKey), activeP));
+      } else if (myId) {
+        mergedMap.set(myId, Object.assign({}, activeP, { source: 'active_session' }));
+      }
+    }
+
+    // Apply master overrides for administrative accounts
+    for (const [id, p] of mergedMap.entries()) {
+      const em = (p.email || '').toLowerCase().trim();
+      if (em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local') {
+        p.is_admin = true;
+        p.is_developer = true;
+        if (!p.role || p.role === 'User') p.role = 'Developer';
+      }
+    }
+
     const result = Array.from(mergedMap.values());
     result.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     return result;
@@ -457,6 +499,53 @@ App.api = (function () {
     return data;
   }
 
+  async function extendDeal(dealId, newMaturityDate, reason, notes) {
+    try {
+      const { data, error } = await client().rpc('fn_extend_deal', {
+        p_deal_id: dealId,
+        p_new_maturity_date: newMaturityDate,
+        p_reason: reason || 'Deal tenure extended',
+        p_notes: notes || null,
+      });
+      if (!error && data && data.ok !== false) {
+        markLocalWrite();
+        return data;
+      }
+    } catch (e) {
+      console.warn('fn_extend_deal RPC fallback notice:', e);
+    }
+
+    // Direct client fallback
+    const deal = await getDeal(dealId);
+    if (!deal) throw new Error('Deal not found');
+    const oldMaturity = deal.maturity_date;
+    const history = Array.isArray(deal.extensions_history) ? deal.extensions_history.slice() : [];
+    history.push({
+      extended_at: new Date().toISOString(),
+      previous_maturity: oldMaturity,
+      new_maturity: newMaturityDate,
+      principal_at_extension: deal.current_principal ?? deal.invested_amount,
+      reason: reason || 'Deal tenure extended',
+      notes: notes || null,
+    });
+
+    await updateDeal(dealId, {
+      original_maturity_date: deal.original_maturity_date || oldMaturity,
+      maturity_date: newMaturityDate,
+      extension_count: (deal.extension_count || 0) + 1,
+      extensions_history: history,
+      status: ['MATURED', 'CLOSED'].includes(deal.status) ? 'ACTIVE' : deal.status,
+      updated_at: new Date().toISOString(),
+    });
+
+    try {
+      await generateSchedule(dealId);
+    } catch (e) {}
+
+    markLocalWrite();
+    return { ok: true, deal_id: dealId, new_maturity_date: newMaturityDate };
+  }
+
   // ---- payments ----
   const listPayments = (opts) => selectAll('payments', Object.assign({ order: { column: 'transaction_date', ascending: false } }, opts));
   async function recordPayment(p) {
@@ -507,6 +596,70 @@ App.api = (function () {
     return data;
   }
   const voidPayment = (id, reason) => updateRow('payments', id, { is_voided: true, voided_at: new Date().toISOString(), voided_reason: reason || null });
+
+  async function recordMaturitySettlement(payload) {
+    try {
+      const { data, error } = await client().rpc('fn_record_maturity_settlement', {
+        p_deal_id: payload.dealId,
+        p_settlement_date: payload.settlementDate || new Date().toISOString().slice(0, 10),
+        p_interest_received: !!payload.interestReceived,
+        p_interest_amount: Number(payload.interestAmount) || 0,
+        p_principal_received: !!payload.principalReceived,
+        p_principal_amount: Number(payload.principalAmount) || 0,
+        p_payment_mode: payload.paymentMode || 'Bank Transfer',
+        p_payment_reference: payload.paymentReference || null,
+        p_notes: payload.notes || null,
+      });
+      if (!error && data && data.ok !== false) {
+        markLocalWrite();
+        return data;
+      }
+    } catch (e) {
+      console.warn('fn_record_maturity_settlement RPC fallback notice:', e);
+    }
+
+    // Direct client fallback
+    const deal = await getDeal(payload.dealId);
+    if (!deal) throw new Error('Deal not found');
+    const intAmt = payload.interestReceived ? (Number(payload.interestAmount) || 0) : 0;
+    const prnAmt = payload.principalReceived ? (Number(payload.principalAmount) || 0) : 0;
+    const total = intAmt + prnAmt;
+    if (total <= 0) throw new Error('No payment amount was recorded');
+
+    const paymentRes = await recordPayment({
+      dealId: payload.dealId,
+      transactionDate: payload.settlementDate || new Date().toISOString().slice(0, 10),
+      amount: total,
+      interestAmount: intAmt,
+      principalAmount: prnAmt,
+      paymentMode: payload.paymentMode || 'Bank Transfer',
+      paymentReference: payload.paymentReference,
+      notes: payload.notes,
+    });
+
+    const newPrn = Math.max(0, (deal.current_principal ?? deal.invested_amount) - prnAmt);
+    const dealClosed = !!(payload.principalReceived && newPrn <= 0);
+
+    await updateDeal(payload.dealId, {
+      current_principal: newPrn,
+      status: dealClosed ? 'CLOSED' : (prnAmt > 0 ? 'PARTIALLY_RECOVERED' : deal.status),
+      closure_date: dealClosed ? (payload.settlementDate || new Date().toISOString().slice(0, 10)) : deal.closure_date,
+      last_payment_date: payload.settlementDate || new Date().toISOString().slice(0, 10),
+      updated_at: new Date().toISOString(),
+    });
+
+    markLocalWrite();
+    return {
+      ok: true,
+      payment_id: paymentRes?.id || paymentRes,
+      interest_received: payload.interestReceived,
+      interest_amount: intAmt,
+      principal_received: payload.principalReceived,
+      principal_amount: prnAmt,
+      remaining_principal: newPrn,
+      deal_closed: dealClosed,
+    };
+  }
 
   // ---- reinvestments ----
   const listReinvestments = (opts) => selectAll('reinvestments', Object.assign({ order: { column: 'returned_date', ascending: false } }, opts));
@@ -2363,8 +2516,9 @@ App.api = (function () {
   // ---- Developer Deep Portfolio Dataset Explorer ----
   async function getDeveloperPortfolioDataset({ targetUserId = null, search = '' } = {}) {
     const currentU = App.auth.getUser();
-    const effectiveUserId = targetUserId || (currentU ? currentU.id : null);
-    const isAll = targetUserId === 'ALL' || (!effectiveUserId && App.utils.isAdminOrDev(App.state && App.state.profile));
+    const myUid = (currentU ? currentU.id : null) || uid();
+    const isAll = targetUserId === 'ALL';
+    const effectiveUserId = isAll ? null : ((targetUserId && targetUserId !== 'CURRENT') ? targetUserId : myUid);
 
     const filterOpts = isAll ? { allUsers: true } : (effectiveUserId ? { eq: { user_id: effectiveUserId } } : {});
 
@@ -2410,12 +2564,12 @@ App.api = (function () {
     ]);
 
     // Financial calculations for developer insights
-    const totalInvestedDeals = deals.reduce((acc, d) => acc + Number(d.principal || 0), 0);
-    const activeDeals = deals.filter((d) => (d.status || '').toLowerCase() === 'active');
-    const activePrincipal = activeDeals.reduce((acc, d) => acc + Number(d.principal || 0), 0);
+    const totalInvestedDeals = deals.reduce((acc, d) => acc + Number(d.invested_amount || d.principal_amount || d.principal || d.amount || 0), 0);
+    const activeDeals = deals.filter((d) => (d.status || '').toUpperCase() === 'ACTIVE');
+    const activePrincipal = activeDeals.reduce((acc, d) => acc + Number(d.current_principal ?? d.invested_amount ?? d.principal ?? d.amount ?? 0), 0);
     const totalPaymentsReceived = payments.reduce((acc, p) => acc + Number(p.amount || 0), 0);
-    const totalInterestReceived = payments.filter((p) => p.payment_type === 'interest').reduce((acc, p) => acc + Number(p.amount || 0), 0);
-    const totalPrincipalReturned = payments.filter((p) => p.payment_type === 'principal' || p.payment_type === 'bullet').reduce((acc, p) => acc + Number(p.amount || 0), 0);
+    const totalInterestReceived = payments.reduce((acc, p) => acc + Number(p.interest_amount != null ? p.interest_amount : (p.payment_type === 'interest' ? p.amount : 0)), 0);
+    const totalPrincipalReturned = payments.reduce((acc, p) => acc + Number(p.principal_amount != null ? p.principal_amount : (p.payment_type === 'principal' || p.payment_type === 'bullet' ? p.amount : 0)), 0);
 
     const goldTotalGrams = goldPurchases.reduce((acc, g) => acc + Number(g.weight_grams || 0), 0);
     const goldTotalCost = goldPurchases.reduce((acc, g) => acc + Number(g.total_cost || g.amount || 0), 0);
@@ -2428,18 +2582,19 @@ App.api = (function () {
     const totalMonthlyRecurringOutflows = recurringItems.filter((r) => r.type !== 'inflow' && r.is_active !== false).reduce((acc, r) => acc + Number(r.amount || 0), 0);
     const totalExpenses = expenseTransactions.reduce((acc, t) => acc + Number(t.amount || 0), 0);
 
-    const calculatedNetWorth = (activePrincipal + totalLiquidCash + goldCurrentValue) - totalLiabilities;
+    const calculatedNetWorth = ((activePrincipal || totalInvestedDeals) + totalLiquidCash + goldCurrentValue) - totalLiabilities;
 
     const summary = {
-      active_invested: activePrincipal,
+      active_invested: activePrincipal || totalInvestedDeals,
       total_deals: deals.length,
       active_deals: activeDeals.length,
       total_payments_received: totalPaymentsReceived,
       total_interest_received: totalInterestReceived,
+      total_principal_returned: totalPrincipalReturned,
       total_reinvested: reinvestments.reduce((acc, r) => acc + Number(r.amount || 0), 0),
       gold_spot_value: goldCurrentValue,
       gold_grams: goldTotalGrams,
-      current_gold_price: latestGoldPricePerGram,
+      current_gold_price: latestGoldPricePerGram || 7200,
       net_worth: calculatedNetWorth,
       liquid_cash: totalLiquidCash,
       total_debt: totalLiabilities,
@@ -2611,6 +2766,8 @@ App.api = (function () {
       }
     });
 
+    const healthScore = issues.length === 0 ? 100 : Math.max(20, 100 - (issues.length * 15));
+    const statusStr = issues.length === 0 ? 'Pristine' : (issues.some((i) => i.severity === 'HIGH') ? 'Attention Required' : 'Minor Warnings');
     return {
       audited_at: new Date().toISOString(),
       user_id: dataset.userId,
@@ -2618,8 +2775,10 @@ App.api = (function () {
       total_records_checked: deals.length + schedules.length + payments.length + recurring.length + gold.length + accounts.length + liabilities.length + expenseTx.length,
       issues_count: issues.length,
       issues,
-      health_score: issues.length === 0 ? 100 : Math.max(20, 100 - (issues.length * 15)),
-      status: issues.length === 0 ? 'PRISTINE' : (issues.some((i) => i.severity === 'HIGH') ? 'ATTENTION REQUIRED' : 'MINOR WARNINGS'),
+      anomalies: issues,
+      health_score: healthScore,
+      integrity_score: healthScore,
+      status: statusStr,
     };
   }
 
@@ -3534,9 +3693,9 @@ App.api = (function () {
     getProfile, updateProfile, listAllProfiles, listProfiles: listAllProfiles, lookupUserByEmail,
     listPlatforms, createPlatform, updatePlatform, deletePlatform,
     listCategories, createCategory, listRiskRatings, createRiskRating,
-    listDeals, getDeal, createDeal, updateDeal, deleteDeal, listDealMetrics, getPortfolioSummary,
+    listDeals, getDeal, createDeal, updateDeal, deleteDeal, listDealMetrics, getPortfolioSummary, extendDeal,
     listSchedule, createScheduleRow, updateScheduleRow, deleteScheduleRow, generateSchedule,
-    listPayments, recordPayment, voidPayment,
+    listPayments, recordPayment, createPayment: recordPayment, recordMaturitySettlement, voidPayment,
     listReinvestments, updateReinvestment,
     listNotifications, createNotification: (row) => insertRow('notifications', row), markNotificationRead, markAllNotificationsRead, getPreferences, upsertPreferences,
     sendPendingNotificationEmails, sendPendingWebPush,

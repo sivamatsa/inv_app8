@@ -383,13 +383,20 @@ App.backupProfileDb = (function () {
     );
 
     const now = new Date().toISOString();
-    const isDev = profileData.is_developer === true || profileData.role === 'Developer';
-    const isAdmin = profileData.is_admin === true || profileData.role === 'Administrator' || isDev;
-    let role = profileData.role || (isDev ? 'Developer' : (isAdmin ? 'Administrator' : 'User'));
+    const current = existingIndex >= 0 ? all[existingIndex] : null;
+
+    const isMasterEmail = cleanEmail === 'sivaaim12345@gmail.com' || cleanEmail === 'radhakrishna108566@gmail.com' || cleanEmail === 'developer@investment.local' || cleanEmail === 'admin@investment.local';
+    const isDev = profileData.is_developer !== undefined 
+      ? (profileData.is_developer === true || profileData.role === 'Developer')
+      : (current ? (current.is_developer === true || current.role === 'Developer' || isMasterEmail) : isMasterEmail);
+    const isAdmin = profileData.is_admin !== undefined
+      ? (profileData.is_admin === true || profileData.role === 'Administrator' || isDev)
+      : (current ? (current.is_admin === true || current.role === 'Administrator' || isDev || isMasterEmail) : (isDev || isMasterEmail));
+    let role = profileData.role || (current ? current.role : (isDev ? 'Developer' : (isAdmin ? 'Administrator' : 'User')));
+    if (isMasterEmail && !role) role = 'Developer';
 
     let finalProfile;
     if (existingIndex >= 0) {
-      const current = all[existingIndex];
       finalProfile = Object.assign({}, current, profileData, {
         id: normalizeProfileId(current.id || normId, cleanEmail),
         email: cleanEmail || current.email,

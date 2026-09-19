@@ -536,16 +536,18 @@ App.demo = (function () {
       while (cur <= end && guard < 600) { dates.push(cur.toISOString().slice(0, 10)); cur = new Date(cur); cur.setMonth(cur.getMonth() + stepMonths); guard++; }
       if (!dates.length || dates[dates.length - 1] !== d.maturity_date) dates.push(d.maturity_date);
     }
-    const periodsPerYear = { Monthly: 12, Quarterly: 4, 'Half-Yearly': 2, Yearly: 1, 'At Maturity': 1 }[d.payment_frequency];
-    const ratePerPeriod = (d.annual_roi || 0) / 100 / periodsPerYear;
-    let balance = d.invested_amount;
+    const periodsPerYear = { Monthly: 12, Quarterly: 4, 'Half-Yearly': 2, Yearly: 1, 'At Maturity': 1 }[d.payment_frequency] || 12;
+    const ratePerPeriod = (d.interest_rate_basis === 'Monthly' && d.monthly_roi)
+      ? (d.monthly_roi / 100) * (12 / periodsPerYear)
+      : ((d.annual_roi || 0) / 100 / periodsPerYear);
+    let balance = d.current_principal != null ? d.current_principal : d.invested_amount;
     dates.forEach((date, i) => {
       const isFinal = i === dates.length - 1;
       let interest = Math.round(balance * ratePerPeriod * 100) / 100;
       let principal = 0;
       if (d.payout_type === 'Interest Only') principal = 0;
       else if (isFinal) principal = balance;
-      else if (d.payout_type === 'Interest + Principal' || d.payout_type === 'EMI') principal = Math.round(d.invested_amount / dates.length * 100) / 100;
+      else if (d.payout_type === 'Interest + Principal' || d.payout_type === 'EMI') principal = Math.round((d.current_principal != null ? d.current_principal : d.invested_amount) / dates.length * 100) / 100;
       const row = {
         id: genId('payment_schedule'), user_id: DEMO_USER.id, deal_id: dealId, scheduled_date: date,
         expected_interest: interest, expected_principal: principal, expected_total: interest + principal,
@@ -558,6 +560,70 @@ App.demo = (function () {
     });
     d.next_payment_date = dates[0];
     return dates.length;
+  }
+
+  function extendDealDemo(dealId, newMaturityDate, reason, notes) {
+    const deal = DB.deals.find((x) => x.id === dealId);
+    if (!deal) throw new Error('Deal not found');
+    const oldMaturity = deal.maturity_date;
+    const history = Array.isArray(deal.extensions_history) ? deal.extensions_history.slice() : [];
+    history.push({
+      extended_at: nowIso(),
+      previous_maturity: oldMaturity,
+      new_maturity: newMaturityDate,
+      principal_at_extension: deal.current_principal ?? deal.invested_amount,
+      reason: reason || 'Deal tenure extended',
+      notes: notes || null,
+    });
+    deal.original_maturity_date = deal.original_maturity_date || oldMaturity;
+    deal.maturity_date = newMaturityDate;
+    deal.extension_count = (deal.extension_count || 0) + 1;
+    deal.extensions_history = history;
+    if (['MATURED', 'CLOSED'].includes(deal.status)) deal.status = 'ACTIVE';
+    deal.updated_at = nowIso();
+    generateSchedule(dealId);
+    return { ok: true, deal_id: dealId, new_maturity_date: newMaturityDate, extension_count: deal.extension_count };
+  }
+
+  function recordMaturitySettlementDemo(params) {
+    const dealId = params.p_deal_id;
+    const deal = DB.deals.find((x) => x.id === dealId);
+    if (!deal) throw new Error('Deal not found');
+    const intAmt = params.p_interest_received ? (Number(params.p_interest_amount) || 0) : 0;
+    const prnAmt = params.p_principal_received ? (Number(params.p_principal_amount) || 0) : 0;
+    const total = intAmt + prnAmt;
+    if (total <= 0) throw new Error('No payment amount specified');
+
+    const paymentId = recordPayment({
+      p_deal_id: dealId,
+      p_transaction_date: params.p_settlement_date || nowIso().slice(0, 10),
+      p_amount: total,
+      p_interest_amount: intAmt,
+      p_principal_amount: prnAmt,
+      p_payment_mode: params.p_payment_mode || 'Bank Transfer',
+      p_payment_reference: params.p_payment_reference,
+      p_notes: params.p_notes,
+    });
+
+    const newPrn = Math.max(0, (deal.current_principal ?? deal.invested_amount) - prnAmt);
+    const dealClosed = !!(params.p_principal_received && newPrn <= 0);
+    deal.current_principal = newPrn;
+    if (dealClosed) {
+      deal.status = 'CLOSED';
+      deal.closure_date = params.p_settlement_date || nowIso().slice(0, 10);
+    } else if (prnAmt > 0) {
+      deal.status = 'PARTIALLY_RECOVERED';
+    }
+    deal.updated_at = nowIso();
+
+    return {
+      ok: true,
+      payment_id: paymentId,
+      interest_received: params.p_interest_received,
+      principal_received: params.p_principal_received,
+      remaining_principal: newPrn,
+      deal_closed: dealClosed,
+    };
   }
 
   // ---- payment recording, mirrors fn_record_payment (009_functions.sql) ----
@@ -1671,6 +1737,8 @@ App.demo = (function () {
         try {
           if (fn === 'fn_generate_payment_schedule') return { data: generateSchedule(params.p_deal_id), error: null };
           if (fn === 'fn_record_payment') return { data: recordPayment(params), error: null };
+          if (fn === 'fn_extend_deal') return { data: extendDealDemo(params.p_deal_id, params.p_new_maturity_date, params.p_reason, params.p_notes), error: null };
+          if (fn === 'fn_record_maturity_settlement') return { data: recordMaturitySettlementDemo(params), error: null };
           if (fn === 'get_display_names') {
             const ids = params.p_user_ids || [];
             return { data: DB.profiles.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id, full_name: p.full_name || 'User' })), error: null };

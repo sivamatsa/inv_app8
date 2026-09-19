@@ -1745,14 +1745,14 @@ window.App = window.App || {};
         datasetName = 'Deals & Investments';
         records = (dataset.deals || []).map((d) => ({
           id: d.id,
-          title: d.title || d.name,
-          platform: d.platform_name || d.platform || '—',
-          invested: d.amount || d.invested_amount || 0,
-          expected_return: d.expected_return || d.total_returns || 0,
-          yield_rate: d.yield_rate || d.interest_rate || '—',
-          status: d.status || 'active',
+          title: d.deal_name || d.title || d.name || 'Untitled Deal',
+          platform: d.investment_type || d.platform_name || d.platform || '—',
+          invested: d.invested_amount || d.principal_amount || d.amount || 0,
+          expected_return: d.expected_total_interest || d.expected_return || d.total_returns || ((d.invested_amount && d.annual_roi) ? (d.invested_amount * d.annual_roi / 100) : 0),
+          yield_rate: d.annual_roi ? `${d.annual_roi}%` : (d.yield_rate || d.interest_rate || '—'),
+          status: d.status || 'ACTIVE',
           start_date: d.start_date || d.investment_date || '—',
-          mature_date: d.mature_date || d.maturity_date || '—',
+          mature_date: d.maturity_date || d.mature_date || '—',
           _raw: d,
         }));
       } else if (portfolioExplorerDataset === 'recurring') {

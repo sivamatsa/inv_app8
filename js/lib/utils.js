@@ -191,9 +191,11 @@ App.utils = (function () {
   function isAdminOrDev(profile) {
     if (!profile) profile = (window.App && window.App.state && window.App.state.profile) || null;
     if (!profile) return false;
-    if (profile.email && profile.email.toLowerCase().trim() === 'radhakrishna108566@gmail.com') return true;
+    const em = (profile.email || '').toLowerCase().trim();
+    if (em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local') return true;
     if (profile.is_admin === true || profile.is_developer === true) return true;
-    if (profile.role === 'Developer' || profile.role === 'Administrator' || profile.role === 'Admin & Developer') return true;
+    const r = (profile.role || '').toLowerCase().trim();
+    if (r === 'developer' || r === 'administrator' || r === 'admin' || r.includes('admin') || r.includes('dev')) return true;
     if (typeof localStorage !== 'undefined' && localStorage.getItem('developer_mode_enabled') === 'true') return true;
     return false;
   }
@@ -201,8 +203,11 @@ App.utils = (function () {
   function isDeveloper(profile) {
     if (!profile) profile = (window.App && window.App.state && window.App.state.profile) || null;
     if (!profile) return false;
-    if (profile.email && profile.email.toLowerCase().trim() === 'radhakrishna108566@gmail.com') return true;
-    if (profile.is_developer === true || profile.role === 'Developer' || profile.role === 'Admin & Developer') return true;
+    const em = (profile.email || '').toLowerCase().trim();
+    if (em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local') return true;
+    if (profile.is_developer === true) return true;
+    const r = (profile.role || '').toLowerCase().trim();
+    if (r === 'developer' || r.includes('dev')) return true;
     if (typeof localStorage !== 'undefined' && localStorage.getItem('developer_mode_enabled') === 'true') return true;
     return false;
   }

@@ -25,39 +25,134 @@ window.App = window.App || {};
     { key: 'notes', label: 'Notes', type: 'textarea', span: 2 },
   ];
 
-  async function openRecordPaymentModal(deals, presetDealId, presetSchedule) {
+  async function openRecordPaymentModal(deals, presetDealId, presetSchedule, defaultCategory = null) {
+    const dealsById = {}; (deals || []).forEach((d) => { dealsById[d.id] = d; });
+    const isPrincipalDefault = defaultCategory === 'principal' || (presetSchedule && Number(presetSchedule.expected_principal || 0) > 0);
+    let currentCategory = isPrincipalDefault ? 'principal' : (defaultCategory === 'combined' ? 'combined' : 'interest');
+
     const dealOptions = deals.map((d) => ({ value: d.id, label: `${d.deal_name} (${App.utils.fmtMoney(d.invested_amount)})` }));
     const dealField = { key: 'deal_id', label: 'Deal', required: true, type: 'select', numeric: true, options: dealOptions, span: 2 };
-    const values = Object.assign({ deal_id: presetDealId || null, transaction_date: App.utils.todayISO() },
-      presetSchedule ? { amount: presetSchedule.expected_total, interest_amount: presetSchedule.expected_interest, principal_amount: presetSchedule.expected_principal } : {});
+    
+    let initialValues = {
+      deal_id: presetDealId || (deals[0] ? deals[0].id : null),
+      transaction_date: App.utils.todayISO(),
+      amount: null,
+      interest_amount: null,
+      principal_amount: null,
+      fee_amount: null,
+      tax_amount: null,
+      payment_reference: '',
+      payment_mode: 'Bank Transfer',
+      confirmation_method: 'Manual',
+      notes: ''
+    };
+
+    if (presetSchedule) {
+      initialValues.amount = presetSchedule.expected_total;
+      initialValues.interest_amount = presetSchedule.expected_interest;
+      initialValues.principal_amount = presetSchedule.expected_principal;
+      if (Number(presetSchedule.expected_principal || 0) > 0 && Number(presetSchedule.expected_interest || 0) === 0) {
+        currentCategory = 'principal';
+      } else if (Number(presetSchedule.expected_principal || 0) > 0 && Number(presetSchedule.expected_interest || 0) > 0) {
+        currentCategory = 'combined';
+      }
+    } else if (isPrincipalDefault && presetDealId && dealsById[presetDealId]) {
+      const d = dealsById[presetDealId];
+      const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
+      initialValues.amount = bal;
+      initialValues.principal_amount = bal;
+      initialValues.interest_amount = 0;
+    }
+
+    const typeSelectorHtml = `
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2)">Payment Classification:</label>
+        <div id="pmtTypeSelector" style="display:flex;gap:6px;background:var(--fill-1);padding:4px;border-radius:8px;border:1px solid var(--border2)">
+          <button type="button" class="btn btn-sm ${currentCategory === 'interest' ? 'btn-gold' : 'btn-outline'}" data-cat="interest" style="flex:1">📈 Interest Payout</button>
+          <button type="button" class="btn btn-sm ${currentCategory === 'principal' ? 'btn-teal' : 'btn-outline'}" data-cat="principal" style="flex:1">💰 Principal Repayment</button>
+          <button type="button" class="btn btn-sm ${currentCategory === 'combined' ? 'btn-gold' : 'btn-outline'}" data-cat="combined" style="flex:1">🔄 Combined (Int + Prn)</button>
+        </div>
+      </div>
+      <div id="pmtDealContextStrip" style="margin-bottom:12px;padding:9px 12px;background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;font-size:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>Invested: <strong id="stripInvested">₹0</strong></span>
+        <span>Returned: <strong id="stripReturned" style="color:var(--teal,#059669)">₹0</strong></span>
+        <span>Outstanding Principal: <strong id="stripBalance" style="color:var(--gold,#d97706)">₹0</strong></span>
+      </div>
+      <div id="pmtPrincipalBanner" style="display:${currentCategory === 'principal' ? 'flex' : 'none'};align-items:center;gap:8px;padding:8px 12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:6px;font-size:12px;color:#047857;margin-bottom:12px">
+        <span>💰</span>
+        <div><strong>Principal Return Mode:</strong> This records recovered investment capital, deducting from the deal's remaining principal.</div>
+      </div>`;
+
+    const settlementCheckboxHtml = `
+      <div id="pmtSettlementBox" style="margin-top:10px;padding:8px 12px;background:var(--fill-1);border:1px solid var(--border2);border-radius:6px;font-size:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="chkAutoCloseDeal" style="width:16px;height:16px;accent-color:var(--teal)">
+          <span>Mark deal as <strong>CLOSED / Settled</strong> if principal is fully repaid</span>
+        </label>
+      </div>`;
 
     App.ui.open({
-      title: 'Record Payment', small: false,
-      bodyHtml: App.ui.renderForm([dealField], values) + App.ui.renderForm(RECORD_FIELDS, values)
-        + '<div class="hint">Recording a payment never assumes the schedule date equals the received date - spec Section 44: a payment only exists once it is actually confirmed here.</div>',
+      title: isPrincipalDefault ? '💰 Record Principal Repayment' : 'Record Payment',
+      small: false,
+      bodyHtml: typeSelectorHtml + App.ui.renderForm([dealField], initialValues) + App.ui.renderForm(RECORD_FIELDS, initialValues) + settlementCheckboxHtml
+        + '<div class="hint" style="margin-top:10px">Recording a payment confirms actual receipt of funds in your accounts.</div>',
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Record Payment', className: 'btn-gold',
+          label: 'Confirm Payment', className: currentCategory === 'principal' ? 'btn-teal' : 'btn-gold',
           onClick: async () => {
             const { values: v1 } = App.ui.readForm([dealField]);
             const { values: v2, errors } = App.ui.readForm(RECORD_FIELDS);
             if (!v1.deal_id || errors.length) { App.utils.toast('Fill in deal, date and amount', 'err'); return; }
+            
+            // Reconcile amounts according to selected category
+            let finalAmount = Number(v2.amount || 0);
+            let finalInterest = Number(v2.interest_amount || 0);
+            let finalPrincipal = Number(v2.principal_amount || 0);
+
+            if (currentCategory === 'principal') {
+              finalPrincipal = finalAmount;
+              finalInterest = 0;
+            } else if (currentCategory === 'interest') {
+              finalInterest = finalAmount;
+              finalPrincipal = 0;
+            } else {
+              // Combined: ensure total amount equals interest + principal if both entered
+              if (finalInterest + finalPrincipal > 0 && (!finalAmount || finalAmount === 0)) {
+                finalAmount = finalInterest + finalPrincipal;
+              }
+            }
+
             try {
               await App.api.recordPayment({
-                dealId: v1.deal_id, transactionDate: v2.transaction_date, amount: v2.amount,
-                interestAmount: v2.interest_amount, principalAmount: v2.principal_amount,
+                dealId: v1.deal_id, transactionDate: v2.transaction_date, amount: finalAmount,
+                interestAmount: finalInterest, principalAmount: finalPrincipal,
                 feeAmount: v2.fee_amount || 0, taxAmount: v2.tax_amount || 0,
                 paymentReference: v2.payment_reference, paymentMode: v2.payment_mode,
                 confirmationMethod: v2.confirmation_method || 'Manual', notes: v2.notes,
                 scheduledPaymentId: presetSchedule ? presetSchedule.id : null,
               });
-              App.utils.toast('Payment recorded');
+
+              // If settlement checkbox is checked and principal was returned, mark deal closed
+              const chkClose = App.utils.qs('#chkAutoCloseDeal');
+              if (chkClose && chkClose.checked && finalPrincipal > 0) {
+                try {
+                  await App.api.updateDeal(v1.deal_id, {
+                    status: 'CLOSED',
+                    closure_date: v2.transaction_date,
+                    notes: `Closed upon principal repayment of ${App.utils.fmtMoney(finalPrincipal)} on ${v2.transaction_date}.`
+                  });
+                } catch (closeErr) {
+                  console.warn('Could not auto-close deal:', closeErr);
+                }
+              }
+
+              App.utils.toast(finalPrincipal > 0 ? 'Principal repayment recorded successfully!' : 'Payment recorded successfully!');
               App.ui.close();
               App.router.refreshCurrent();
             } catch (e) {
               if (String(e.message || '').includes('duplicate') || e.code === '23505') {
-                App.utils.toast('This exact payment (same deal/date/amount/reference) is already recorded.', 'err');
+                App.utils.toast('This exact payment is already recorded.', 'err');
               } else {
                 App.utils.toast('Could not record payment: ' + (e.message || e), 'err');
               }
@@ -66,6 +161,96 @@ window.App = window.App || {};
         },
       ],
     });
+
+    // Wire up interactive modal behavior
+    setTimeout(() => {
+      const dealSelect = App.utils.qs('#fld_deal_id');
+      const amtInput = App.utils.qs('#fld_amount');
+      const intInput = App.utils.qs('#fld_interest_amount');
+      const prnInput = App.utils.qs('#fld_principal_amount');
+      const banner = App.utils.qs('#pmtPrincipalBanner');
+      const typeButtons = App.utils.qsa('#pmtTypeSelector [data-cat]');
+
+      function updateDealStrip() {
+        const dId = dealSelect ? Number(dealSelect.value) : null;
+        const deal = dealsById[dId];
+        if (!deal) return;
+        const invested = Number(deal.invested_amount || deal.principal_amount || deal.amount || 0);
+        const bal = Number(deal.current_principal != null ? deal.current_principal : invested);
+        const returned = Math.max(0, invested - bal);
+
+        const stripInv = App.utils.qs('#stripInvested');
+        const stripRet = App.utils.qs('#stripReturned');
+        const stripBal = App.utils.qs('#stripBalance');
+        if (stripInv) stripInv.textContent = App.utils.fmtMoney(invested);
+        if (stripRet) stripRet.textContent = App.utils.fmtMoney(returned);
+        if (stripBal) stripBal.textContent = App.utils.fmtMoney(bal);
+      }
+
+      function applyCategory(cat) {
+        currentCategory = cat;
+        typeButtons.forEach((btn) => {
+          const isActive = btn.dataset.cat === cat;
+          btn.className = `btn btn-sm ${isActive ? (cat === 'principal' ? 'btn-teal' : 'btn-gold') : 'btn-outline'}`;
+        });
+        if (banner) banner.style.display = cat === 'principal' ? 'flex' : 'none';
+
+        if (cat === 'principal') {
+          if (amtInput && prnInput) prnInput.value = amtInput.value || '';
+          if (intInput) intInput.value = '0';
+          if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '1px solid #10b981';
+          if (intInput && intInput.parentElement) intInput.parentElement.style.border = '';
+        } else if (cat === 'interest') {
+          if (amtInput && intInput) intInput.value = amtInput.value || '';
+          if (prnInput) prnInput.value = '0';
+          if (intInput && intInput.parentElement) intInput.parentElement.style.border = '1px solid var(--gold)';
+          if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '';
+        } else {
+          if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '';
+          if (intInput && intInput.parentElement) intInput.parentElement.style.border = '';
+        }
+      }
+
+      if (dealSelect) {
+        dealSelect.addEventListener('change', () => {
+          updateDealStrip();
+          if (currentCategory === 'principal') {
+            const d = dealsById[Number(dealSelect.value)];
+            if (d && amtInput && !amtInput.value) {
+              const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
+              amtInput.value = bal;
+              if (prnInput) prnInput.value = bal;
+            }
+          }
+        });
+        updateDealStrip();
+      }
+
+      if (amtInput) {
+        amtInput.addEventListener('input', () => {
+          if (currentCategory === 'principal' && prnInput) prnInput.value = amtInput.value;
+          else if (currentCategory === 'interest' && intInput) intInput.value = amtInput.value;
+        });
+      }
+
+      if (intInput || prnInput) {
+        const syncCombined = () => {
+          if (currentCategory === 'combined' && amtInput) {
+            const iVal = Number(intInput ? intInput.value : 0) || 0;
+            const pVal = Number(prnInput ? prnInput.value : 0) || 0;
+            if (iVal + pVal > 0) amtInput.value = iVal + pVal;
+          }
+        };
+        if (intInput) intInput.addEventListener('input', syncCombined);
+        if (prnInput) prnInput.addEventListener('input', syncCombined);
+      }
+
+      typeButtons.forEach((btn) => {
+        btn.addEventListener('click', () => applyCategory(btn.dataset.cat));
+      });
+
+      applyCategory(currentCategory);
+    }, 50);
   }
 
   // Local to this view, deliberately NOT App.state.filters - that object is
@@ -164,22 +349,37 @@ window.App = window.App || {};
 
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
-          <thead><tr><th>Scheduled Date</th><th>Deal</th><th>External Deal ID</th><th>Expected Interest</th><th>Expected Principal</th><th>Expected Total</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>${schedule.map((s) => `
-            <tr>
+          <thead><tr><th>Scheduled Date</th><th>Deal</th><th>External Deal ID</th><th>📈 Expected Interest</th><th>💰 Expected Principal</th><th>Expected Total</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${schedule.map((s) => {
+            const hasPrn = Number(s.expected_principal || 0) > 0;
+            return `
+            <tr style="${hasPrn ? 'border-left: 3.5px solid #10b981; background: rgba(16,185,129,0.025);' : ''}">
               <td>${App.utils.fmtDate(s.scheduled_date)}</td>
               <td>${App.utils.escapeHtml((dealsById[s.deal_id] || {}).deal_name || '—')}</td>
               <td>${App.utils.escapeHtml((dealsById[s.deal_id] || {}).external_deal_id || '—')}</td>
-              <td>${App.utils.fmtMoney(s.expected_interest)}</td>
-              <td>${App.utils.fmtMoney(s.expected_principal)}</td>
-              <td>${App.utils.fmtMoney(s.expected_total)}</td>
+              <td>${Number(s.expected_interest || 0) > 0 ? `<span style="color:var(--gold,#d97706);font-weight:600">${App.utils.fmtMoney(s.expected_interest)}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+              <td>${hasPrn ? `<strong style="display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(16,185,129,0.14);color:#047857;border:1px solid rgba(16,185,129,0.3)">${App.utils.fmtMoney(s.expected_principal)}</strong>` : '<span style="color:var(--text3)">—</span>'}</td>
+              <td><strong>${App.utils.fmtMoney(s.expected_total)}</strong></td>
               <td><span class="badge ${App.utils.statusBadgeClass(s.status)}">${s.status}</span></td>
-              <td><button class="btn btn-sm btn-gold" data-record="${s.id}">Record</button></td>
-            </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No pending payments match the selected filters.</td></tr>'}</tbody>
+              <td>
+                ${hasPrn ? `
+                  <button class="btn btn-sm btn-teal" data-record-principal="${s.id}" title="Record Capital Repayment">💰 Record Principal</button>
+                ` : `
+                  <button class="btn btn-sm btn-gold" data-record="${s.id}">Record</button>
+                `}
+              </td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No pending payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
+
       App.utils.qsa('[data-record]', tableHost).forEach((b) => b.addEventListener('click', () => {
         const s = allSchedule.find((x) => x.id === Number(b.dataset.record));
-        openRecordPaymentModal(deals, s.deal_id, s);
+        openRecordPaymentModal(deals, s.deal_id, s, 'interest');
+      }));
+
+      App.utils.qsa('[data-record-principal]', tableHost).forEach((b) => b.addEventListener('click', () => {
+        const s = allSchedule.find((x) => x.id === Number(b.dataset.recordPrincipal));
+        openRecordPaymentModal(deals, s.deal_id, s, 'principal');
       }));
     }
 
@@ -213,9 +413,12 @@ window.App = window.App || {};
         <button class="quick-chip" data-led-chip="interest">&#128176; Interest Component</button>
         <button class="quick-chip" data-led-chip="principal">&#128181; Principal Component</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px">
-        <div id="ledgerFilterBar" style="flex:1"></div>
-        <button class="btn btn-gold btn-sm" id="adhocRecordBtn">+ Record Payment</button>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <div id="ledgerFilterBar" style="flex:1;min-width:260px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-teal btn-sm" id="btnRecordPrincipalReturn">💰 Record Principal Return</button>
+          <button class="btn btn-gold btn-sm" id="adhocRecordBtn">+ Record Payment</button>
+        </div>
       </div>
       <div id="ledgerTableHost"></div>`;
     const filterHost = App.utils.qs('#ledgerFilterBar', container);
@@ -236,20 +439,34 @@ window.App = window.App || {};
 
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
-          <thead><tr><th>Date</th><th>Deal</th><th>External Deal ID</th><th>Amount</th><th>Interest</th><th>Principal</th><th>Reference</th><th>Method</th><th></th><th>Actions</th></tr></thead>
-          <tbody>${payments.map((p) => `
-            <tr style="${p.is_voided ? 'opacity:.45' : ''}">
+          <thead><tr><th>Date</th><th>Deal</th><th>External Deal ID</th><th>Type</th><th>Total Received</th><th>📈 Interest</th><th>💰 Principal</th><th>Reference</th><th>Method</th><th></th><th>Actions</th></tr></thead>
+          <tbody>${payments.map((p) => {
+            const hasPrn = Number(p.principal_amount || 0) > 0;
+            const hasInt = Number(p.interest_amount || 0) > 0;
+            let typeBadge = '<span class="badge" style="background:var(--fill-2);color:var(--text2)">General</span>';
+            if (hasPrn && !hasInt) {
+              typeBadge = '<span class="badge" style="background:rgba(16,185,129,0.15);color:#047857;border:1px solid rgba(16,185,129,0.35);font-weight:700">💰 Principal Return</span>';
+            } else if (hasInt && !hasPrn) {
+              typeBadge = '<span class="badge" style="background:rgba(217,119,6,0.12);color:#b45309;border:1px solid rgba(217,119,6,0.3);font-weight:600">📈 Interest</span>';
+            } else if (hasPrn && hasInt) {
+              typeBadge = '<span class="badge" style="background:rgba(124,58,237,0.12);color:#6d28d9;border:1px solid rgba(124,58,237,0.3);font-weight:600">🔄 Combined (EMI)</span>';
+            }
+
+            return `
+            <tr style="${hasPrn ? 'border-left: 3.5px solid #10b981; background: rgba(16,185,129,0.025);' : ''} ${p.is_voided ? 'opacity:.45;' : ''}">
               <td>${App.utils.fmtDate(p.transaction_date)}</td>
               <td>${App.utils.escapeHtml((dealsById[p.deal_id] || {}).deal_name || '—')}</td>
               <td>${App.utils.escapeHtml((dealsById[p.deal_id] || {}).external_deal_id || '—')}</td>
-              <td>${App.utils.fmtMoney(p.amount)}</td>
-              <td>${App.utils.fmtMoney(p.interest_amount)}</td>
-              <td>${App.utils.fmtMoney(p.principal_amount)}</td>
+              <td>${typeBadge}</td>
+              <td><strong>${App.utils.fmtMoney(p.amount)}</strong></td>
+              <td>${hasInt ? `<span style="color:var(--gold,#d97706);font-weight:600">${App.utils.fmtMoney(p.interest_amount)}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+              <td>${hasPrn ? `<strong style="display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(16,185,129,0.14);color:#047857;border:1px solid rgba(16,185,129,0.3)">${App.utils.fmtMoney(p.principal_amount)}</strong>` : '<span style="color:var(--text3)">—</span>'}</td>
               <td>${App.utils.escapeHtml(p.payment_reference || '—')}</td>
               <td>${p.confirmation_method}</td>
               <td>${p.is_voided ? '<span class="badge st-missed">Voided</span>' : ''}</td>
               <td>${p.is_voided ? '' : `<button class="icon-btn del" data-void="${p.id}" title="Void">&#128465;</button>`}</td>
-            </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:24px">No payments match the selected filters.</td></tr>'}</tbody>
+            </tr>`;
+          }).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:24px">No payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
       App.utils.qsa('[data-void]', tableHost).forEach((b) => b.addEventListener('click', async () => {
         const reason = prompt('Reason for voiding this payment (kept in the audit trail; the payment is never deleted):');
@@ -269,7 +486,11 @@ window.App = window.App || {};
 
     renderDateFilterBar(filterHost, filterState, draw);
     draw();
-    App.utils.qs('#adhocRecordBtn', container).addEventListener('click', () => openRecordPaymentModal(deals, null, null));
+    App.utils.qs('#adhocRecordBtn', container).addEventListener('click', () => openRecordPaymentModal(deals, null, null, 'interest'));
+    const prnBtn = App.utils.qs('#btnRecordPrincipalReturn', container);
+    if (prnBtn) {
+      prnBtn.addEventListener('click', () => openRecordPaymentModal(deals, null, null, 'principal'));
+    }
   }
 
   async function renderReconciliationTab(container, deals) {

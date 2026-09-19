@@ -59,7 +59,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
   let state = {
     isOpen: false,
     isMinimized: false,
-    isDocked: false,
+    isDocked: true,
     fabTop: null,
     messages: [],
     model: 'gemini-3.6-flash',
@@ -90,8 +90,10 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
         state.fabTop = parseFloat(savedPos);
       }
       const savedDocked = localStorage.getItem(DOCKED_STORAGE_KEY);
-      if (savedDocked === 'true') {
-        state.isDocked = true;
+      if (savedDocked !== null) {
+        state.isDocked = savedDocked === 'true';
+      } else {
+        state.isDocked = true; // Docked by default
       }
     } catch (e) {
       console.warn('Error loading chat state:', e);
@@ -235,18 +237,18 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     container.innerHTML = `
       <!-- If docked/minimized into tab -->
       ${state.isDocked && !state.isOpen ? `
-        <div id="piosChatDockTab" class="chat-dock-tab" title="Click to open AI Advisor (Draggable)">
+        <div id="piosChatDockTab" class="chat-dock-tab" title="Click to open AI Copilot (Docked)">
           <span>✨</span>
-          <span>AI Advisor</span>
+          <span>AI Copilot</span>
         </div>
       ` : `
         <!-- Floating Action Button (FAB) -->
-        <div id="piosChatLauncher" class="chat-fab ${state.isOpen ? 'active' : ''}" style="${posStyle}" title="Drag vertically to reposition • Click to open AI Advisor">
+        <div id="piosChatLauncher" class="chat-fab ${state.isOpen ? 'active' : ''}" style="${posStyle}" title="Drag vertically to reposition • Click to open AI Copilot">
           <div class="chat-fab-glow"></div>
           <div class="chat-fab-inner">
             <span class="chat-fab-drag-handle" title="Drag to move up/down">⋮⋮</span>
             <span class="chat-fab-icon">${state.isOpen ? '✕' : '✨'}</span>
-            <span class="chat-fab-label">AI Advisor</span>
+            <span class="chat-fab-label">AI Copilot</span>
             ${!state.isOpen ? `
               <button type="button" class="chat-fab-hide-btn" id="btnChatHideFab" title="Minimize / Dock to edge">✕</button>
             ` : ''}
@@ -418,7 +420,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       saveState();
       renderFloatingWidget();
       if (App.utils && App.utils.toast) {
-        App.utils.toast('AI Advisor docked to screen edge. Tap tab to reopen.');
+        App.utils.toast('AI Copilot docked to screen edge. Tap tab to reopen.');
       }
     });
 
@@ -500,6 +502,8 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     // Close button
     closeBtn?.addEventListener('click', () => {
       state.isOpen = false;
+      state.isDocked = true;
+      saveState();
       renderFloatingWidget();
     });
 
@@ -764,6 +768,8 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     },
     close: () => {
       state.isOpen = false;
+      state.isDocked = true;
+      saveState();
       renderFloatingWidget();
     },
     ask: (question, role = 'advisor') => {
