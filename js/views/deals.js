@@ -229,12 +229,68 @@ window.App = window.App || {};
         }
       });
 
+      if (wizardStep === 1) {
+        const platSelect = App.utils.qs('#fld_platform_id');
+        if (platSelect && platSelect.parentElement) {
+          const lbl = platSelect.parentElement.querySelector('label');
+          if (lbl && !platSelect.parentElement.querySelector('#btnWizardAddPlatform')) {
+            const addLink = document.createElement('a');
+            addLink.id = 'btnWizardAddPlatform';
+            addLink.href = 'javascript:void(0)';
+            addLink.style.cssText = 'float:right;font-size:11px;color:var(--gold,#c9a84c);text-decoration:underline;cursor:pointer;font-weight:600';
+            addLink.textContent = '+ Quick Add Platform';
+            addLink.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              App.dialogs.openPlatformModal(null, async (saved) => {
+                const platforms = await App.api.listPlatforms();
+                App.state.platforms = platforms;
+                platSelect.innerHTML = '<option value="">—</option>' + platforms.map((p) => `<option value="${p.id}">${App.utils.escapeHtml(p.name)}</option>`).join('');
+                platSelect.value = String(saved.id);
+                collected.platform_id = saved.id;
+
+                if (saved.account_reference) {
+                  const accFld = App.utils.qs('#fld_account_reference');
+                  if (accFld) {
+                    accFld.value = saved.account_reference;
+                    collected.account_reference = saved.account_reference;
+                  }
+                }
+                if (saved.investment_type) {
+                  const typeFld = App.utils.qs('#fld_investment_type');
+                  if (typeFld) {
+                    typeFld.value = saved.investment_type;
+                    collected.investment_type = saved.investment_type;
+                  }
+                }
+              });
+            });
+            lbl.appendChild(addLink);
+          }
+        }
+      }
+
       resolvedFields(wizardStep).forEach((f) => {
         const elx = App.utils.qs('#fld_' + f.key);
         if (!elx) return;
         elx.addEventListener('change', () => {
           const { values } = App.ui.readForm([f]);
           Object.assign(collected, values);
+          if (f.key === 'platform_id') {
+            const pId = Number(values.platform_id);
+            const p = (App.state.platforms || []).find((x) => x.id === pId);
+            if (p) {
+              const accFld = App.utils.qs('#fld_account_reference');
+              if (accFld && (!accFld.value || !collected.account_reference) && p.account_reference) {
+                accFld.value = p.account_reference;
+                collected.account_reference = p.account_reference;
+              }
+              const typeFld = App.utils.qs('#fld_investment_type');
+              if (typeFld && (!typeFld.value || !collected.investment_type) && p.investment_type) {
+                typeFld.value = p.investment_type;
+                collected.investment_type = p.investment_type;
+              }
+            }
+          }
           if (f.key === 'invested_amount' && !isEdit) {
             const pFld = App.utils.qs('#fld_principal_amount');
             const oFld = App.utils.qs('#fld_original_principal');
@@ -384,6 +440,73 @@ window.App = window.App || {};
     }
 
     App.ui.open({ title: isEdit ? 'Edit Deal' : 'New Deal', bodyHtml: renderWizardBody(collected), onMount: () => { wireStepFields(); refreshActions(); } });
+  }
+
+  function openPlatformsManagerModal(onChanged) {
+    async function drawContent() {
+      const platforms = await App.api.listPlatforms();
+      App.state.platforms = platforms;
+      const host = App.utils.qs('#modalPlatformsTableHost');
+      if (!host) return;
+      host.innerHTML = `
+        <div class="table-scroll"><table class="data">
+          <thead><tr><th>Platform / Lender Name</th><th>Account Reference</th><th>Investment Type</th><th>Notes & Details</th><th>Actions</th></tr></thead>
+          <tbody>${platforms.map((p) => `<tr>
+            <td><strong>${App.utils.escapeHtml(p.name)}</strong></td>
+            <td>${p.account_reference ? `<code style="font-size:11px;background:var(--fill-1);padding:2px 6px;border-radius:4px">${App.utils.escapeHtml(p.account_reference)}</code>` : '<span style="color:var(--text3)">—</span>'}</td>
+            <td>${p.investment_type ? `<span class="badge" style="background:var(--fill-1);border:1px solid var(--border2)">${App.utils.escapeHtml(p.investment_type)}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="font-size:11.5px;color:var(--text2);max-width:240px">${App.utils.escapeHtml(p.notes || '—')}</td>
+            <td>
+              <div style="display:flex;gap:6px">
+                <button class="icon-btn" data-modal-edit-plat="${p.id}" title="Edit Platform">&#9998;</button>
+                <button class="icon-btn del" data-modal-del-plat="${p.id}" title="Delete Platform">&#128465;</button>
+              </div>
+            </td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No platforms registered yet. Click "+ Add Platform" to create one.</td></tr>'}</tbody>
+        </table></div>`;
+
+      App.utils.qsa('[data-modal-edit-plat]', host).forEach((b) => b.addEventListener('click', () => {
+        const plat = platforms.find((x) => x.id === Number(b.dataset.modalEditPlat));
+        if (plat) {
+          App.dialogs.openPlatformModal(plat, async () => {
+            await drawContent();
+            if (onChanged) onChanged();
+          });
+        }
+      }));
+
+      App.utils.qsa('[data-modal-del-plat]', host).forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Delete this platform? Deals referencing it will keep their history but show no platform.')) return;
+        await App.api.deletePlatform(Number(b.dataset.modalDelPlat));
+        App.state.platforms = await App.api.listPlatforms();
+        await drawContent();
+        if (onChanged) onChanged();
+      }));
+    }
+
+    App.ui.open({
+      title: '🏢 Platform & Counterparty Manager',
+      bodyHtml: `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-size:12px;color:var(--text2)">
+            Manage registered platforms, investor account references, and default asset categories directly within Deals.
+          </div>
+          <button class="btn btn-gold btn-sm" id="modalBtnAddPlatform">+ Add Platform</button>
+        </div>
+        <div id="modalPlatformsTableHost">Loading platforms...</div>
+      `,
+      actions: [
+        { label: 'Close', className: 'btn-outline', onClick: App.ui.close }
+      ],
+      onMount: () => {
+        drawContent();
+        App.utils.qs('#modalBtnAddPlatform')?.addEventListener('click', () => {
+          App.dialogs.openPlatformModal(null, async () => {
+            await drawContent();
+            if (onChanged) onChanged();
+          });
+        });
+      }
+    });
   }
 
   function openDeleteDealModal(deal, onDone) {
@@ -1968,6 +2091,7 @@ ${App.utils.escapeHtml(msgText)}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
             <input class="search-input" id="dealsSearch" placeholder="Search deal name / external id...">
             <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" id="btnManagePlatforms">🏢 Platforms</button>
               <button class="btn btn-outline btn-sm" id="scanAgreementBtn">🤖 Scan Agreement / Deed</button>
               <button class="btn btn-outline btn-sm" id="smartQuickAddBtn">&#9889; AI Quick Add</button>
               <button class="btn btn-outline btn-sm" id="exportDealsBtn">&#8595; Export</button>
@@ -1989,6 +2113,7 @@ ${App.utils.escapeHtml(msgText)}
               <div style="font-size:12px;color:var(--text2)">Executive oversight of capital deployment, 30-day cash reconciliation, and maturity time-horizons.</div>
             </div>
             <div style="display:flex;gap:8px">
+              <button type="button" class="btn btn-outline btn-sm" id="btnCCManagePlatforms">🏢 Platforms</button>
               <button type="button" class="btn btn-outline btn-sm" id="btnBackToDirectory">← Back to Deals Directory</button>
               <button type="button" class="btn btn-gold btn-sm" id="btnCCAddDeal">+ New Deal</button>
             </div>
@@ -2020,6 +2145,8 @@ ${App.utils.escapeHtml(msgText)}
       btn.addEventListener('click', () => switchMainDealsTab(btn.dataset.dealsTab));
     });
 
+    App.utils.qs('#btnManagePlatforms', pane)?.addEventListener('click', () => openPlatformsManagerModal(() => draw()));
+    App.utils.qs('#btnCCManagePlatforms', pane)?.addEventListener('click', () => openPlatformsManagerModal(() => draw()));
     App.utils.qs('#btnGoToCCTab', pane)?.addEventListener('click', () => switchMainDealsTab('control_center'));
     App.utils.qs('#btnBackToDirectory', pane)?.addEventListener('click', () => switchMainDealsTab('directory'));
     App.utils.qs('#btnCCAddDeal', pane)?.addEventListener('click', () => openDealWizard(null));
@@ -2119,35 +2246,31 @@ ${App.utils.escapeHtml(msgText)}
 
       // AI Automation Command Bar buttons
       const btnAutoRec = q('BtnAutoReconcile');
-      if (btnAutoRec && !btnAutoRec._bound) {
-        btnAutoRec._bound = true;
-        btnAutoRec.addEventListener('click', () => {
+      if (btnAutoRec) {
+        btnAutoRec.onclick = () => {
           openAutoReconcileModal(allDeals, schedule, payments, () => draw());
-        });
+        };
       }
 
       const btnWaRem = q('BtnWhatsAppReminders');
-      if (btnWaRem && !btnWaRem._bound) {
-        btnWaRem._bound = true;
-        btnWaRem.addEventListener('click', () => {
+      if (btnWaRem) {
+        btnWaRem.onclick = () => {
           openWhatsAppRemindersModal(allDeals, schedule);
-        });
+        };
       }
 
       const btnAiAudit = q('BtnAiAudit');
-      if (btnAiAudit && !btnAiAudit._bound) {
-        btnAiAudit._bound = true;
-        btnAiAudit.addEventListener('click', () => {
+      if (btnAiAudit) {
+        btnAiAudit.onclick = () => {
           openAiDealAuditModal(allDeals, metrics, schedule, payments, () => draw());
-        });
+        };
       }
 
       const btnRollover = q('BtnBulkRollover');
-      if (btnRollover && !btnRollover._bound) {
-        btnRollover._bound = true;
-        btnRollover.addEventListener('click', () => {
+      if (btnRollover) {
+        btnRollover.onclick = () => {
           openBulkRolloverModal(allDeals, () => draw());
-        });
+        };
       }
 
       // Priority Action Feed (dynamic high-signal alert bar)

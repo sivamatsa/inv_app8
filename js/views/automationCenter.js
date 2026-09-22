@@ -138,6 +138,7 @@ window.App = window.App || {};
         <button class="btn btn-sm ${currentTab === 'simulator' ? 'btn-gold' : 'btn-outline'}" data-ac-tab="simulator">⚡ Live Rule Simulator</button>
         <button class="btn btn-sm ${currentTab === 'ai_guardrails' ? 'btn-gold' : 'btn-outline'}" data-ac-tab="ai_guardrails">🤖 AI Guardrail Scanner</button>
         <button class="btn btn-sm ${currentTab === 'presets' ? 'btn-gold' : 'btn-outline'}" data-ac-tab="presets">📚 Presets Library</button>
+        <button class="btn btn-sm ${currentTab === 'data_health' ? 'btn-gold' : 'btn-outline'}" data-ac-tab="data_health">🛡️ Data Health & Anomaly Monitor</button>
       </div>
 
       <div id="acTabContent"></div>
@@ -209,6 +210,8 @@ window.App = window.App || {};
       await drawAiGuardrailsTab(host);
     } else if (currentTab === 'presets') {
       await drawPresetsTab(host);
+    } else if (currentTab === 'data_health') {
+      await drawDataHealthTab(host);
     }
   }
 
@@ -1026,6 +1029,408 @@ window.App = window.App || {};
     }
   }
 
+  /* --------------------------------------------------------------------------
+     TAB 5: Data Health & Cadence Anomaly Monitor
+  -------------------------------------------------------------------------- */
+  async function drawDataHealthTab(host) {
+    host.innerHTML = `<div class="empty-note" style="padding:24px;text-align:center">Scanning deals, payments, and schedules against historical benchmarks...</div>`;
+
+    const [deals, allSchedules, allPayments] = await Promise.all([
+      App.api.listDeals().catch(() => []),
+      App.api.listSchedule().catch(() => []),
+      App.api.listPayments().catch(() => []),
+    ]);
+
+    const dealsById = {};
+    deals.forEach((d) => { dealsById[d.id] = d; });
+
+    // Group deals by specific deal/investment type
+    const dealsByType = {};
+    deals.forEach((d) => {
+      const typeKey = d.investment_type || d.category || d.deal_type || 'Alternative Debt';
+      if (!dealsByType[typeKey]) dealsByType[typeKey] = [];
+      dealsByType[typeKey].push(d);
+    });
+
+    // Compute historical payment averages and benchmark metrics per deal type
+    const typeBaselines = {};
+    Object.keys(dealsByType).forEach((typeKey) => {
+      const typeDeals = dealsByType[typeKey];
+      const dealIds = new Set(typeDeals.map((d) => d.id));
+      const typePayments = allPayments.filter((p) => dealIds.has(p.deal_id));
+      const typeSchedules = allSchedules.filter((s) => dealIds.has(s.deal_id));
+
+      const totalPaid = typePayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const avgPayment = typePayments.length ? Math.round(totalPaid / typePayments.length) : 0;
+
+      const totalExpected = typeSchedules.reduce((sum, s) => sum + Number(s.expected_total || 0), 0);
+      const avgScheduled = typeSchedules.length ? Math.round(totalExpected / typeSchedules.length) : 0;
+
+      typeBaselines[typeKey] = {
+        dealCount: typeDeals.length,
+        paymentCount: typePayments.length,
+        avgPayment: avgPayment || avgScheduled,
+        avgScheduled,
+        expectedFrequency: typeDeals[0]?.payment_frequency || 'Monthly',
+      };
+    });
+
+    // Cadence standard interval mapping in days
+    const CADENCE_DAYS = {
+      Monthly: 30,
+      Quarterly: 90,
+      'Half-Yearly': 182,
+      Yearly: 365,
+      'At Maturity': 0,
+    };
+
+    const anomalies = [];
+    const today = App.utils.todayISO();
+
+    // 1. ANOMALY DETECTION: Recurring Schedule Gaps & Unexpected Intervals
+    const schedulesByDeal = {};
+    allSchedules.forEach((s) => {
+      if (!schedulesByDeal[s.deal_id]) schedulesByDeal[s.deal_id] = [];
+      schedulesByDeal[s.deal_id].push(s);
+    });
+
+    Object.keys(schedulesByDeal).forEach((dealIdStr) => {
+      const dealId = Number(dealIdStr);
+      const deal = dealsById[dealId];
+      if (!deal) return;
+
+      const typeKey = deal.investment_type || deal.category || deal.deal_type || 'Alternative Debt';
+      const freq = deal.payment_frequency || 'Monthly';
+      const expectedInterval = CADENCE_DAYS[freq] || 30;
+
+      if (expectedInterval === 0 || ['Irregular', 'Custom', 'At Maturity'].includes(freq)) {
+        return; // Non-recurring schedules
+      }
+
+      const scheds = schedulesByDeal[dealId].slice().sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
+
+      // Scan consecutive schedule gaps
+      for (let i = 1; i < scheds.length; i++) {
+        const prevDate = scheds[i - 1].scheduled_date;
+        const curDate = scheds[i].scheduled_date;
+        if (!prevDate || !curDate) continue;
+
+        const gapDays = App.utils.daysBetween(prevDate, curDate);
+
+        // Gap is > 1.6x the expected interval (e.g. > 48 days for Monthly)
+        if (gapDays > Math.round(expectedInterval * 1.6)) {
+          const missingIntervals = Math.round(gapDays / expectedInterval) - 1;
+          anomalies.push({
+            id: `gap_${dealId}_${i}`,
+            deal_id: dealId,
+            deal_name: deal.deal_name,
+            deal_type: typeKey,
+            kind: 'cadence_gap',
+            severity: missingIntervals >= 2 ? 'CRITICAL' : 'WARNING',
+            title: `Unexpected Schedule Gap: ${gapDays} Days Between Payouts`,
+            description: `A ${gapDays}-day gap was detected between ${App.utils.fmtDate(prevDate)} and ${App.utils.fmtDate(curDate)}. For a ${freq} schedule (baseline ~${expectedInterval} days), this indicates approximately ${missingIntervals} missing or skipped installment period(s).`,
+            metric_label: 'Interval Gap',
+            metric_val: `${gapDays} days (Expected: ~${expectedInterval}d)`,
+            date: curDate,
+          });
+        }
+        // Clustered dates: gap is < 0.4x expected interval (e.g. < 12 days for Monthly)
+        else if (gapDays < Math.round(expectedInterval * 0.4) && gapDays >= 0) {
+          anomalies.push({
+            id: `clustered_${dealId}_${i}`,
+            deal_id: dealId,
+            deal_name: deal.deal_name,
+            deal_type: typeKey,
+            kind: 'cadence_gap',
+            severity: 'INFO',
+            title: `Unusual Clustered Schedule Dates (${gapDays} Days Apart)`,
+            description: `Consecutive scheduled installments on ${App.utils.fmtDate(prevDate)} and ${App.utils.fmtDate(curDate)} are only ${gapDays} days apart on a ${freq} deal.`,
+            metric_label: 'Interval Gap',
+            metric_val: `${gapDays} days`,
+            date: curDate,
+          });
+        }
+      }
+
+      // Check for extended overdue gaps since last scheduled item
+      const overdueItems = scheds.filter((s) => s.status === 'OVERDUE');
+      if (overdueItems.length) {
+        const oldestOverdue = overdueItems[0];
+        const daysLate = App.utils.daysBetween(oldestOverdue.scheduled_date, today);
+        if (daysLate > Math.round(expectedInterval * 1.5)) {
+          anomalies.push({
+            id: `overdue_gap_${oldestOverdue.id}`,
+            deal_id: dealId,
+            deal_name: deal.deal_name,
+            deal_type: typeKey,
+            kind: 'cadence_gap',
+            severity: 'CRITICAL',
+            title: `Extended Overdue Gap: ${daysLate} Days Past Due`,
+            description: `Scheduled installment of ${App.utils.fmtMoney(oldestOverdue.expected_total)} from ${App.utils.fmtDate(oldestOverdue.scheduled_date)} is overdue by ${daysLate} days (exceeding standard ${freq} cycle of ${expectedInterval} days).`,
+            metric_label: 'Days Overdue',
+            metric_val: `${daysLate} days late`,
+            date: oldestOverdue.scheduled_date,
+          });
+        }
+      }
+    });
+
+    // 2. ANOMALY DETECTION: Payment Amount Anomalies vs Schedule & Deal-Type Baselines
+    allPayments.forEach((p) => {
+      const deal = dealsById[p.deal_id];
+      if (!deal) return;
+
+      const typeKey = deal.investment_type || deal.category || deal.deal_type || 'Alternative Debt';
+      const baseline = typeBaselines[typeKey] || {};
+      const amt = Number(p.amount || 0);
+
+      // Find matching scheduled item if any
+      let matchedSched = null;
+      if (p.scheduled_payment_id) {
+        matchedSched = allSchedules.find((s) => s.id === p.scheduled_payment_id);
+      }
+      if (!matchedSched && p.deal_id) {
+        matchedSched = (schedulesByDeal[p.deal_id] || []).find((s) => s.scheduled_date === p.transaction_date);
+      }
+
+      // A: Deviation against scheduled expected total
+      if (matchedSched && Number(matchedSched.expected_total || 0) > 0) {
+        const expected = Number(matchedSched.expected_total);
+        const ratio = amt / expected;
+        // Flag if deviation is > 35% from schedule without being a pure zero
+        if ((ratio > 1.35 || ratio < 0.65) && amt > 0) {
+          const diffPct = Math.round((ratio - 1) * 100);
+          anomalies.push({
+            id: `amt_sched_${p.id}`,
+            deal_id: deal.id,
+            deal_name: deal.deal_name,
+            deal_type: typeKey,
+            kind: 'payment_amount',
+            severity: ratio < 0.65 ? 'WARNING' : 'INFO',
+            title: `Payment Amount Variance (${diffPct > 0 ? '+' + diffPct : diffPct}%) vs Schedule`,
+            description: `Received ${App.utils.fmtMoney(amt)} on ${App.utils.fmtDate(p.transaction_date)}, whereas scheduled expectation was ${App.utils.fmtMoney(expected)}. Discrepancy: ${App.utils.fmtMoney(Math.abs(amt - expected))}.`,
+            metric_label: 'Receipt vs Expected',
+            metric_val: `${App.utils.fmtMoney(amt)} vs ${App.utils.fmtMoney(expected)}`,
+            date: p.transaction_date,
+          });
+        }
+      }
+      // B: Deviation against deal-type historical average baseline
+      else if (baseline.avgPayment > 0 && Number(p.interest_amount || 0) > 0 && !p.principal_amount) {
+        const ratioType = amt / baseline.avgPayment;
+        if (ratioType > 2.8 || ratioType < 0.3) {
+          const diffPct = Math.round((ratioType - 1) * 100);
+          anomalies.push({
+            id: `amt_hist_${p.id}`,
+            deal_id: deal.id,
+            deal_name: deal.deal_name,
+            deal_type: typeKey,
+            kind: 'payment_amount',
+            severity: 'WARNING',
+            title: `Payment Amount Outlier vs ${typeKey} Historical Average`,
+            description: `Payment of ${App.utils.fmtMoney(amt)} on ${App.utils.fmtDate(p.transaction_date)} deviates significantly (${diffPct > 0 ? '+' + diffPct : diffPct}%) from the historical average of ${App.utils.fmtMoney(baseline.avgPayment)} for ${typeKey} investments.`,
+            metric_label: 'Type Avg Comparison',
+            metric_val: `${App.utils.fmtMoney(amt)} vs Avg ${App.utils.fmtMoney(baseline.avgPayment)}`,
+            date: p.transaction_date,
+          });
+        }
+      }
+    });
+
+    // Compute Health Score (100 base, penalizing each critical by 6 and warning by 3)
+    const criticalCount = anomalies.filter((a) => a.severity === 'CRITICAL').length;
+    const warningCount = anomalies.filter((a) => a.severity === 'WARNING').length;
+    const infoCount = anomalies.filter((a) => a.severity === 'INFO').length;
+    const penalty = (criticalCount * 6) + (warningCount * 3) + (infoCount * 1);
+    const healthScore = Math.max(15, Math.min(100, 100 - penalty));
+
+    let filterKind = 'all';
+
+    function renderHealthContent() {
+      const filtered = anomalies.filter((a) => {
+        if (filterKind === 'all') return true;
+        if (filterKind === 'amount') return a.kind === 'payment_amount';
+        if (filterKind === 'gap') return a.kind === 'cadence_gap';
+        if (filterKind === 'critical') return a.severity === 'CRITICAL';
+        return true;
+      });
+
+      const scoreColor = healthScore >= 85 ? 'var(--teal,#10b981)' : healthScore >= 65 ? 'var(--gold,#d97706)' : '#ef4444';
+      const statusLabel = healthScore >= 85 ? 'Excellent Data Integrity' : healthScore >= 65 ? 'Fair - Minor Inconsistencies' : 'Requires Reconciliation';
+
+      host.innerHTML = `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px">
+          <!-- Hero Header -->
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:22px">🛡️</span>
+                <h3 style="margin:0;font-size:18px;color:var(--text)">Data Health & Cadence Anomaly Monitor</h3>
+                <span class="badge" style="background:rgba(16,185,129,0.12);color:var(--teal);border:1px solid rgba(16,185,129,0.3);font-size:11px">Heuristic Surveillance</span>
+              </div>
+              <p style="margin:4px 0 0 0;font-size:12.5px;color:var(--text2)">
+                Continuously audits transaction receipts and recurring payment dates against historical norms for specific deal types.
+              </p>
+            </div>
+            <button class="btn btn-sm btn-outline" id="btnReScanHealth" title="Re-run heuristics with fresh data">&#8635; Re-Scan Portfolio</button>
+          </div>
+
+          <!-- KPI Summary Grid -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+            <div class="panel" style="margin:0;padding:12px;border:1px solid var(--border2);background:var(--fill-1)">
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Health Score</div>
+              <div style="font-size:26px;font-weight:700;color:${scoreColor};font-family:'Cormorant Garamond',serif">${healthScore}%</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">${statusLabel}</div>
+            </div>
+
+            <div class="panel" style="margin:0;padding:12px;border:1px solid var(--border2);background:var(--fill-1)">
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Amount Variances</div>
+              <div style="font-size:26px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif">
+                ${anomalies.filter((a) => a.kind === 'payment_amount').length}
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">Deviating from expectation</div>
+            </div>
+
+            <div class="panel" style="margin:0;padding:12px;border:1px solid var(--border2);background:var(--fill-1)">
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Cadence & Gap Alerts</div>
+              <div style="font-size:26px;font-weight:700;color:${criticalCount > 0 ? '#ef4444' : 'var(--text)'};font-family:'Cormorant Garamond',serif">
+                ${anomalies.filter((a) => a.kind === 'cadence_gap').length}
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">${criticalCount} critical missing interval(s)</div>
+            </div>
+
+            <div class="panel" style="margin:0;padding:12px;border:1px solid var(--border2);background:var(--fill-1)">
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Deal Types Audited</div>
+              <div style="font-size:26px;font-weight:700;color:var(--text);font-family:'Cormorant Garamond',serif">
+                ${Object.keys(typeBaselines).length}
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">${deals.length} active/tracked deals</div>
+            </div>
+          </div>
+
+          <!-- Filter Chips -->
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-xs ${filterKind === 'all' ? 'btn-gold' : 'btn-outline'}" data-dh-filter="all">All Flags (${anomalies.length})</button>
+              <button class="btn btn-xs ${filterKind === 'amount' ? 'btn-gold' : 'btn-outline'}" data-dh-filter="amount">Amount Anomalies (${anomalies.filter((a) => a.kind === 'payment_amount').length})</button>
+              <button class="btn btn-xs ${filterKind === 'gap' ? 'btn-gold' : 'btn-outline'}" data-dh-filter="gap">Schedule Gaps (${anomalies.filter((a) => a.kind === 'cadence_gap').length})</button>
+              <button class="btn btn-xs ${filterKind === 'critical' ? 'btn-gold' : 'btn-outline'}" data-dh-filter="critical">Critical Only (${criticalCount})</button>
+            </div>
+          </div>
+
+          <!-- Anomalies List -->
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+            ${filtered.length ? filtered.map((item) => {
+              const borderCol = item.severity === 'CRITICAL' ? '#ef4444' : item.severity === 'WARNING' ? 'var(--gold)' : 'var(--border2)';
+              const badgeCls = item.severity === 'CRITICAL' ? 'st-missed' : item.severity === 'WARNING' ? 'st-upcoming' : 'st-completed';
+              return `
+                <div style="border:1px solid ${borderCol};border-left:4px solid ${borderCol};background:var(--bg);padding:12px;border-radius:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                        <span class="badge ${badgeCls}">${item.severity}</span>
+                        <strong style="font-size:13px;color:var(--text)">${App.utils.escapeHtml(item.title)}</strong>
+                        <span class="badge" style="background:var(--fill-1);border:1px solid var(--border2);font-size:10px">${App.utils.escapeHtml(item.deal_type)}</span>
+                      </div>
+                      <div style="font-size:11px;color:var(--text3);margin-top:2px">
+                        Deal: <strong style="color:var(--text2)">${App.utils.escapeHtml(item.deal_name)}</strong> &bull; Date: ${App.utils.fmtDate(item.date)}
+                      </div>
+                    </div>
+                    <div style="text-align:right">
+                      <div style="font-size:11.5px;font-weight:700;color:var(--gold)">${App.utils.escapeHtml(item.metric_val)}</div>
+                      <div style="font-size:10px;color:var(--text3)">${item.metric_label}</div>
+                    </div>
+                  </div>
+                  <div style="font-size:12px;color:var(--text2);margin-bottom:8px;line-height:1.4">
+                    ${App.utils.escapeHtml(item.description)}
+                  </div>
+                  <div style="display:flex;gap:8px;justify-content:flex-end">
+                    <button type="button" class="btn btn-xs btn-outline" data-dh-goto-deal="${item.deal_id}">View Deal</button>
+                    <button type="button" class="btn btn-xs btn-gold" data-dh-goto-payments="${item.deal_id}">Inspect Payments</button>
+                  </div>
+                </div>
+              `;
+            }).join('') : `
+              <div class="empty-note" style="padding:32px;text-align:center;background:var(--fill-1);border-radius:8px;border:1px dashed var(--border)">
+                <div style="font-size:32px;margin-bottom:8px">🎉</div>
+                <h4 style="margin:0 0 4px 0">Zero Anomalies Detected</h4>
+                <div style="color:var(--text2);font-size:12.5px;max-width:440px;margin:0 auto">
+                  All recurring payment schedules match standard interval cadences, and recorded amounts align with expected contract payouts and historical deal-type baselines.
+                </div>
+              </div>
+            `}
+          </div>
+
+          <!-- Deal Type Historical Baseline Benchmark Table -->
+          <div style="margin-top:24px">
+            <h4 style="margin:0 0 8px 0;font-size:13px;color:var(--text)">Deal Type Benchmark Reference Standards</h4>
+            <div class="table-scroll">
+              <table class="data" style="font-size:12px">
+                <thead>
+                  <tr>
+                    <th>Deal / Investment Type</th>
+                    <th>Tracked Deals</th>
+                    <th>Payment History</th>
+                    <th>Average Payout Amount</th>
+                    <th>Standard Cadence</th>
+                    <th>Integrity Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${Object.keys(typeBaselines).map((tk) => {
+                    const b = typeBaselines[tk];
+                    const typeAnoms = anomalies.filter((a) => a.deal_type === tk).length;
+                    return `
+                      <tr>
+                        <td><strong>${App.utils.escapeHtml(tk)}</strong></td>
+                        <td>${b.dealCount}</td>
+                        <td>${b.paymentCount} receipts</td>
+                        <td><strong style="color:var(--gold)">${App.utils.fmtMoney(b.avgPayment)}</strong></td>
+                        <td>${b.expectedFrequency} (~${CADENCE_DAYS[b.expectedFrequency] || 30}d)</td>
+                        <td>
+                          ${typeAnoms > 0
+                            ? `<span class="badge st-missed">${typeAnoms} flag(s)</span>`
+                            : '<span class="badge st-completed">Clean</span>'}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Event listeners inside Data Health tab
+      App.utils.qsa('#btnReScanHealth', host).forEach((b) => b.addEventListener('click', () => drawDataHealthTab(host)));
+
+      App.utils.qsa('[data-dh-filter]', host).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          filterKind = btn.dataset.dhFilter;
+          renderHealthContent();
+        });
+      });
+
+      App.utils.qsa('[data-dh-goto-deal]', host).forEach((b) => {
+        b.addEventListener('click', () => {
+          App.router.navigate('deals');
+        });
+      });
+
+      App.utils.qsa('[data-dh-goto-payments]', host).forEach((b) => {
+        b.addEventListener('click', () => {
+          App.router.navigate('payments');
+        });
+      });
+    }
+
+    renderHealthContent();
+  }
+
+  App.automationCenter = { render: renderAutomationCenterView };
   App.router.register('automation', renderAutomationCenterView);
+  App.router.register('automationcenter', renderAutomationCenterView);
+  App.router.register('automationCenter', renderAutomationCenterView);
 })();
 

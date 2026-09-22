@@ -545,9 +545,13 @@ App.demo = (function () {
       const isFinal = i === dates.length - 1;
       let interest = Math.round(balance * ratePerPeriod * 100) / 100;
       let principal = 0;
-      if (d.payout_type === 'Interest Only') principal = 0;
-      else if (isFinal) principal = balance;
-      else if (d.payout_type === 'Interest + Principal' || d.payout_type === 'EMI') principal = Math.round((d.current_principal != null ? d.current_principal : d.invested_amount) / dates.length * 100) / 100;
+      if (isFinal) {
+        principal = balance;
+      } else if (d.payout_type === 'Interest Only') {
+        principal = 0;
+      } else if (d.payout_type === 'Interest + Principal' || d.payout_type === 'EMI') {
+        principal = Math.round((d.current_principal != null ? d.current_principal : d.invested_amount) / dates.length * 100) / 100;
+      }
       const row = {
         id: genId('payment_schedule'), user_id: DEMO_USER.id, deal_id: dealId, scheduled_date: date,
         expected_interest: interest, expected_principal: principal, expected_total: interest + principal,
@@ -653,7 +657,12 @@ App.demo = (function () {
     }
     const dealBefore = Object.assign({}, deal);
     deal.last_payment_date = p.p_transaction_date;
-    deal.current_principal = Math.max(0, deal.current_principal - (p.p_principal_amount || 0));
+    const curBal = deal.current_principal != null ? deal.current_principal : deal.invested_amount;
+    deal.current_principal = Math.max(0, curBal - (p.p_principal_amount || 0));
+    if (deal.current_principal === 0 && (p.p_principal_amount || 0) > 0) {
+      deal.status = 'CLOSED';
+      deal.closure_date = p.p_transaction_date;
+    }
     auditUpdate('deals', dealBefore, deal);
     if (p.p_principal_amount > 0) {
       const r = { id: genId('reinvestments'), user_id: DEMO_USER.id, source_payment_id: payment.id, returned_amount: p.p_principal_amount, returned_date: p.p_transaction_date, reinvested_amount: null, reinvestment_date: null, new_deal_id: null, reinvestment_destination: null, created_at: nowIso() };

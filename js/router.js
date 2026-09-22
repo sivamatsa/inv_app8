@@ -23,6 +23,7 @@ App.router = (function () {
   function currentName() {
     const raw = (location.hash || '#dashboard').slice(1).split('?')[0].split('/')[0];
     if (raw.startsWith('admin')) return 'admin';
+    if (raw.toLowerCase() === 'automationcenter') return 'automation';
     return raw;
   }
 

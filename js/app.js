@@ -313,29 +313,65 @@ function showAnalyticsConsentModal() {
   });
 }
 
+function updateTopBarUserInfo() {
+  const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
+  const isBackup = App.auth && App.auth.isBackupMode && App.auth.isBackupMode();
+  const user = App.auth ? App.auth.getUser() : null;
+  const profile = (App.state && App.state.profile) || {};
+
+  let fullEmail = (user && user.email) || (profile && profile.email) || '';
+  let displayName = '';
+
+  if (isDemo) {
+    displayName = 'Demo User';
+  } else if (profile.full_name && profile.full_name.trim()) {
+    const parts = profile.full_name.trim().split(/\s+/);
+    displayName = parts[0]; // First name
+  } else if (profile.username && profile.username.trim()) {
+    displayName = profile.username.trim();
+  } else if (fullEmail) {
+    const raw = fullEmail.split('@')[0];
+    displayName = raw.charAt(0).toUpperCase() + raw.slice(1);
+  } else {
+    displayName = 'Investor';
+  }
+
+  const initial = (displayName.charAt(0) || 'U').toUpperCase();
+
+  const userChipEmail = App.utils.qs('#userChipEmail');
+  if (userChipEmail) {
+    userChipEmail.textContent = isDemo ? 'Demo Mode' : (fullEmail + (isBackup ? ' (Backup)' : ''));
+  }
+
+  const signOutBtn = App.utils.qs('#signOutBtn');
+  if (signOutBtn) {
+    const fullNameDisplay = profile.full_name || displayName;
+    const tooltip = isDemo
+      ? 'Demo Mode • Click to Exit Demo'
+      : `Logged in as ${fullNameDisplay}${fullEmail ? ' (' + fullEmail + ')' : ''} • Click to Sign Out`;
+    signOutBtn.setAttribute('title', tooltip);
+    signOutBtn.setAttribute('aria-label', tooltip);
+
+    signOutBtn.innerHTML = `
+      <span class="user-avatar-badge">${App.utils.escapeHtml(initial)}</span>
+      <span class="signout-logged-prefix">Logged as</span>
+      <span class="signout-user-name">${App.utils.escapeHtml(displayName)}</span>
+      <span class="signout-ic" title="${isDemo ? 'Exit Demo' : 'Sign Out'}">&#10132;</span>
+    `;
+  }
+}
+App.updateTopBarUserInfo = updateTopBarUserInfo;
+
 async function enterApp() {
   App.utils.qs('#authScreen').style.display = 'none';
   App.utils.qs('#appShell').classList.add('active');
   const user = App.auth.getUser();
   const isDemo = App.auth.isDemoMode();
-  const isBackup = App.auth.isBackupMode && App.auth.isBackupMode();
-  let userEmailText = isDemo ? 'Demo Mode' : (user ? user.email : '');
-  if (isBackup) {
-    userEmailText += ' (Backup Store)';
-  }
-  App.utils.qs('#userChipEmail').textContent = userEmailText;
+  updateTopBarUserInfo();
   App.utils.qs('#demoBanner').style.display = isDemo ? 'flex' : 'none';
-  const signOutBtn = App.utils.qs('#signOutBtn');
-  if (signOutBtn) {
-    const lbl = signOutBtn.querySelector('.signout-lbl');
-    if (lbl) {
-      lbl.textContent = isDemo ? 'Exit Demo' : 'Sign Out';
-    } else {
-      signOutBtn.innerHTML = `<span class="signout-ic">🚪</span><span class="signout-lbl">${isDemo ? 'Exit Demo' : 'Sign Out'}</span>`;
-    }
-  }
   try {
     await App.lookups.loadAll();
+    updateTopBarUserInfo();
     if (!isDemo && App.state.profile && App.state.profile.is_active === false) {
       App.utils.toast('This account has been deactivated. Please contact your portfolio administrator.', 'err');
       App.auth.signOut();

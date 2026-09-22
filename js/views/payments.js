@@ -47,21 +47,26 @@ window.App = window.App || {};
       notes: ''
     };
 
+    const initialDeal = initialValues.deal_id ? dealsById[initialValues.deal_id] : null;
+
     if (presetSchedule) {
       initialValues.amount = presetSchedule.expected_total;
       initialValues.interest_amount = presetSchedule.expected_interest;
       initialValues.principal_amount = presetSchedule.expected_principal;
+      initialValues.transaction_date = presetSchedule.scheduled_date || initialValues.transaction_date;
       if (Number(presetSchedule.expected_principal || 0) > 0 && Number(presetSchedule.expected_interest || 0) === 0) {
         currentCategory = 'principal';
       } else if (Number(presetSchedule.expected_principal || 0) > 0 && Number(presetSchedule.expected_interest || 0) > 0) {
         currentCategory = 'combined';
       }
-    } else if (isPrincipalDefault && presetDealId && dealsById[presetDealId]) {
-      const d = dealsById[presetDealId];
-      const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
+    } else if (isPrincipalDefault && initialDeal) {
+      const bal = initialDeal.current_principal != null ? initialDeal.current_principal : initialDeal.invested_amount;
       initialValues.amount = bal;
       initialValues.principal_amount = bal;
       initialValues.interest_amount = 0;
+      if (initialDeal.maturity_date) {
+        initialValues.transaction_date = initialDeal.maturity_date;
+      }
     }
 
     const typeSelectorHtml = `
@@ -78,9 +83,14 @@ window.App = window.App || {};
         <span>Returned: <strong id="stripReturned" style="color:var(--teal,#059669)">₹0</strong></span>
         <span>Outstanding Principal: <strong id="stripBalance" style="color:var(--gold,#d97706)">₹0</strong></span>
       </div>
-      <div id="pmtPrincipalBanner" style="display:${currentCategory === 'principal' ? 'flex' : 'none'};align-items:center;gap:8px;padding:8px 12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:6px;font-size:12px;color:#047857;margin-bottom:12px">
-        <span>💰</span>
-        <div><strong>Principal Return Mode:</strong> This records recovered investment capital, deducting from the deal's remaining principal.</div>
+      <div id="pmtPrincipalBanner" style="display:${currentCategory === 'principal' ? 'flex' : 'none'};align-items:flex-start;gap:10px;padding:10px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;font-size:12px;color:#047857;margin-bottom:12px">
+        <span style="font-size:18px">💰</span>
+        <div>
+          <strong>Principal Capital Return Mode:</strong>
+          <div id="pmtMaturityDateNote" style="margin-top:2px;color:var(--text2)">
+            ${initialDeal?.maturity_date ? `Anchored to maturity date: <strong>${App.utils.fmtDate(initialDeal.maturity_date)}</strong>${initialDeal.extension_count ? ` (Extended ${initialDeal.extension_count}x by provider)` : ''}` : 'Anchored to deal maturity date. Deducts from remaining balance.'}
+          </div>
+        </div>
       </div>`;
 
     const settlementCheckboxHtml = `
@@ -171,6 +181,10 @@ window.App = window.App || {};
       const banner = App.utils.qs('#pmtPrincipalBanner');
       const typeButtons = App.utils.qsa('#pmtTypeSelector [data-cat]');
 
+      const dateInput = App.utils.qs('#fld_transaction_date');
+      const matNoteEl = App.utils.qs('#pmtMaturityDateNote');
+      const confirmBtn = App.utils.qs('#sharedModalActions .btn-gold, #sharedModalActions .btn-teal');
+
       function updateDealStrip() {
         const dId = dealSelect ? Number(dealSelect.value) : null;
         const deal = dealsById[dId];
@@ -185,6 +199,12 @@ window.App = window.App || {};
         if (stripInv) stripInv.textContent = App.utils.fmtMoney(invested);
         if (stripRet) stripRet.textContent = App.utils.fmtMoney(returned);
         if (stripBal) stripBal.textContent = App.utils.fmtMoney(bal);
+
+        if (matNoteEl) {
+          matNoteEl.innerHTML = deal.maturity_date
+            ? `Anchored to maturity date: <strong>${App.utils.fmtDate(deal.maturity_date)}</strong>${deal.extension_count ? ` <span class="badge" style="background:rgba(217,119,6,0.12);color:#b45309;font-size:10px">Extended ${deal.extension_count}x by provider</span>` : ''}`
+            : 'Anchored to deal maturity date. Deducts from remaining balance.';
+        }
       }
 
       function applyCategory(cat) {
@@ -195,17 +215,38 @@ window.App = window.App || {};
         });
         if (banner) banner.style.display = cat === 'principal' ? 'flex' : 'none';
 
+        const d = dealsById[Number(dealSelect?.value)];
+
         if (cat === 'principal') {
-          if (amtInput && prnInput) prnInput.value = amtInput.value || '';
+          if (confirmBtn) {
+            confirmBtn.className = 'btn btn-teal';
+            confirmBtn.textContent = '💰 Confirm Principal Repayment';
+          }
+          if (d) {
+            const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
+            if (amtInput) amtInput.value = bal;
+            if (prnInput) prnInput.value = bal;
+            if (dateInput && d.maturity_date && !presetSchedule) {
+              dateInput.value = d.maturity_date;
+            }
+          }
           if (intInput) intInput.value = '0';
           if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '1px solid #10b981';
           if (intInput && intInput.parentElement) intInput.parentElement.style.border = '';
         } else if (cat === 'interest') {
+          if (confirmBtn) {
+            confirmBtn.className = 'btn btn-gold';
+            confirmBtn.textContent = 'Confirm Interest Payout';
+          }
           if (amtInput && intInput) intInput.value = amtInput.value || '';
           if (prnInput) prnInput.value = '0';
           if (intInput && intInput.parentElement) intInput.parentElement.style.border = '1px solid var(--gold)';
           if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '';
         } else {
+          if (confirmBtn) {
+            confirmBtn.className = 'btn btn-gold';
+            confirmBtn.textContent = 'Confirm Combined Payment';
+          }
           if (prnInput && prnInput.parentElement) prnInput.parentElement.style.border = '';
           if (intInput && intInput.parentElement) intInput.parentElement.style.border = '';
         }
@@ -214,12 +255,13 @@ window.App = window.App || {};
       if (dealSelect) {
         dealSelect.addEventListener('change', () => {
           updateDealStrip();
-          if (currentCategory === 'principal') {
-            const d = dealsById[Number(dealSelect.value)];
-            if (d && amtInput && !amtInput.value) {
-              const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
-              amtInput.value = bal;
-              if (prnInput) prnInput.value = bal;
+          const d = dealsById[Number(dealSelect.value)];
+          if (currentCategory === 'principal' && d) {
+            const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
+            if (amtInput) amtInput.value = bal;
+            if (prnInput) prnInput.value = bal;
+            if (dateInput && d.maturity_date && !presetSchedule) {
+              dateInput.value = d.maturity_date;
             }
           }
         });

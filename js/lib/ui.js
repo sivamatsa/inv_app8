@@ -28,12 +28,12 @@ App.ui = (function () {
     const el = ensureBackdrop();
     App.utils.qs('#sharedModalTitle', el).textContent = opts.title || '';
     App.utils.qs('#sharedModal', el).className = 'modal' + (opts.small ? ' modal-sm' : '');
-    App.utils.qs('#sharedModalBody', el).innerHTML = opts.bodyHtml || '';
+    App.utils.qs('#sharedModalBody', el).innerHTML = opts.bodyHtml || opts.content || '';
     const actions = App.utils.qs('#sharedModalActions', el);
     actions.innerHTML = '';
     (opts.actions || []).forEach((a) => {
       const btn = document.createElement('button');
-      btn.className = 'btn ' + (a.className || 'btn-outline');
+      btn.className = 'btn ' + (a.className || (a.primary ? 'btn-gold' : 'btn-outline'));
       btn.textContent = a.label;
       btn.addEventListener('click', a.onClick);
       actions.appendChild(btn);
@@ -66,7 +66,11 @@ App.ui = (function () {
     } else {
       const type = f.type || 'text';
       const step = type === 'number' ? ' step="any"' : '';
-      input = `<input type="${type}" id="${id}"${step} value="${value === null || value === undefined ? '' : App.utils.escapeHtml(value)}" ${f.required ? 'required' : ''} ${f.placeholder ? `placeholder="${App.utils.escapeHtml(f.placeholder)}"` : ''}>`;
+      const ro = f.readonly ? ' readonly' : '';
+      const dis = f.disabled ? ' disabled' : '';
+      const style = (f.disabled || f.readonly) ? ' style="opacity:0.75;background:var(--fill-1);cursor:not-allowed;color:var(--text2)"' : '';
+      const hint = f.hint ? `<div class="hint" style="font-size:11px;margin-top:3px">${App.utils.escapeHtml(f.hint)}</div>` : '';
+      input = `<input type="${type}" id="${id}"${step}${ro}${dis}${style} value="${value === null || value === undefined ? '' : App.utils.escapeHtml(value)}" ${f.required ? 'required' : ''} ${f.placeholder ? `placeholder="${App.utils.escapeHtml(f.placeholder)}"` : ''}>${hint}`;
     }
     return `<div class="field${span}">${label}${input}<div class="field-error" id="err_${f.key}"></div></div>`;
   }
@@ -103,5 +107,72 @@ App.ui = (function () {
     return { values: out, errors };
   }
 
-  return { open, close, renderForm, readForm, fieldHtml };
+  return { open, modal: open, close, renderForm, readForm, fieldHtml };
 })();
+
+App.dialogs = App.dialogs || {};
+App.dialogs.PLATFORM_FIELDS = [
+  { key: 'name', label: 'Platform / Provider Name', required: true, placeholder: 'e.g. Grip Invest, Wint Wealth, LiquiLoans' },
+  { key: 'account_reference', label: 'Account Reference / Investor ID', placeholder: 'e.g. ACC-99214, CLI-4810' },
+  { key: 'investment_type', label: 'Default Investment Type', type: 'select',
+    options: [
+      'Invoice Discounting',
+      'P2P Lending',
+      'Asset Backed Leasing',
+      'Corporate Bonds',
+      'Venture Debt',
+      'Commercial Paper',
+      'Real Estate Debt',
+      'Fixed Deposit',
+      'Alternative Debt',
+      'Other'
+    ]
+  },
+  { key: 'notes', label: 'Notes & RM Contact', type: 'textarea', placeholder: 'Login portal, support contact, or relationship manager details...' },
+];
+
+App.dialogs.openPlatformModal = function (existingPlatform, onSaved) {
+  const isEdit = Boolean(existingPlatform && existingPlatform.id);
+  const values = existingPlatform ? Object.assign({}, existingPlatform) : {};
+
+  App.ui.open({
+    title: isEdit ? '🏢 Edit Platform / Provider' : '🏢 Register New Platform / Provider',
+    small: true,
+    bodyHtml: `
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+        Configure platform profile, default investor reference, and preferred asset class for automated deal attribution.
+      </div>
+      ${App.ui.renderForm(App.dialogs.PLATFORM_FIELDS, values)}
+    `,
+    actions: [
+      { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+      {
+        label: isEdit ? 'Save Changes' : 'Create Platform',
+        primary: true,
+        onClick: async () => {
+          const { values: formValues, errors } = App.ui.readForm(App.dialogs.PLATFORM_FIELDS);
+          if (errors.length) {
+            App.utils.toast('Platform Name is required', 'err');
+            return;
+          }
+          try {
+            let res;
+            if (isEdit) {
+              res = await App.api.updatePlatform(existingPlatform.id, formValues);
+              App.utils.toast('Platform updated successfully', 'ok');
+            } else {
+              res = await App.api.createPlatform(formValues);
+              App.utils.toast('Platform added successfully', 'ok');
+            }
+            App.state.platforms = await App.api.listPlatforms();
+            App.ui.close();
+            if (onSaved) onSaved(res || formValues);
+          } catch (e) {
+            App.utils.toast('Could not save platform: ' + (e.message || e), 'err');
+          }
+        }
+      }
+    ]
+  });
+};
+

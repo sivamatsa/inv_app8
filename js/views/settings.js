@@ -18,8 +18,10 @@ window.App = window.App || {};
   ];
 
   const PROFILE_FIELDS = [
-    { key: 'full_name', label: 'Full Name' },
-    { key: 'mobile', label: 'Mobile' },
+    { key: 'email', label: 'Email Address', readonly: true, disabled: true, placeholder: 'name@example.com', hint: 'Managed by portfolio login credential' },
+    { key: 'username', label: 'Username', placeholder: 'e.g. siva_investor', hint: 'Unique handle used for portfolio discovery & direct chat' },
+    { key: 'full_name', label: 'Full Name', placeholder: 'e.g. Siva' },
+    { key: 'mobile', label: 'Mobile', placeholder: '+91 98765 43210' },
     { key: 'city', label: 'City' },
     { key: 'country', label: 'Country' },
     { key: 'preferred_currency', label: 'Base Account Currency', type: 'select', options: CURRENCY_OPTIONS },
@@ -250,16 +252,19 @@ window.App = window.App || {};
       </div>
 
       <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
+            <div class="chart-title" style="margin:0">🏢 Platforms & Counterparty Portals</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">Manage investment platforms, investor account references, and default asset categories.</div>
+          </div>
+          <button class="btn btn-gold btn-sm" id="addPlatformBtn">+ Add Platform</button>
+        </div>
+        <div class="table-scroll"><table class="data" id="platformsTable"></table></div>
+      </div>
+      <div class="panel">
         <div class="chart-title" style="margin-bottom:6px;color:var(--red,#e5484d)">Danger Zone</div>
         <div class="hint" style="margin-bottom:10px">Permanently deletes every deal, payment, recurring item, gold purchase, expense, contact, note, document, and notification you own - Community, Blog, Support Tickets, Chat, and any portfolio shared with you or by you are untouched. Your account and sign-in stay intact; this only clears data. There is no undo.</div>
         <button class="btn btn-outline" id="clearMyDataBtn" style="border-color:var(--red,#e5484d);color:var(--red,#e5484d)">Clear My Data</button>
-      </div>
-      <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div class="chart-title">Platforms</div>
-          <button class="btn btn-outline btn-sm" id="addPlatformBtn">+ Add Platform</button>
-        </div>
-        <div class="table-scroll"><table class="data" id="platformsTable"></table></div>
       </div>
       <div class="panel">
         <div class="chart-title" style="margin-bottom:4px">Future Integrations</div>
@@ -269,12 +274,28 @@ window.App = window.App || {};
       </div>`;
 
     const profile = await App.api.getProfile();
-    App.utils.qs('#profileFormHost', pane).innerHTML = App.ui.renderForm(PROFILE_FIELDS, profile || {});
+    const currentUser = App.auth.getUser();
+    const isDemo = App.auth.isDemoMode();
+    const userEmail = (profile && profile.email) || (currentUser && currentUser.email) || (isDemo ? 'demo@investor.com' : '');
+    const profileValues = Object.assign({}, profile || {}, { email: userEmail });
+
+    App.utils.qs('#profileFormHost', pane).innerHTML = App.ui.renderForm(PROFILE_FIELDS, profileValues);
     App.utils.qs('#saveProfileBtn', pane).addEventListener('click', async () => {
       const { values } = App.ui.readForm(PROFILE_FIELDS);
+      // Email is grayed out / login-managed, omit from update payload
+      delete values.email;
       try {
         await App.api.updateProfile(values);
         App.state.profile = await App.api.getProfile();
+        // Sync username input in privacy section if present
+        const privUserInp = App.utils.qs('#usernameInput', pane);
+        if (privUserInp && values.username) privUserInp.value = values.username;
+
+        // Refresh topbar user display immediately
+        if (typeof App.updateTopBarUserInfo === 'function') {
+          App.updateTopBarUserInfo();
+        }
+
         if (values.preferred_currency && App.currency) {
           App.currency.setActiveCurrency(values.preferred_currency);
           updateCurrencySectionUI();
@@ -469,7 +490,14 @@ window.App = window.App || {};
     App.utils.qs('#usernameInput', pane).addEventListener('change', async (e) => {
       const val = e.target.value.trim();
       if (!val) return;
-      try { await App.api.updateUsername(val); App.utils.toast('Username saved'); }
+      try {
+        await App.api.updateUsername(val);
+        if (App.state.profile) App.state.profile.username = val;
+        const mainUserInp = App.utils.qs('#fld_username', pane);
+        if (mainUserInp) mainUserInp.value = val;
+        if (typeof App.updateTopBarUserInfo === 'function') App.updateTopBarUserInfo();
+        App.utils.toast('Username saved');
+      }
       catch (err) { App.utils.toast('Could not save username (it may already be taken): ' + (err.message || err), 'err'); }
     });
 
@@ -711,9 +739,26 @@ window.App = window.App || {};
 
     async function drawPlatforms() {
       const platforms = await App.api.listPlatforms();
-      App.utils.qs('#platformsTable', pane).innerHTML = `<thead><tr><th>Name</th><th>Account Reference</th><th>Investment Type</th><th>Actions</th></tr></thead>
-        <tbody>${platforms.map((p) => `<tr><td>${App.utils.escapeHtml(p.name)}</td><td>${App.utils.escapeHtml(p.account_reference || '—')}</td><td>${App.utils.escapeHtml(p.investment_type || '—')}</td>
-          <td><button class="icon-btn del" data-del-platform="${p.id}">&#128465;</button></td></tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No platforms yet.</td></tr>'}</tbody>`;
+      App.utils.qs('#platformsTable', pane).innerHTML = `<thead><tr><th>Platform / Lender Name</th><th>Account Reference</th><th>Investment Type</th><th>Notes & Details</th><th>Actions</th></tr></thead>
+        <tbody>${platforms.map((p) => `<tr>
+          <td><strong>${App.utils.escapeHtml(p.name)}</strong></td>
+          <td>${p.account_reference ? `<code style="font-size:11px;background:var(--fill-1);padding:2px 6px;border-radius:4px">${App.utils.escapeHtml(p.account_reference)}</code>` : '<span style="color:var(--text3)">—</span>'}</td>
+          <td>${p.investment_type ? `<span class="badge" style="background:var(--fill-1);border:1px solid var(--border2)">${App.utils.escapeHtml(p.investment_type)}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+          <td style="font-size:11.5px;color:var(--text2);max-width:260px">${App.utils.escapeHtml(p.notes || '—')}</td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="icon-btn" data-edit-platform="${p.id}" title="Edit Platform details">&#9998;</button>
+              <button class="icon-btn del" data-del-platform="${p.id}" title="Delete Platform">&#128465;</button>
+            </div>
+          </td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No platforms registered yet. Click "+ Add Platform" to create one.</td></tr>'}</tbody>`;
+
+      App.utils.qsa('[data-edit-platform]', pane).forEach((b) => b.addEventListener('click', () => {
+        const plat = platforms.find((x) => x.id === Number(b.dataset.editPlatform));
+        if (plat) {
+          App.dialogs.openPlatformModal(plat, () => drawPlatforms());
+        }
+      }));
+
       App.utils.qsa('[data-del-platform]', pane).forEach((b) => b.addEventListener('click', async () => {
         if (!confirm('Delete this platform? Deals referencing it will keep their history but show no platform.')) return;
         await App.api.deletePlatform(Number(b.dataset.delPlatform));
@@ -721,12 +766,9 @@ window.App = window.App || {};
         drawPlatforms();
       }));
     }
-    App.utils.qs('#addPlatformBtn', pane).addEventListener('click', async () => {
-      const name = prompt('Platform / lender name:');
-      if (!name) return;
-      await App.api.createPlatform({ name });
-      App.state.platforms = await App.api.listPlatforms();
-      drawPlatforms();
+
+    App.utils.qs('#addPlatformBtn', pane).addEventListener('click', () => {
+      App.dialogs.openPlatformModal(null, () => drawPlatforms());
     });
     await drawPlatforms();
 

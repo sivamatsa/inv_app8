@@ -126,11 +126,13 @@
         <div class="icon-btn" id="notifBell" style="position:relative;width:32px;height:32px;font-size:15px" title="Notifications">
           &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
         </div>
-        <div class="user-chip"><span id="userChipEmail"></span></div>
-        <!-- Single Unified Responsive Sign-Out Button -->
-        <button type="button" class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Sign Out" aria-label="Sign Out">
-          <span class="signout-ic">🚪</span>
-          <span class="signout-lbl">Sign Out</span>
+        <div class="user-chip" id="topbarUserChip" style="display:none"><span id="userChipEmail"></span></div>
+        <!-- Single Unified Responsive Sign-Out Button with User Identity & Logout Arrow -->
+        <button type="button" class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Logged in. Click to sign out" aria-label="Sign Out">
+          <span class="user-avatar-badge" id="topbarUserAvatar">👤</span>
+          <span class="signout-logged-prefix">Logged as</span>
+          <span class="signout-user-name" id="topbarUserName">User</span>
+          <span class="signout-ic" id="topbarSignOutIcon" title="Click to log out">&#10132;</span>
         </button>
       </div>
     </div>

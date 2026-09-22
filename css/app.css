@@ -174,9 +174,13 @@ body.sidebar-hidden .main-area{margin-left:0}
 .topbar-title{font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:600;white-space:nowrap}
 .topbar-search-wrap{flex:1;max-width:400px;margin:0 12px;position:relative}
 .topbar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.topbar-signout-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 12px;font-size:12.5px;border-radius:8px;cursor:pointer;transition:all .18s ease;flex-shrink:0}
-.topbar-signout-btn:hover{border-color:var(--gold);color:var(--gold)}
-.topbar-signout-btn .signout-ic{font-size:13px;line-height:1}
+.topbar-signout-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:4px 10px;font-size:12.5px;border-radius:20px;cursor:pointer;transition:all .18s ease;flex-shrink:0;background:var(--fill-1);border:1px solid var(--border2)}
+.topbar-signout-btn:hover{border-color:var(--gold);color:var(--gold);background:var(--fill-2)}
+.topbar-signout-btn .signout-ic{font-size:12px;line-height:1;opacity:0.85;transition:transform .15s ease}
+.topbar-signout-btn:hover .signout-ic{transform:translateX(2px);opacity:1;color:var(--gold)}
+.topbar-signout-btn .user-avatar-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(201,168,76,0.18);color:var(--gold);font-weight:700;font-size:10.5px;line-height:1;flex-shrink:0}
+.topbar-signout-btn .signout-logged-prefix{color:var(--text3);font-size:11px;font-weight:400}
+.topbar-signout-btn .signout-user-name{font-weight:600;color:var(--text);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.mobile-search-btn, .icon-btn.mobile-search-btn, .mobile-search-btn{display:none !important}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)}
 .view-container{padding:22px 26px 60px;width:100%;max-width:100%;box-sizing:border-box}
@@ -738,8 +742,15 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
 }
 
 @media (max-width: 600px) {
-  .user-chip { display: none; }
-  .topbar-signout-btn { display: none; }
+  .user-chip { display: none !important; }
+  .topbar-signout-btn {
+    display: inline-flex !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+    gap: 4px !important;
+  }
+  .signout-logged-prefix { display: none !important; }
+  .signout-user-name { max-width: 75px !important; }
   .form-grid {
     grid-template-columns: 1fr !important;
   }
