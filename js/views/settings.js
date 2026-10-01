@@ -201,8 +201,110 @@ window.App = window.App || {};
           </div>` : ''}
         </div>
       </div>
+
+      <!-- WhatsApp & Telegram Bot Integration Center -->
+      <div class="panel" id="botIntegrationPanel" style="border:1px solid rgba(201,168,76,0.35);background:linear-gradient(135deg,rgba(201,168,76,0.06),rgba(12,22,40,0.5))">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="chart-title" style="margin:0;display:flex;align-items:center;gap:8px">
+              <span>🤖</span>
+              <span>WhatsApp &amp; Telegram Bot Integration</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">Receive instant deal payout reminders, overdue alerts, and live bullion rate shifts in your favorite messaging app. Query portfolio metrics or log expenses on the go.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-gold btn-sm" id="btnOpenBotSimulator">&#128172; Open Bot Console &amp; Simulator</button>
+            <button class="btn btn-outline btn-sm" id="btnRefreshBotStatus">&#8635; Refresh Status</button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:14px">
+          <!-- Telegram Card -->
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="font-size:24px;width:38px;height:38px;border-radius:8px;background:rgba(0,136,204,0.15);display:flex;align-items:center;justify-content:center;color:#0088cc">&#9992;</div>
+                <div>
+                  <div style="font-weight:700;font-size:14px">Telegram Bot</div>
+                  <div style="font-size:11.5px;color:var(--text3)" id="tgBotHandle">@InvestmentOS_Bot</div>
+                </div>
+              </div>
+              <span id="tgBotStatusBadge" class="badge" style="background:rgba(255,255,255,0.08);color:var(--text2)">Checking...</span>
+            </div>
+            <div id="tgTokenStatusText" style="font-size:11.5px;color:var(--text3);margin-bottom:4px">
+              Token: Checking...
+            </div>
+            <div id="tgPollingStatusText" style="font-size:11.5px;color:var(--text3);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+              <span id="tgPollingStatusLabel">Poller: Checking...</span>
+              <button class="btn btn-outline btn-sm" id="btnRestartPoller" style="padding:1px 6px;font-size:10.5px" title="Restart Telegram Long Polling">&#8635; Restart Poller</button>
+            </div>
+            <div id="tgBotDetails" style="font-size:12.5px;color:var(--text2);line-height:1.5;margin-bottom:14px">
+              Connect Telegram to receive automated push alerts with interactive reply actions.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="tgBotActionWrap">
+              <button class="btn btn-gold btn-sm" id="btnConnectTelegram">Connect Telegram</button>
+              <button class="btn btn-outline btn-sm" id="btnConfigureTgToken" style="border-color:rgba(0,136,204,0.45);color:#0088cc">&#9881; Set BotFather Token</button>
+              <button class="btn btn-outline btn-sm" id="btnDispatchAlerts" style="border-color:rgba(201,168,76,0.4);color:var(--gold);display:none">&#128227; Dispatch Priority Alerts</button>
+              <button class="btn btn-outline btn-sm" id="btnTestTelegram" style="display:none">&#128276; Send Test Alert</button>
+              <button class="btn btn-outline btn-sm" id="btnUnlinkTelegram" style="display:none;color:#e5484d;border-color:rgba(229,72,77,0.4)">Disconnect</button>
+            </div>
+          </div>
+
+          <!-- WhatsApp Card -->
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="font-size:24px;width:38px;height:38px;border-radius:8px;background:rgba(37,211,102,0.15);display:flex;align-items:center;justify-content:center;color:#25d366">&#128172;</div>
+                <div>
+                  <div style="font-weight:700;font-size:14px">WhatsApp Bot</div>
+                  <div style="font-size:11.5px;color:var(--text3)">Meta Cloud API &amp; Webhook</div>
+                </div>
+              </div>
+              <span id="waBotStatusBadge" class="badge" style="background:rgba(255,255,255,0.08);color:var(--text2)">Checking...</span>
+            </div>
+            <div id="waBotDetails" style="font-size:12.5px;color:var(--text2);line-height:1.5;margin-bottom:14px">
+              Bind your WhatsApp phone number to receive payment alerts and log expenses directly from chats.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap" id="waBotActionWrap">
+              <button class="btn btn-gold btn-sm" id="btnConnectWhatsApp">Connect WhatsApp</button>
+              <button class="btn btn-outline btn-sm" id="btnTestWhatsApp" style="display:none">&#128276; Send Test Alert</button>
+              <button class="btn btn-outline btn-sm" id="btnUnlinkWhatsApp" style="display:none;color:#e5484d;border-color:rgba(229,72,77,0.4)">Disconnect</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bot Quick Commands Reference -->
+        <details style="margin-top:14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+          <summary style="cursor:pointer;font-weight:600;font-size:12.5px;color:var(--gold)">
+            &#128203; View Bot Commands &amp; Webhook Setup Guide
+          </summary>
+          <div style="margin-top:12px;font-size:12px;line-height:1.6;color:var(--text2)">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px">
+              <div style="background:var(--card);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                <div style="font-weight:700;color:var(--text);margin-bottom:4px">&#128202; Portfolio Queries</div>
+                <div><code>/summary</code> - Real-time active capital, deals &amp; yields</div>
+                <div><code>/due</code> - Scheduled payouts for next 14 days</div>
+                <div><code>/overdue</code> - Delinquent payments needing attention</div>
+              </div>
+              <div style="background:var(--card);padding:10px;border-radius:6px;border:1px solid var(--border)">
+                <div style="font-weight:700;color:var(--text);margin-bottom:4px">&#129689; Intelligence &amp; Actions</div>
+                <div><code>/gold</code> - Live 24K/22K bullion rates in India</div>
+                <div><code>/expense 500 Fuel Meeting</code> - Instant expense log</div>
+                <div><code>/help</code> - Commands cheat sheet</div>
+              </div>
+            </div>
+            <div style="font-size:11.5px;color:var(--text3)">
+              <b>Webhook Endpoints:</b><br>
+              Telegram: <code id="tgWebhookUrlText">/api/bot/telegram/webhook</code><br>
+              WhatsApp: <code id="waWebhookUrlText">/api/bot/whatsapp/webhook</code>
+            </div>
+          </div>
+        </details>
+      </div>
+
       <div class="panel">
         <div class="chart-title" style="margin-bottom:6px">Notification Delivery, by Type</div>
+
         <div class="hint" style="margin-bottom:10px">Choose exactly which channels each kind of notification is allowed to reach. Unchecking every box for a type means it generates nothing on any channel - the notification setting applies to all your devices.</div>
         <div class="table-scroll" style="max-height:360px"><table class="data" id="notifTypeMatrix"></table></div>
       </div>
@@ -571,12 +673,12 @@ window.App = window.App || {};
       catch (err) { App.utils.toast('Could not update: ' + (err.message || err), 'err'); }
     });
 
-    // ---- Notification Delivery, by Type (032_ui_and_notification_preferences.sql) ----
+    // ---- Notification Delivery, by Type (032 & 051 WhatsApp/Telegram Bot) ----
     async function drawNotifTypeMatrix() {
       const rows = await App.api.listNotificationTypePreferences();
       const byType = {}; rows.forEach((r) => { byType[r.type] = r; });
       const table = App.utils.qs('#notifTypeMatrix', pane);
-      table.innerHTML = `<thead><tr><th>Notification Type</th><th>In-app</th><th>Email</th><th>Push</th></tr></thead>
+      table.innerHTML = `<thead><tr><th>Notification Type</th><th>In-app</th><th>Email</th><th>Push</th><th>WhatsApp</th><th>Telegram</th></tr></thead>
         <tbody>${NOTIFICATION_TYPES.map((type) => {
           const pref = byType[type] || {};
           const checked = (channel) => pref[channel] !== false ? 'checked' : '';
@@ -585,13 +687,15 @@ window.App = window.App || {};
             <td><input type="checkbox" data-notif-type="${App.utils.escapeHtml(type)}" data-notif-channel="in_app" ${checked('in_app')}></td>
             <td><input type="checkbox" data-notif-type="${App.utils.escapeHtml(type)}" data-notif-channel="email" ${checked('email')}></td>
             <td><input type="checkbox" data-notif-type="${App.utils.escapeHtml(type)}" data-notif-channel="push" ${checked('push')}></td>
+            <td><input type="checkbox" data-notif-type="${App.utils.escapeHtml(type)}" data-notif-channel="whatsapp" ${checked('whatsapp')}></td>
+            <td><input type="checkbox" data-notif-type="${App.utils.escapeHtml(type)}" data-notif-channel="telegram" ${checked('telegram')}></td>
           </tr>`;
         }).join('')}</tbody>`;
       App.utils.qsa('[data-notif-type]', table).forEach((cb) => cb.addEventListener('change', async (e) => {
         try {
           await App.api.upsertNotificationTypePreference(e.target.dataset.notifType, { [e.target.dataset.notifChannel]: e.target.checked });
           App.state.notificationTypePrefs[e.target.dataset.notifType] = Object.assign(
-            { user_id: null, type: e.target.dataset.notifType, in_app: true, email: true, push: true },
+            { user_id: null, type: e.target.dataset.notifType, in_app: true, email: true, push: true, whatsapp: true, telegram: true },
             App.state.notificationTypePrefs[e.target.dataset.notifType], { [e.target.dataset.notifChannel]: e.target.checked },
           );
         } catch (err) { e.target.checked = !e.target.checked; App.utils.toast('Could not update: ' + (err.message || err), 'err'); }
@@ -737,7 +841,605 @@ window.App = window.App || {};
       });
     }
 
+    // ---- WhatsApp & Telegram Bot Integration Center ----
+    async function initBotIntegration() {
+      const tgStatusBadge = App.utils.qs('#tgBotStatusBadge', pane);
+      const waStatusBadge = App.utils.qs('#waBotStatusBadge', pane);
+      const tgTokenStatusText = App.utils.qs('#tgTokenStatusText', pane);
+      const tgPollingStatusLabel = App.utils.qs('#tgPollingStatusLabel', pane);
+      const btnRestartPoller = App.utils.qs('#btnRestartPoller', pane);
+      const tgDetails = App.utils.qs('#tgBotDetails', pane);
+      const waDetails = App.utils.qs('#waBotDetails', pane);
+      const tgHandle = App.utils.qs('#tgBotHandle', pane);
+      const btnConnectTg = App.utils.qs('#btnConnectTelegram', pane);
+      const btnConfigureTgToken = App.utils.qs('#btnConfigureTgToken', pane);
+      const btnDispatchAlerts = App.utils.qs('#btnDispatchAlerts', pane);
+      const btnTestTg = App.utils.qs('#btnTestTelegram', pane);
+      const btnUnlinkTg = App.utils.qs('#btnUnlinkTelegram', pane);
+      const btnConnectWa = App.utils.qs('#btnConnectWhatsApp', pane);
+      const btnTestWa = App.utils.qs('#btnTestWhatsApp', pane);
+      const btnUnlinkWa = App.utils.qs('#btnUnlinkWhatsApp', pane);
+
+      const origin = window.location.origin;
+      const tgWebhookUrl = `${origin}/api/bot/telegram/webhook`;
+      const waWebhookUrl = `${origin}/api/bot/whatsapp/webhook`;
+      if (App.utils.qs('#tgWebhookUrlText', pane)) App.utils.qs('#tgWebhookUrlText', pane).textContent = tgWebhookUrl;
+      if (App.utils.qs('#waWebhookUrlText', pane)) App.utils.qs('#waWebhookUrlText', pane).textContent = waWebhookUrl;
+
+      async function refreshStatus() {
+        try {
+          const config = await App.api.getBotConfig();
+          const status = await App.api.getBotStatus();
+
+          if (tgHandle && config?.telegram?.botUsername) {
+            tgHandle.textContent = `@${config.telegram.botUsername}`;
+          }
+
+          // Telegram Token Config Status
+          if (config?.telegram?.configured) {
+            if (tgTokenStatusText) {
+              tgTokenStatusText.innerHTML = `🟢 <b>BotFather Token Active</b> &bull; @${App.utils.escapeHtml(config.telegram.botUsername || 'bot')} ${config.telegram.tokenMasked ? `(<code>${config.telegram.tokenMasked}</code>)` : ''}`;
+            }
+          } else {
+            if (tgTokenStatusText) {
+              tgTokenStatusText.innerHTML = `⚪ <span style="color:var(--text3)">Bot Token not set &mdash; click <b>Set BotFather Token</b> below</span>`;
+            }
+          }
+
+          // Telegram Long Polling Status
+          if (config?.telegram?.polling) {
+            const p = config.telegram.polling;
+            if (tgPollingStatusLabel) {
+              if (p.active) {
+                tgPollingStatusLabel.innerHTML = `🟢 <b>Long Poller Active (getUpdates)</b> &bull; ${p.updatesProcessed || 0} updates received`;
+              } else {
+                tgPollingStatusLabel.innerHTML = `⚪ <span style="color:var(--text3)">Poller Inactive &bull; Click Restart Poller</span>`;
+              }
+            }
+          }
+
+          // Telegram Status UI
+          if (status?.telegram?.connected) {
+            tgStatusBadge.textContent = '🟢 Connected';
+            tgStatusBadge.style.background = 'rgba(34,197,94,0.18)';
+            tgStatusBadge.style.color = '#22c55e';
+            tgDetails.innerHTML = `Connected as <b>@${App.utils.escapeHtml(status.telegram.username || 'user')}</b> (Chat ID: <code>${status.telegram.chatId}</code>). Real-time portfolio alerts and command querying are active.`;
+            btnConnectTg.style.display = 'none';
+            btnTestTg.style.display = 'inline-flex';
+            btnUnlinkTg.style.display = 'inline-flex';
+            if (btnDispatchAlerts) btnDispatchAlerts.style.display = 'inline-flex';
+          } else {
+            tgStatusBadge.textContent = '⚪ Not Connected';
+            tgStatusBadge.style.background = 'rgba(255,255,255,0.08)';
+            tgStatusBadge.style.color = 'var(--text2)';
+            tgDetails.innerHTML = `Connect your Telegram account to receive instant payout notifications, overdue alerts, and query yields directly on mobile.`;
+            btnConnectTg.style.display = 'inline-flex';
+            btnTestTg.style.display = 'none';
+            btnUnlinkTg.style.display = 'none';
+            if (btnDispatchAlerts) btnDispatchAlerts.style.display = 'none';
+          }
+
+          // WhatsApp Status UI
+          if (status?.whatsapp?.connected) {
+            waStatusBadge.textContent = '🟢 Connected';
+            waStatusBadge.style.background = 'rgba(34,197,94,0.18)';
+            waStatusBadge.style.color = '#22c55e';
+            waDetails.innerHTML = `Connected to WhatsApp phone: <code>${App.utils.escapeHtml(status.whatsapp.phoneNumber)}</code>. Automated delivery is enabled.`;
+            btnConnectWa.style.display = 'none';
+            btnTestWa.style.display = 'inline-flex';
+            btnUnlinkWa.style.display = 'inline-flex';
+          } else {
+            waStatusBadge.textContent = '⚪ Not Connected';
+            waStatusBadge.style.background = 'rgba(255,255,255,0.08)';
+            waStatusBadge.style.color = 'var(--text2)';
+            waDetails.innerHTML = `Bind your WhatsApp phone number to receive payment alerts and log expenses directly from chats.`;
+            btnConnectWa.style.display = 'inline-flex';
+            btnTestWa.style.display = 'none';
+            btnUnlinkWa.style.display = 'none';
+          }
+        } catch (e) {
+          console.warn('Bot status refresh notice:', e);
+        }
+      }
+
+      await refreshStatus();
+
+      App.utils.qs('#btnRefreshBotStatus', pane)?.addEventListener('click', async () => {
+        await refreshStatus();
+        App.utils.toast('Bot connection status refreshed');
+      });
+
+      // Restart Poller Button
+      btnRestartPoller?.addEventListener('click', async () => {
+        try {
+          btnRestartPoller.disabled = true;
+          btnRestartPoller.innerHTML = '&#8635; Starting...';
+          const res = await App.api.toggleTelegramPolling('restart');
+          if (res.success) {
+            App.utils.toast('Telegram Long Poller active! Pulling updates from Telegram directly.');
+            await refreshStatus();
+          } else {
+            App.utils.toast('Poller notice: ' + (res.error || 'Check bot token configuration'), 'err');
+          }
+        } catch (e) {
+          App.utils.toast('Poller error: ' + (e.message || e), 'err');
+        } finally {
+          btnRestartPoller.disabled = false;
+          btnRestartPoller.innerHTML = '&#8635; Restart Poller';
+        }
+      });
+
+      // Configure BotFather Token Modal
+      btnConfigureTgToken?.addEventListener('click', () => {
+        App.ui.modal({
+          title: '✈️ Configure BotFather Telegram Token',
+          content: `
+            <div style="font-size:13px;line-height:1.6;color:var(--text2)">
+              <div style="margin-bottom:12px">
+                Connect your custom Telegram bot created via <b>@BotFather</b>. This activates live two-way command processing, long polling, and automatic payment reminders.
+              </div>
+
+              <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+                <label style="display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text)">
+                  Telegram Bot API Token <span style="color:#e5484d">*</span>
+                </label>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <input type="password" id="tgModalTokenInput" class="search-input" placeholder="e.g. 7123456789:AAHk1234...xyz" style="flex:1;font-family:monospace">
+                  <button type="button" class="btn btn-outline btn-sm" id="btnToggleTokenVisibility" style="padding:4px 8px;font-size:11px">Show</button>
+                </div>
+                <div class="hint" style="margin-top:4px">Issued directly by @BotFather on Telegram (starts with bot ID numbers followed by colon).</div>
+
+                <div style="margin-top:12px">
+                  <label style="display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text)">
+                    Bot Handle / Username (Optional)
+                  </label>
+                  <input type="text" id="tgModalUsernameInput" class="search-input" placeholder="e.g. MyInvestmentOS_bot" style="width:100%">
+                  <div class="hint" style="margin-top:4px">Leave blank to auto-detect handle from Telegram getMe API.</div>
+                </div>
+              </div>
+
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11.5px;color:var(--text3);line-height:1.5">
+                <b>💡 How to create a bot with @BotFather in 30 seconds:</b><br>
+                1. Open Telegram & search for <code>@BotFather</code>.<br>
+                2. Send <code>/newbot</code> and follow the prompts to choose a name and username.<br>
+                3. Copy the HTTP API token provided by BotFather and paste it above.<br>
+                4. Click <b>Test &amp; Save Token</b> to connect.
+              </div>
+              <div id="tgTokenModalError" style="margin-top:10px;color:#e5484d;font-size:12px;display:none"></div>
+            </div>
+          `,
+          actions: [
+            {
+              label: 'Test & Save Token',
+              className: 'btn-gold',
+              onClick: async () => {
+                const tokenInput = App.utils.qs('#tgModalTokenInput');
+                const usernameInput = App.utils.qs('#tgModalUsernameInput');
+                const errDiv = App.utils.qs('#tgTokenModalError');
+                const token = tokenInput?.value?.trim();
+                const username = usernameInput?.value?.trim();
+
+                if (!token) {
+                  if (errDiv) { errDiv.textContent = 'Please enter your Telegram Bot Token.'; errDiv.style.display = 'block'; }
+                  return;
+                }
+
+                try {
+                  const res = await App.api.setTelegramBotToken(token, username);
+                  if (res.success) {
+                    App.utils.toast(`Successfully connected @${res.botUsername}! Long Poller active.`);
+                    await refreshStatus();
+                    App.ui.close();
+                  } else {
+                    if (errDiv) { errDiv.textContent = res.error || 'Invalid token'; errDiv.style.display = 'block'; }
+                  }
+                } catch (e) {
+                  if (errDiv) { errDiv.textContent = e.message || 'Error connecting to Telegram API'; errDiv.style.display = 'block'; }
+                }
+              },
+            },
+            { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+          ],
+        });
+
+        const toggleBtn = App.utils.qs('#btnToggleTokenVisibility');
+        const tokenInput = App.utils.qs('#tgModalTokenInput');
+        toggleBtn?.addEventListener('click', () => {
+          if (tokenInput.type === 'password') {
+            tokenInput.type = 'text';
+            toggleBtn.textContent = 'Hide';
+          } else {
+            tokenInput.type = 'password';
+            toggleBtn.textContent = 'Show';
+          }
+        });
+      });
+
+      // Dispatch Prioritized Alerts On-Demand
+      btnDispatchAlerts?.addEventListener('click', async () => {
+        try {
+          btnDispatchAlerts.disabled = true;
+          btnDispatchAlerts.innerHTML = '&#8987; Sweeping alerts...';
+          const res = await App.api.dispatchBotNotifications();
+          if (res.success) {
+            const types = (res.dispatchedItems || []).map((d) => d.type).join(', ');
+            App.utils.toast(`Delivered ${res.telegramSent} priority alert(s) to Telegram! ${types ? `(${types})` : '(Overdue & due alerts delivered)'}`);
+          } else {
+            App.utils.toast('Could not dispatch alerts: ' + (res.error || 'Unknown error'), 'err');
+          }
+        } catch (e) {
+          App.utils.toast('Dispatch error: ' + (e.message || e), 'err');
+        } finally {
+          btnDispatchAlerts.disabled = false;
+          btnDispatchAlerts.innerHTML = '&#128227; Dispatch Priority Alerts';
+        }
+      });
+
+      // Connect Telegram Modal
+      btnConnectTg?.addEventListener('click', async () => {
+        try {
+          const gen = await App.api.generateBotLinkCode('telegram');
+          App.ui.modal({
+            title: '✈️ Connect Telegram Bot',
+            content: `
+              <div style="font-size:13px;line-height:1.6;color:var(--text2)">
+                <div style="margin-bottom:14px">
+                  Link your Telegram account to Personal Investment OS using any of the 3 options below:
+                </div>
+
+                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;text-align:center">
+                  <div style="font-size:11px;text-transform:uppercase;color:var(--text3);letter-spacing:1px;margin-bottom:4px">Your 6-Digit Linking Code</div>
+                  <div style="font-size:28px;font-weight:800;letter-spacing:4px;color:var(--gold);font-family:monospace;margin:4px 0">${gen.code}</div>
+                  <div style="font-size:11px;color:var(--text3)">Expires in 15 minutes &bull; Single use</div>
+                </div>
+
+                <div style="margin-bottom:12px;display:flex;flex-direction:column;gap:12px">
+                  <!-- Option A -->
+                  <div style="display:flex;align-items:flex-start;gap:10px;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--border)">
+                    <span class="badge" style="background:var(--gold);color:#000;font-weight:700">1</span>
+                    <div style="flex:1">
+                      <div style="font-weight:700;color:var(--text);margin-bottom:2px">Option A: One-Click Instant Deep Link (Recommended)</div>
+                      <div style="font-size:12px;color:var(--text2)">Click below to launch Telegram. It sends <code>/start ${gen.rawCode}</code> and auto-binds your account.</div>
+                      <div style="margin-top:8px">
+                        <a href="${gen.deepLink}" target="_blank" class="btn btn-gold btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">
+                          <span>✈️ Open @${gen.deepLink.split('t.me/')[1]?.split('?')[0] || 'InvestmentOS_Bot'}</span>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Option B -->
+                  <div style="display:flex;align-items:flex-start;gap:10px;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--border)">
+                    <span class="badge" style="background:var(--gold);color:#000;font-weight:700">2</span>
+                    <div style="flex:1">
+                      <div style="font-weight:700;color:var(--text);margin-bottom:2px">Option B: Manual 6-Digit Code in Telegram</div>
+                      <div style="font-size:12px;color:var(--text2)">Open Telegram, search for your bot, and send this command:</div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                        <code style="background:var(--bg2);padding:6px 10px;border-radius:4px;color:var(--gold);font-weight:700;font-size:13px">/link ${gen.rawCode}</code>
+                        <button type="button" class="btn btn-outline btn-sm" id="btnCopyTgLinkCommand" style="padding:4px 8px;font-size:11px">&#128203; Copy Command</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Option C -->
+                  <div style="display:flex;align-items:flex-start;gap:10px;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--border)">
+                    <span class="badge" style="background:var(--gold);color:#000;font-weight:700">3</span>
+                    <div style="flex:1">
+                      <div style="font-weight:700;color:var(--text);margin-bottom:2px">Option C: Direct Chat ID Binding (Instant Fix &amp; Ping)</div>
+                      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Enter your Telegram Chat ID directly to immediately bind and receive an automated welcome ping:</div>
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <input type="text" id="tgDirectChatIdInput" class="search-input" placeholder="Chat ID (e.g. 123456789)" style="flex:1;min-width:140px;font-family:monospace">
+                        <input type="text" id="tgDirectUsernameInput" class="search-input" placeholder="Your name" style="width:120px">
+                        <button type="button" class="btn btn-gold btn-sm" id="btnSubmitDirectBind">Bind &amp; Send Ping</button>
+                      </div>
+                      <div class="hint" style="margin-top:6px;font-size:11px">
+                        💡 <b>How to find your Chat ID:</b> In Telegram, search for <code>@userinfobot</code>, tap <b>Start</b>, and copy your numeric <b>Id</b>.
+                      </div>
+                      <div id="tgDirectBindNotice" style="margin-top:6px;font-size:11.5px;display:none"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `,
+            actions: [
+              {
+                label: 'Check Connection',
+                className: 'btn-gold',
+                onClick: async () => {
+                  await refreshStatus();
+                  const s = await App.api.getBotStatus();
+                  if (s?.telegram?.connected) {
+                    App.utils.toast('Telegram successfully linked!');
+                    App.ui.close();
+                  } else {
+                    App.utils.toast('Not connected yet. Please click Start in Telegram, send /link ' + gen.rawCode + ', or use Option C above.', 'info');
+                  }
+                },
+              },
+              { label: 'Close', className: 'btn-outline', onClick: App.ui.close },
+            ],
+          });
+
+          // Copy command clipboard helper
+          App.utils.qs('#btnCopyTgLinkCommand')?.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(`/link ${gen.rawCode}`);
+              App.utils.toast('Copied /link command to clipboard!');
+            } catch (cErr) {
+              App.utils.toast(`Code: /link ${gen.rawCode}`);
+            }
+          });
+
+          // Direct Chat ID binding handler
+          App.utils.qs('#btnSubmitDirectBind')?.addEventListener('click', async () => {
+            const chatIdInput = App.utils.qs('#tgDirectChatIdInput');
+            const usernameInput = App.utils.qs('#tgDirectUsernameInput');
+            const notice = App.utils.qs('#tgDirectBindNotice');
+            const chatId = chatIdInput?.value?.trim();
+            const username = usernameInput?.value?.trim() || App.state.profile?.full_name || 'Investor';
+
+            if (!chatId) {
+              if (notice) { notice.textContent = 'Please enter your numeric Telegram Chat ID.'; notice.style.color = '#e5484d'; notice.style.display = 'block'; }
+              return;
+            }
+
+            try {
+              const bindBtn = App.utils.qs('#btnSubmitDirectBind');
+              if (bindBtn) { bindBtn.disabled = true; bindBtn.textContent = 'Binding...'; }
+              const res = await App.api.directBindTelegramChat(chatId, username);
+              if (res.success) {
+                App.utils.toast(res.message || 'Telegram linked successfully!');
+                await refreshStatus();
+                App.ui.close();
+              } else {
+                if (notice) { notice.textContent = res.error || 'Failed to bind Chat ID'; notice.style.color = '#e5484d'; notice.style.display = 'block'; }
+              }
+            } catch (err) {
+              if (notice) { notice.textContent = err.message || 'Connection error'; notice.style.color = '#e5484d'; notice.style.display = 'block'; }
+            }
+          });
+        } catch (err) {
+          App.utils.toast('Could not generate linking code: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Connect WhatsApp Modal
+      btnConnectWa?.addEventListener('click', async () => {
+        try {
+          const gen = await App.api.generateBotLinkCode('whatsapp');
+          App.ui.modal({
+            title: '💬 Connect WhatsApp Bot',
+            content: `
+              <div style="font-size:13px;line-height:1.6;color:var(--text2)">
+                <div style="margin-bottom:14px">
+                  Connect your mobile WhatsApp number to receive payment alerts and log expenses on the go:
+                </div>
+
+                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;text-align:center">
+                  <div style="font-size:11px;text-transform:uppercase;color:var(--text3);letter-spacing:1px;margin-bottom:6px">Your WhatsApp Binding Code</div>
+                  <div style="font-size:32px;font-weight:800;letter-spacing:4px;color:var(--teal);font-family:monospace;margin:6px 0">${gen.code}</div>
+                  <div style="font-size:11px;color:var(--text3)">Send this code to complete phone number verification</div>
+                </div>
+
+                <div style="background:var(--card);padding:14px;border-radius:8px;border:1px solid var(--border);margin-bottom:14px">
+                  <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px">Your Mobile Phone Number (with Country Code):</label>
+                  <input type="text" id="waMobileInput" class="search-input" placeholder="+91 98765 43210" style="width:100%">
+                  <div class="hint" style="margin-top:4px">Required to authorize webhook dispatch and prevent unauthorized access.</div>
+                </div>
+
+                <div style="font-size:12px;color:var(--text3)">
+                  <b>Instructions:</b> Send <code>LINK ${gen.rawCode}</code> from your WhatsApp number to our bot webhook, or click "Confirm &amp; Bind" below.
+                </div>
+              </div>
+            `,
+            actions: [
+              {
+                label: 'Confirm & Bind Phone',
+                className: 'btn-teal',
+                onClick: async () => {
+                  const phone = App.utils.qs('#waMobileInput')?.value?.trim();
+                  if (!phone) {
+                    App.utils.toast('Please enter your WhatsApp mobile phone number', 'err');
+                    return;
+                  }
+                  try {
+                    // Simulate webhook inbound link
+                    await fetch('/api/bot/whatsapp/webhook', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        From: phone,
+                        Body: `LINK ${gen.rawCode}`,
+                        ProfileName: App.state.profile?.full_name || 'Investor',
+                      }),
+                    });
+                    await refreshStatus();
+                    App.utils.toast('WhatsApp number successfully linked!');
+                    App.ui.close();
+                  } catch (e) {
+                    App.utils.toast('Error connecting WhatsApp: ' + e.message, 'err');
+                  }
+                },
+              },
+              { label: 'Close', className: 'btn-outline', onClick: App.ui.close },
+            ],
+          });
+        } catch (err) {
+          App.utils.toast('Could not generate linking code: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Test Telegram message
+      btnTestTg?.addEventListener('click', async () => {
+        try {
+          const res = await App.api.sendBotTestMessage('telegram');
+          if (res.simulated) {
+            App.utils.toast('Test alert sent to Telegram simulator!');
+          } else {
+            App.utils.toast('Test notification delivered to your Telegram chat!');
+          }
+        } catch (err) {
+          App.utils.toast('Could not send test message: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Test WhatsApp message
+      btnTestWa?.addEventListener('click', async () => {
+        try {
+          const res = await App.api.sendBotTestMessage('whatsapp');
+          if (res.simulated) {
+            App.utils.toast('Test alert sent to WhatsApp simulator!');
+          } else {
+            App.utils.toast('Test notification delivered to your WhatsApp!');
+          }
+        } catch (err) {
+          App.utils.toast('Could not send test message: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Unlink Telegram
+      btnUnlinkTg?.addEventListener('click', async () => {
+        if (!confirm('Disconnect Telegram? You will no longer receive payment alerts on Telegram.')) return;
+        try {
+          await App.api.unlinkBot('telegram');
+          await refreshStatus();
+          App.utils.toast('Telegram disconnected');
+        } catch (err) {
+          App.utils.toast('Could not unlink: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Unlink WhatsApp
+      btnUnlinkWa?.addEventListener('click', async () => {
+        if (!confirm('Disconnect WhatsApp? You will no longer receive payment alerts on WhatsApp.')) return;
+        try {
+          await App.api.unlinkBot('whatsapp');
+          await refreshStatus();
+          App.utils.toast('WhatsApp disconnected');
+        } catch (err) {
+          App.utils.toast('Could not unlink: ' + (err.message || err), 'err');
+        }
+      });
+
+      // Interactive Bot Simulator Modal
+      App.utils.qs('#btnOpenBotSimulator', pane)?.addEventListener('click', () => {
+        let activePlatform = 'telegram';
+        App.ui.modal({
+          title: '💬 Personal Investment OS • Bot Console & Simulator',
+          content: `
+            <div style="font-size:12.5px;color:var(--text2);margin-bottom:12px">
+              Test bot commands and verify real-time portfolio responses interactively without needing external Bot tokens configured:
+            </div>
+
+            <!-- Platform Switcher & Quick Commands -->
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-sm btn-gold" id="simPlatformTg" style="padding:3px 10px;font-size:11px">✈️ Telegram Mode</button>
+                <button class="btn btn-sm btn-outline" id="simPlatformWa" style="padding:3px 10px;font-size:11px">💬 WhatsApp Mode</button>
+              </div>
+              <div style="font-size:11px;color:var(--text3)">Simulating live portfolio queries</div>
+            </div>
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/summary" style="font-size:11px;padding:2px 8px">📊 /summary</button>
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/due" style="font-size:11px;padding:2px 8px">⏳ /due</button>
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/overdue" style="font-size:11px;padding:2px 8px">🚨 /overdue</button>
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/gold" style="font-size:11px;padding:2px 8px">🪙 /gold</button>
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/expense 1200 Fuel Site visit" style="font-size:11px;padding:2px 8px">💸 /expense</button>
+              <button class="btn btn-outline btn-sm sim-chip" data-cmd="/help" style="font-size:11px;padding:2px 8px">❓ /help</button>
+            </div>
+
+            <!-- Chat Message Feed -->
+            <div id="simChatFeed" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;height:280px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;margin-bottom:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+              <div style="align-self:flex-start;max-width:85%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.5">
+                👋 <b>Welcome to the Investment OS Bot Simulator!</b><br>
+                Try clicking any command chip above or type your question below. Responses are formatted exactly as they appear in Telegram and WhatsApp.
+              </div>
+            </div>
+
+            <!-- Chat Input -->
+            <div style="display:flex;gap:8px">
+              <input type="text" id="simCommandInput" class="search-input" placeholder="Type /summary, /due, /gold, or ask a question..." style="flex:1" autocomplete="off">
+              <button class="btn btn-gold" id="btnSimSend" style="padding:0 16px">Send</button>
+            </div>
+          `,
+          actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
+        });
+
+        // Simulator Interaction logic
+        const feed = App.utils.qs('#simChatFeed');
+        const input = App.utils.qs('#simCommandInput');
+        const btnSend = App.utils.qs('#btnSimSend');
+        const btnTg = App.utils.qs('#simPlatformTg');
+        const btnWa = App.utils.qs('#simPlatformWa');
+
+        btnTg?.addEventListener('click', () => {
+          activePlatform = 'telegram';
+          btnTg.className = 'btn btn-sm btn-gold';
+          btnWa.className = 'btn btn-sm btn-outline';
+        });
+
+        btnWa?.addEventListener('click', () => {
+          activePlatform = 'whatsapp';
+          btnWa.className = 'btn btn-sm btn-gold';
+          btnTg.className = 'btn btn-sm btn-outline';
+        });
+
+        async function sendSimCommand(cmdText) {
+          const text = (cmdText || input.value || '').trim();
+          if (!text) return;
+          input.value = '';
+
+          // Render user bubble
+          const userBubble = document.createElement('div');
+          userBubble.style.cssText = 'align-self:flex-end;max-width:80%;background:rgba(201,168,76,0.18);border:1px solid rgba(201,168,76,0.4);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--text)';
+          userBubble.textContent = text;
+          feed.appendChild(userBubble);
+          feed.scrollTop = feed.scrollHeight;
+
+          // Placeholder bot reply
+          const botBubble = document.createElement('div');
+          botBubble.style.cssText = 'align-self:flex-start;max-width:85%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.5;white-space:pre-wrap';
+          botBubble.innerHTML = '<i>Processing query with portfolio engine...</i>';
+          feed.appendChild(botBubble);
+          feed.scrollTop = feed.scrollHeight;
+
+          try {
+            const res = await App.api.simulateBotCommand(text, activePlatform);
+            if (activePlatform === 'telegram') {
+              botBubble.innerHTML = res.reply;
+            } else {
+              // Convert WhatsApp markdown to HTML for display
+              let html = App.utils.escapeHtml(res.reply)
+                .replace(/\*([^*]+)\*/g, '<b>$1</b>')
+                .replace(/_([^_]+)_/g, '<i>$1</i>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>');
+              botBubble.innerHTML = html;
+            }
+          } catch (e) {
+            botBubble.innerHTML = `❌ Error: ${App.utils.escapeHtml(e.message || String(e))}`;
+          }
+          feed.scrollTop = feed.scrollHeight;
+        }
+
+        btnSend?.addEventListener('click', () => sendSimCommand());
+        input?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') sendSimCommand();
+        });
+
+        App.utils.qsa('.sim-chip').forEach((chip) => {
+          chip.addEventListener('click', () => {
+            const cmd = chip.dataset.cmd;
+            sendSimCommand(cmd);
+          });
+        });
+      });
+    }
+
+    await initBotIntegration();
+
     async function drawPlatforms() {
+
       const platforms = await App.api.listPlatforms();
       App.utils.qs('#platformsTable', pane).innerHTML = `<thead><tr><th>Platform / Lender Name</th><th>Account Reference</th><th>Investment Type</th><th>Notes & Details</th><th>Actions</th></tr></thead>
         <tbody>${platforms.map((p) => `<tr>

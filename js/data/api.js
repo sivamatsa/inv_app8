@@ -3779,5 +3779,104 @@ App.api = (function () {
     askCopilot,
     listAiProviders, createAiProvider, updateAiProvider, deleteAiProvider,
     getAiSettings, updateAiSettings,
+
+    // WhatsApp & Telegram Bot Integration
+    getBotConfig: async function () {
+      try {
+        const res = await fetch('/api/bot/config');
+        return await res.json();
+      } catch (e) {
+        return { telegram: { configured: false, botUsername: 'InvestmentOS_Bot' }, whatsapp: { configured: false } };
+      }
+    },
+    getBotStatus: async function () {
+      try {
+        const res = await fetch(`/api/bot/status?userId=${encodeURIComponent(uid())}`);
+        return await res.json();
+      } catch (e) {
+        return {
+          telegram: { connected: false, botUsername: 'InvestmentOS_Bot' },
+          whatsapp: { connected: false },
+          recentLogs: [],
+        };
+      }
+    },
+    generateBotLinkCode: async function (platform) {
+      const res = await fetch('/api/bot/generate-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, userId: uid() }),
+      });
+      if (!res.ok) throw new Error('Could not generate bot verification code');
+      return await res.json();
+    },
+    unlinkBot: async function (platform) {
+      const res = await fetch('/api/bot/unlink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, userId: uid() }),
+      });
+      return await res.json();
+    },
+    sendBotTestMessage: async function (platform) {
+      const res = await fetch('/api/bot/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, userId: uid() }),
+      });
+      return await res.json();
+    },
+    simulateBotCommand: async function (command, platform = 'telegram', portfolioContext = null) {
+      const u = App.auth.getUser();
+      const res = await fetch('/api/bot/simulate-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command,
+          platform,
+          userId: uid(),
+          userName: u?.user_metadata?.full_name || u?.email?.split('@')[0] || 'Investor',
+          portfolioContext,
+        }),
+      });
+      return await res.json();
+    },
+    setTelegramBotToken: async function (token, botUsername) {
+      const res = await fetch('/api/bot/telegram/set-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, botUsername }),
+      });
+      return await res.json();
+    },
+    getTelegramPollingStatus: async function () {
+      try {
+        const res = await fetch('/api/bot/telegram/polling/status');
+        return await res.json();
+      } catch (e) {
+        return { success: false, stats: { active: false, error: e.message } };
+      }
+    },
+    toggleTelegramPolling: async function (action = 'restart', mode = 'polling', webhookUrl = null) {
+      const res = await fetch('/api/bot/telegram/polling/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, mode, webhookUrl }),
+      });
+      return await res.json();
+    },
+    directBindTelegramChat: async function (chatId, username = 'Investor') {
+      const res = await fetch('/api/bot/telegram/direct-bind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, username, userId: uid() }),
+      });
+      return await res.json();
+    },
+    dispatchBotNotifications: async function () {
+      const res = await fetch('/api/bot/dispatch-alerts', { method: 'POST' });
+      return await res.json();
+    },
   };
+
 })();

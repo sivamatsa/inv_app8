@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for Telegram Bot Dual-Mode Long Polling and Direct Chat ID binding to resolve blocked webhook issues and restore instant two-way Telegram communication.",
+  "updatedAt":  "2026-10-01T13:08:24.185280822Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

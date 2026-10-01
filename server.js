@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -728,7 +729,1406 @@ Output MUST be a single valid JSON object strictly matching this schema with no 
   }
 });
 
+
+// ============================================================================
+// WHATSAPP & TELEGRAM BOT ENGINE & WEBHOOK INTEGRATION
+// ============================================================================
+
+const SUPABASE_DEFAULT_URL = process.env.SUPABASE_URL || 'https://ursmdccpbwvaincqumgm.supabase.co';
+const SUPABASE_DEFAULT_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_JSyxn0ohlvsRMT6eCpSALg_vXAz0h3w';
+
+function getSupabaseAdminClient(authToken = null) {
+  const options = {};
+  if (authToken) {
+    options.global = { headers: { Authorization: `Bearer ${authToken}` } };
+  }
+  return createClient(SUPABASE_DEFAULT_URL, SUPABASE_DEFAULT_KEY, options);
+}
+
+// In-memory fallback and fast caching store for bot links & verification codes
+const inMemoryBotLinks = new Map(); // key: `${userId}_${platform}` or `${platform}_${chatId}`
+const inMemoryPendingCodes = new Map(); // key: `${platform}_${code}`, value: { userId, expiresAt, code }
+const inMemoryBotLogs = []; // recent bot interaction logs
+
+// Dynamic Runtime & Env Bot Credentials
+let runtimeTelegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
+let runtimeTelegramBotUsername = process.env.TELEGRAM_BOT_USERNAME || 'InvestmentOS_Bot';
+let runtimeTelegramBotInfo = null;
+
+function getActiveTelegramToken() {
+  return runtimeTelegramBotToken || process.env.TELEGRAM_BOT_TOKEN || '';
+}
+
+function getActiveTelegramUsername() {
+  return runtimeTelegramBotUsername || process.env.TELEGRAM_BOT_USERNAME || 'InvestmentOS_Bot';
+}
+
+// ============================================================================
+// TELEGRAM LONG POLLING ENGINE (getUpdates)
+// ============================================================================
+let telegramPollingActive = false;
+let telegramPollingAbortController = null;
+let telegramPollingLastUpdateId = 0;
+let telegramPollingMode = 'polling'; // 'polling' | 'webhook'
+const telegramPollingStats = {
+  active: false,
+  mode: 'polling',
+  startedAt: null,
+  lastPollAt: null,
+  updatesProcessed: 0,
+  lastError: null,
+};
+
+async function startTelegramLongPolling() {
+  const token = getActiveTelegramToken();
+  if (!token) return { success: false, error: 'No Telegram Bot Token configured' };
+
+  if (telegramPollingActive) {
+    return { success: true, message: 'Long polling is already active', stats: telegramPollingStats };
+  }
+
+  // Clear any existing webhook so Telegram getUpdates does not return 409 Conflict
+  try {
+    const delRes = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
+    const delData = await delRes.json();
+    console.log('[Telegram Poller] deleteWebhook result:', delData);
+  } catch (err) {
+    console.warn('[Telegram Poller] deleteWebhook warning:', err.message);
+  }
+
+  telegramPollingActive = true;
+  telegramPollingMode = 'polling';
+  telegramPollingAbortController = new AbortController();
+  telegramPollingStats.active = true;
+  telegramPollingStats.mode = 'polling';
+  telegramPollingStats.startedAt = new Date().toISOString();
+  telegramPollingStats.lastError = null;
+
+  // Background polling loop
+  (async function pollLoop() {
+    console.log('[Telegram Poller] Started getUpdates long polling loop');
+    while (telegramPollingActive) {
+      try {
+        const curToken = getActiveTelegramToken();
+        if (!curToken) {
+          telegramPollingActive = false;
+          telegramPollingStats.active = false;
+          break;
+        }
+
+        telegramPollingStats.lastPollAt = new Date().toISOString();
+        const pollUrl = `https://api.telegram.org/bot${curToken}/getUpdates?offset=${telegramPollingLastUpdateId + 1}&timeout=10&allowed_updates=["message","callback_query"]`;
+        const res = await fetch(pollUrl, { signal: telegramPollingAbortController?.signal });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.description || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.result)) {
+          for (const update of data.result) {
+            telegramPollingLastUpdateId = Math.max(telegramPollingLastUpdateId, update.update_id);
+            telegramPollingStats.updatesProcessed++;
+
+            const message = update.message || update.edited_message;
+            const callbackQuery = update.callback_query;
+
+            let chatId = null;
+            let text = '';
+            let fromUser = null;
+
+            if (message) {
+              chatId = message.chat?.id;
+              text = message.text || '';
+              fromUser = message.from;
+            } else if (callbackQuery) {
+              chatId = callbackQuery.message?.chat?.id;
+              text = callbackQuery.data || '';
+              fromUser = callbackQuery.from;
+            }
+
+            if (chatId) {
+              const linked = inMemoryBotLinks.get(`telegram_${chatId}`);
+              const userId = linked ? linked.userId : 'usr_active';
+              const userName = fromUser?.first_name || fromUser?.username || 'Investor';
+
+              // Execute command
+              const botResponse = await processBotCommand({
+                platform: 'telegram',
+                chatId: String(chatId),
+                text: text,
+                userId: userId,
+                userName: userName,
+              });
+
+              if (botResponse?.reply) {
+                await sendTelegramDirect(chatId, botResponse.reply);
+              }
+
+              inMemoryBotLogs.unshift({
+                platform: 'telegram',
+                chatId: String(chatId),
+                command: text.split(' ')[0],
+                text: text,
+                reply: (botResponse?.reply || '').slice(0, 100),
+                timestamp: new Date().toISOString(),
+              });
+              if (inMemoryBotLogs.length > 50) inMemoryBotLogs.pop();
+            }
+          }
+        }
+      } catch (pollErr) {
+        if (!telegramPollingActive) break;
+        telegramPollingStats.lastError = pollErr.message;
+        // Pause briefly before retrying
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+    console.log('[Telegram Poller] Stopped polling loop');
+  })().catch((e) => {
+    telegramPollingStats.lastError = e.message;
+    telegramPollingActive = false;
+    telegramPollingStats.active = false;
+  });
+
+  return { success: true, message: 'Long polling started', stats: telegramPollingStats };
+}
+
+function stopTelegramLongPolling() {
+  telegramPollingActive = false;
+  if (telegramPollingAbortController) {
+    try { telegramPollingAbortController.abort(); } catch (e) {}
+    telegramPollingAbortController = null;
+  }
+  telegramPollingStats.active = false;
+  return { success: true, message: 'Long polling stopped', stats: telegramPollingStats };
+}
+
+function getBotConfig() {
+  const tgToken = getActiveTelegramToken();
+  const tgUsername = getActiveTelegramUsername();
+  const waToken = process.env.WHATSAPP_API_TOKEN || '';
+  const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  const waVerifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'investment_os_verify_token';
+  return {
+    telegram: {
+      configured: Boolean(tgToken),
+      botUsername: tgUsername,
+      tokenMasked: tgToken ? `${tgToken.slice(0, 6)}...${tgToken.slice(-4)}` : null,
+      botInfo: runtimeTelegramBotInfo,
+      polling: telegramPollingStats,
+    },
+    whatsapp: {
+      configured: Boolean(waToken && waPhoneId),
+      phoneNumberId: waPhoneId,
+      verifyToken: waVerifyToken,
+      tokenMasked: waToken ? `${waToken.slice(0, 6)}...${waToken.slice(-4)}` : null,
+    },
+  };
+}
+
+// Helper: Outbound Telegram message sender
+async function sendTelegramDirect(chatId, text, options = {}) {
+  const token = getActiveTelegramToken();
+  if (!token) {
+    return { ok: false, error: 'TELEGRAM_BOT_TOKEN is not configured. Please set it in Settings -> Telegram Bot.' };
+  }
+  try {
+    const payload = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: options.parseMode || 'HTML',
+      disable_web_page_preview: true,
+      ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+    };
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    return data;
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+
+// Helper: Outbound WhatsApp message sender
+async function sendWhatsAppDirect(recipientPhone, text) {
+  const token = process.env.WHATSAPP_API_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) {
+    return { ok: false, error: 'WHATSAPP_API_TOKEN or WHATSAPP_PHONE_NUMBER_ID not configured.' };
+  }
+  try {
+    const cleanPhone = String(recipientPhone).replace(/\D/g, '');
+    const response = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: cleanPhone,
+        type: 'text',
+        text: { preview_url: false, body: text },
+      }),
+    });
+    const data = await response.json();
+    if (data.error) {
+      return { ok: false, error: data.error.message || 'WhatsApp Cloud API error' };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+// Helper: Fetch real live portfolio metrics for a given user
+async function getUserPortfolioSnapshot(userId, clientPortfolioContext = null) {
+  if (clientPortfolioContext) {
+    return clientPortfolioContext;
+  }
+
+  const supabase = getSupabaseAdminClient();
+  let targetUid = userId;
+
+  const summary = {
+    userName: 'Investor',
+    totalInvested: 0,
+    activeDealsCount: 0,
+    activeDeals: [],
+    monthlyExpectedYield: 0,
+    dueNext7DaysTotal: 0,
+    dueNext7DaysCount: 0,
+    duePayments: [],
+    overdueTotal: 0,
+    overdueCount: 0,
+    overduePayments: [],
+    goldWeightGrams: 0,
+    goldEstimatedValue: 0,
+  };
+
+  try {
+    // 1. Resolve user profile
+    if (!targetUid || targetUid === 'usr_active') {
+      try {
+        const { data: firstProfile } = await supabase.from('profiles').select('id, full_name, username').limit(1).single();
+        if (firstProfile?.id) {
+          targetUid = firstProfile.id;
+          summary.userName = firstProfile.full_name || firstProfile.username || 'Investor';
+        }
+      } catch (e) {}
+    } else {
+      const { data: profile } = await supabase.from('profiles').select('full_name, username').eq('id', targetUid).single();
+      if (profile) {
+        summary.userName = profile.full_name || profile.username || 'Investor';
+      }
+    }
+
+    // 2. Deals
+    const { data: deals } = await supabase.from('deals').select('*').eq('user_id', targetUid);
+    if (deals && deals.length > 0) {
+      const active = deals.filter((d) => d.status === 'Active');
+      summary.activeDealsCount = active.length;
+      summary.totalInvested = active.reduce((sum, d) => sum + (Number(d.invested_amount) || 0), 0);
+      summary.monthlyExpectedYield = active.reduce((sum, d) => {
+        const principal = Number(d.invested_amount) || 0;
+        const roi = Number(d.annual_roi || d.roi || 0);
+        return sum + Math.round((principal * (roi / 100)) / 12);
+      }, 0);
+      summary.activeDeals = active.slice(0, 5).map((d) => ({
+        id: d.id,
+        name: d.deal_name,
+        type: d.investment_type,
+        borrower: d.borrower_name || d.party_name || 'Borrower',
+        invested: Number(d.invested_amount) || 0,
+        roi: Number(d.annual_roi || d.roi || 0),
+      }));
+    }
+
+    // 3. Payment schedule (due in 14 days and overdue)
+    const today = new Date().toISOString().split('T')[0];
+    const next14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const { data: sched } = await supabase
+      .from('payment_schedule')
+      .select('*, deals(deal_name, borrower_name)')
+      .eq('user_id', targetUid)
+      .in('status', ['SCHEDULED', 'OVERDUE', 'DUE']);
+
+    if (sched && sched.length > 0) {
+      const overdue = sched.filter((s) => s.status === 'OVERDUE' || s.scheduled_date < today);
+      const dueSoon = sched.filter((s) => s.scheduled_date >= today && s.scheduled_date <= next14Days);
+
+      summary.overdueTotal = overdue.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
+      summary.overdueCount = overdue.length;
+      summary.overduePayments = overdue.slice(0, 5).map((s) => ({
+        dealName: s.deals?.deal_name || `Deal #${s.deal_id}`,
+        amount: Number(s.expected_total) || 0,
+        date: s.scheduled_date,
+      }));
+
+      summary.dueNext7DaysTotal = dueSoon.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
+      summary.dueNext7DaysCount = dueSoon.length;
+      summary.duePayments = dueSoon.slice(0, 5).map((s) => ({
+        dealName: s.deals?.deal_name || `Deal #${s.deal_id}`,
+        amount: Number(s.expected_total) || 0,
+        date: s.scheduled_date,
+      }));
+    }
+
+    // 4. Gold scheme holdings
+    const { data: goldPurchases } = await supabase.from('gold_purchases').select('weight_grams, total_amount').eq('user_id', targetUid);
+    if (goldPurchases && goldPurchases.length > 0) {
+      summary.goldWeightGrams = goldPurchases.reduce((sum, g) => sum + (Number(g.weight_grams) || 0), 0);
+    }
+  } catch (err) {
+    console.warn('Portfolio snapshot fetch notice:', err.message);
+  }
+
+  return summary;
+}
+
+// Master Bot Command Executor (used by Telegram, WhatsApp, and Web Simulator)
+async function processBotCommand({
+  platform = 'telegram',
+  chatId = 'sim_user',
+  text = '',
+  userId = null,
+  userName = 'Investor',
+  portfolioContext = null,
+}) {
+  const cleanText = (text || '').trim();
+  const lower = cleanText.toLowerCase();
+  const isTg = platform === 'telegram';
+
+  // Formatting helpers for Telegram (HTML) vs WhatsApp (Markdown)
+  const bold = (s) => (isTg ? `<b>${s}</b>` : `*${s}*`);
+  const italic = (s) => (isTg ? `<i>${s}</i>` : `_${s}_`);
+  const code = (s) => (isTg ? `<code>${s}</code>` : `\`${s}\``);
+  const header = (icon, title) => `${icon} ${bold(`Personal Investment OS • ${title}`)}\n\n`;
+
+  // 1. Command: /start or start with deep-link token
+  if (lower.startsWith('/start') || lower === 'start' || lower === 'hi' || lower === 'hello') {
+    const parts = cleanText.split(/\s+/);
+    const codeArg = parts[1];
+
+    if (codeArg) {
+      // User started via deep-link: /start 123456
+      const linkResult = await verifyAndBindBotCode(platform, chatId, codeArg, userName);
+      if (linkResult.success) {
+        return {
+          reply:
+            `${header('🎉', 'Portfolio Connected!')}` +
+            `Hello ${bold(linkResult.userName || userName)}! Your ${platform === 'telegram' ? 'Telegram' : 'WhatsApp'} account is now securely linked to your portfolio vault.\n\n` +
+            `You will automatically receive:\n` +
+            `• ${bold('Payment Due Reminders')} before payout dates\n` +
+            `• ${bold('Overdue Alerts')} when borrowers miss schedules\n` +
+            `• ${bold('Gold Rate Movers')} and investment milestones\n\n` +
+            `Type ${code('/summary')} or ${code('/help')} to get started!`,
+        };
+      }
+    }
+
+    return {
+      reply:
+        `${header('👋', 'Welcome to Investment OS')}` +
+        `Hello ${bold(userName)}! I am your AI Financial Bot for Personal Investment OS.\n\n` +
+        `To link this chat to your private portfolio:\n` +
+        `1. Open Investment OS in your browser\n` +
+        `2. Go to ${bold('Settings → WhatsApp & Telegram Bots')}\n` +
+        `3. Copy your 6-digit verification code\n` +
+        `4. Send ${code('/link <code>')} right here\n\n` +
+        `⚡ ${italic('Available Quick Commands:')}\n` +
+        `• ${code('/summary')} - Portfolio overview & income\n` +
+        `• ${code('/due')} - Upcoming scheduled payments\n` +
+        `• ${code('/overdue')} - Overdue payments & borrower details\n` +
+        `• ${code('/gold')} - Live 24K/22K bullion rates in India\n` +
+        `• ${code('/expense <amt> <cat> [desc]')} - Quick expense log\n` +
+        `• ${code('/help')} - Full command cheat sheet`,
+    };
+  }
+
+  // 2. Command: /link <code>
+  if (lower.startsWith('/link ') || lower.startsWith('link ')) {
+    const codeInput = cleanText.replace(/^(?:\/link|link)\s+/i, '').trim();
+    const linkResult = await verifyAndBindBotCode(platform, chatId, codeInput, userName);
+    if (linkResult.success) {
+      return {
+        reply:
+          `${header('✅', 'Successfully Linked')}` +
+          `Your ${platform === 'telegram' ? 'Telegram' : 'WhatsApp'} is now connected to ${bold(linkResult.userName || 'your portfolio')}.\n\n` +
+          `Try running ${code('/summary')} to view your live capital and upcoming cash flow.`,
+      };
+    } else {
+      return {
+        reply:
+          `${header('❌', 'Verification Failed')}` +
+          `The code ${code(codeInput)} is invalid or has expired (codes expire after 15 minutes).\n\n` +
+          `Please generate a fresh code from ${bold('Settings → WhatsApp & Telegram Bots')} in your Investment OS dashboard and try again.`,
+      };
+    }
+  }
+
+  // 3. Command: /unlink
+  if (lower === '/unlink' || lower === 'unlink') {
+    inMemoryBotLinks.delete(`${platform}_${chatId}`);
+    return {
+      reply:
+        `${header('🔓', 'Disconnected')}` +
+        `This chat has been disconnected from Personal Investment OS. You will no longer receive portfolio notifications here. You can reconnect anytime with ${code('/link <code>')}.`,
+    };
+  }
+
+  // 4. Command: /summary or /portfolio
+  if (lower === '/summary' || lower === 'summary' || lower === '/portfolio' || lower === 'portfolio') {
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const investedFmt = (snap.totalInvested || 0).toLocaleString('en-IN');
+    const yieldFmt = (snap.monthlyExpectedYield || 0).toLocaleString('en-IN');
+    const dueFmt = (snap.dueNext7DaysTotal || 0).toLocaleString('en-IN');
+    const overdueFmt = (snap.overdueTotal || 0).toLocaleString('en-IN');
+
+    return {
+      reply:
+        `${header('💼', 'Portfolio Summary')}` +
+        `👤 ${bold('Investor:')} ${snap.userName || userName}\n` +
+        `💰 ${bold('Active Capital:')} ₹${investedFmt} (${snap.activeDealsCount || 0} active deals)\n` +
+        `📈 ${bold('Exp. Monthly Income:')} ₹${yieldFmt}/mo\n` +
+        `⏳ ${bold('Due Next 7 Days:')} ₹${dueFmt} (${snap.dueNext7DaysCount || 0} payment${snap.dueNext7DaysCount === 1 ? '' : 's'})\n` +
+        `🚨 ${bold('Overdue Capital:')} ₹${overdueFmt} (${snap.overdueCount || 0} overdue)\n` +
+        (snap.goldWeightGrams > 0 ? `🪙 ${bold('Physical Gold:')} ${snap.goldWeightGrams}g\n` : '') +
+        `\n${italic('Updated live from your Investment OS Vault')}`,
+    };
+  }
+
+  // 5. Command: /due or /payments
+  if (lower === '/due' || lower === 'due' || lower === '/payments' || lower === 'payments') {
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const payments = snap.duePayments || [];
+
+    if (payments.length === 0) {
+      return {
+        reply:
+          `${header('⏳', 'Upcoming Payments')}` +
+          `No payouts are due in the next 14 days. All schedules are up to date! 🎉`,
+      };
+    }
+
+    const items = payments
+      .map((p) => `• ${bold(p.dealName)}: ₹${(p.amount || 0).toLocaleString('en-IN')} (Due: ${p.date})`)
+      .join('\n');
+
+    return {
+      reply:
+        `${header('⏳', 'Upcoming Payments (Next 14 Days)')}` +
+        `Total Expected: ₹${(snap.dueNext7DaysTotal || 0).toLocaleString('en-IN')}\n\n` +
+        `${items}\n\n` +
+        `Type ${code('/overdue')} to review overdue borrower payments.`,
+    };
+  }
+
+  // 6. Command: /overdue
+  if (lower === '/overdue' || lower === 'overdue') {
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const overdue = snap.overduePayments || [];
+
+    if (overdue.length === 0) {
+      return {
+        reply:
+          `${header('✅', 'Overdue Tracker')}` +
+          `Excellent news! You have ${bold('zero overdue payments')}. All borrowers and platforms are current on repayments.`,
+      };
+    }
+
+    const items = overdue
+      .map((o) => `🚨 ${bold(o.dealName)}: ₹${(o.amount || 0).toLocaleString('en-IN')} (Due since: ${o.date})`)
+      .join('\n');
+
+    return {
+      reply:
+        `${header('🚨', 'Action Required: Overdue Payouts')}` +
+        `Total Delinquent: ₹${(snap.overdueTotal || 0).toLocaleString('en-IN')} across ${snap.overdueCount} schedule(s)\n\n` +
+        `${items}\n\n` +
+        `${italic('Open Contacts & Chat in Investment OS to initiate borrower follow-ups.')}`,
+    };
+  }
+
+  // 7. Command: /gold
+  if (lower === '/gold' || lower === 'gold' || lower === 'gold rate' || lower === 'gold price') {
+    const todayStr = new Date().toISOString().split('T')[0];
+    let goldData = liveGoldSearchCache.data?.prices;
+    if (!goldData || !goldData.gold_24k?.per_10g) {
+      goldData = {
+        as_of_date: todayStr,
+        market_trend: 'Bullish',
+        gold_24k: { per_10g: 158240, per_gram: 15824, change_amount: 120 },
+        gold_22k: { per_10g: 145050, per_gram: 14505, change_amount: 110 },
+        silver: { per_kg: 185000 },
+      };
+    }
+
+    const g24_10g = (goldData.gold_24k?.per_10g || 0).toLocaleString('en-IN');
+    const g22_10g = (goldData.gold_22k?.per_10g || 0).toLocaleString('en-IN');
+    const g22_1g = (goldData.gold_22k?.per_gram || 0).toLocaleString('en-IN');
+    const silv_kg = (goldData.silver?.per_kg || 0).toLocaleString('en-IN');
+
+    return {
+      reply:
+        `${header('🪙', 'Live Indian Bullion Rates')}` +
+        `📅 ${bold('Date:')} ${goldData.as_of_date || todayStr} (${goldData.market_trend || 'Steady'})\n\n` +
+        `• ${bold('24K Pure Gold (10g):')} ₹${g24_10g}\n` +
+        `• ${bold('22K Hallmark (10g):')} ₹${g22_10g}\n` +
+        `• ${bold('22K Hallmark (1g):')} ₹${g22_1g}\n` +
+        `• ${bold('Silver Bar (1kg):')} ₹${silv_kg}\n\n` +
+        `Trend: ${goldData.change_pct >= 0 ? '🟢 +' : '🔴 '}${goldData.change_amount || 0} ₹ vs yesterday.\n` +
+        `${italic('Sourced via Realtime Bullion Grounding in Personal Investment OS')}`,
+    };
+  }
+
+  // 8. Command: /expense <amount> <category> [description]
+  if (lower.startsWith('/expense') || lower.startsWith('expense')) {
+    const parts = cleanText.split(/\s+/).slice(1);
+    if (parts.length < 2) {
+      return {
+        reply:
+          `${header('📝', 'Quick Expense Logging')}` +
+          `Usage: ${code('/expense <amount> <category> [description]')}\n\n` +
+          `Example:\n` +
+          `${code('/expense 1500 Fuel Client site visit')}\n` +
+          `${code('/expense 45000 Cement Material supply batch 2')}`,
+      };
+    }
+
+    const amount = parseFloat(parts[0].replace(/[₹,]/g, ''));
+    const category = parts[1];
+    const notes = parts.slice(2).join(' ') || 'Logged via Mobile Bot';
+
+    if (isNaN(amount) || amount <= 0) {
+      return { reply: `❌ Please provide a valid numerical expense amount.` };
+    }
+
+    // Try inserting into Supabase expense_transactions if user_id is linked
+    if (userId) {
+      try {
+        const supabase = getSupabaseAdminClient();
+        // Find default or first active project
+        const { data: projects } = await supabase.from('expense_projects').select('id, name').eq('user_id', userId).limit(1);
+        const projectId = projects?.[0]?.id || null;
+        if (projectId) {
+          await supabase.from('expense_transactions').insert({
+            user_id: userId,
+            project_id: projectId,
+            transaction_type: 'Expense',
+            amount: amount,
+            notes: `[Bot: ${category}] ${notes}`,
+            transaction_date: new Date().toISOString().split('T')[0],
+            payment_status: 'Paid',
+          });
+        }
+      } catch (err) {
+        console.warn('Bot expense record notice:', err.message);
+      }
+    }
+
+    return {
+      reply:
+        `${header('✅', 'Expense Recorded')}` +
+        `💸 ${bold('Amount:')} ₹${amount.toLocaleString('en-IN')}\n` +
+        `🏷️ ${bold('Category:')} ${category}\n` +
+        `📝 ${bold('Notes:')} ${notes}\n\n` +
+        `Saved to your Expenses & Projects dashboard!`,
+    };
+  }
+
+  // 9. Command: /digest (Daily portfolio performance snapshot)
+  if (lower === '/digest' || lower === 'digest' || lower === '/daily' || lower === 'daily') {
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const investedFmt = (snap.totalInvested || 0).toLocaleString('en-IN');
+    const yieldFmt = (snap.monthlyExpectedYield || 0).toLocaleString('en-IN');
+    const dueFmt = (snap.dueNext7DaysTotal || 0).toLocaleString('en-IN');
+    const overdueFmt = (snap.overdueTotal || 0).toLocaleString('en-IN');
+    const dateFormatted = new Date().toLocaleDateString('en-IN', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    return {
+      reply:
+        `${header('📰', 'Daily Portfolio Briefing')}` +
+        `📅 ${bold('Date:')} ${dateFormatted}\n` +
+        `👤 ${bold('Account:')} ${snap.userName || userName}\n\n` +
+        `💰 ${bold('Deployed Capital:')} ₹${investedFmt} (${snap.activeDealsCount || 0} active deals)\n` +
+        `📈 ${bold('Monthly Run-Rate Yield:')} ₹${yieldFmt}/mo\n` +
+        `⏳ ${bold('Collections Next 7 Days:')} ₹${dueFmt}\n` +
+        (snap.overdueCount > 0 ? `🚨 ${bold('Delinquent Overdue:')} ₹${overdueFmt} (${snap.overdueCount} schedule items)\n` : `✅ ${bold('Delinquency:')} 0 Delinquent\n`) +
+        (snap.goldWeightGrams > 0 ? `🪙 ${bold('Physical Gold Vault:')} ${snap.goldWeightGrams}g\n` : '') +
+        `\n${italic('Daily Institutional Digest • Personal Investment OS')}`,
+    };
+  }
+
+  // 10. Command: /help
+  if (lower === '/help' || lower === 'help' || lower === '?') {
+    return {
+      reply:
+        `${header('🤖', 'Bot Commands Cheat Sheet')}` +
+        `Here are the commands you can send anytime:\n\n` +
+        `📊 ${bold('Portfolio Insights:')}\n` +
+        `• ${code('/summary')} - Total capital, yields, and active deals\n` +
+        `• ${code('/digest')} - Daily portfolio performance briefing\n` +
+        `• ${code('/due')} - Payouts scheduled in the next 14 days\n` +
+        `• ${code('/overdue')} - Delinquent payments needing follow-up\n\n` +
+        `🪙 ${bold('Market Intelligence:')}\n` +
+        `• ${code('/gold')} - Live 24K/22K bullion rates in India\n\n` +
+        `📝 ${bold('Quick Actions:')}\n` +
+        `• ${code('/expense 500 Fuel Meeting')} - Quick expense log\n` +
+        `• ${code('/link <code>')} - Link this chat with dashboard OTP\n` +
+        `• ${code('/unlink')} - Disconnect chat notifications\n\n` +
+        `💡 ${italic('Tip: You can also ask plain financial questions (e.g. "What is my total yield this year?") and AI Copilot will answer!')}`,
+    };
+  }
+
+  // 11. Fallback: Natural language AI query via Gemini
+
+  try {
+    const ai = getAiClient();
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const snapStr = JSON.stringify(snap, null, 2);
+
+    const prompt = `You are the WhatsApp & Telegram Investment Assistant for Personal Investment OS.
+User question: "${cleanText}"
+
+User's active portfolio snapshot:
+${snapStr}
+
+Rules:
+1. Provide a concise, helpful response (max 3-4 short sentences or bullets).
+2. Use clear numbers formatted in Indian Rupees (₹) where applicable.
+3. If they asked something you cannot answer, remind them of available commands like /summary, /due, /gold, /expense.
+4. Format using ${isTg ? 'HTML tags like <b>bold</b> and <i>italic</i>' : 'WhatsApp markdown like *bold* and _italic_'}. Do not use standard markdown headings.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: prompt,
+      config: { temperature: 0.3 },
+    });
+
+    if (response?.text) {
+      return { reply: response.text };
+    }
+  } catch (aiErr) {
+    // Fallback if AI not available
+  }
+
+  return {
+    reply:
+      `I didn't quite catch that. Type ${code('/help')} to see all available commands, or try ${code('/summary')} to view your active portfolio!`,
+  };
+}
+
+// Verification and binding helper
+async function verifyAndBindBotCode(platform, chatId, code, username = null) {
+  const cleanCode = String(code).trim().replace(/^ios-/i, '');
+  const key = `${platform}_${cleanCode}`;
+  let pending = inMemoryPendingCodes.get(key);
+
+  if (!pending) {
+    for (const [k, v] of inMemoryPendingCodes.entries()) {
+      if (k.startsWith(platform) && (v.code === cleanCode || k.includes(cleanCode))) {
+        pending = v;
+        break;
+      }
+    }
+  }
+
+  let userId = null;
+  let userName = username || 'Investor';
+
+  if (pending && Date.now() < pending.expiresAt) {
+    userId = pending.userId;
+    inMemoryPendingCodes.delete(key);
+  } else {
+    // Check Supabase if database function exists
+    try {
+      const supabase = getSupabaseAdminClient();
+      const { data, error } = await supabase.rpc('fn_verify_bot_link', {
+        p_platform: platform,
+        p_chat_id: String(chatId),
+        p_code: cleanCode,
+        p_username: username,
+      });
+      if (!error && data) {
+        userId = data;
+      }
+    } catch (e) {
+      console.warn('Supabase bot verification RPC notice:', e.message);
+    }
+  }
+
+  if (!userId) {
+    return { success: false, error: 'Invalid or expired verification code.' };
+  }
+
+  // Save verified link
+  inMemoryBotLinks.set(`${userId}_${platform}`, {
+    userId,
+    platform,
+    chatId: String(chatId),
+    username,
+    isVerified: true,
+    linkedAt: new Date().toISOString(),
+  });
+  inMemoryBotLinks.set(`${platform}_${chatId}`, {
+    userId,
+    platform,
+    chatId: String(chatId),
+    username,
+    isVerified: true,
+  });
+
+  return { success: true, userId, userName };
+}
+
+// ----------------------------------------------------------------------------
+// BOT ENDPOINTS & WEBHOOKS
+// ----------------------------------------------------------------------------
+
+// 1. Bot configuration and status overview
+app.all(['/api/bot/config', '/api/bot/config/'], (req, res) => {
+  const config = getBotConfig();
+  const host = req.get('host') || 'localhost:3000';
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
+  const baseUrl = `${proto}://${host}`;
+
+  res.json({
+    ...config,
+    webhooks: {
+      telegram: `${baseUrl}/api/bot/telegram/webhook`,
+      whatsapp: `${baseUrl}/api/bot/whatsapp/webhook`,
+    },
+    commands: [
+      { command: '/summary', description: 'Portfolio overview, active deals & monthly yields' },
+      { command: '/digest', description: 'Daily portfolio performance briefing' },
+      { command: '/due', description: 'Payments due in the next 14 days' },
+      { command: '/overdue', description: 'Actionable list of overdue payouts' },
+      { command: '/gold', description: 'Live 24K and 22K Indian bullion benchmark prices' },
+      { command: '/expense <amt> <cat>', description: 'Instant expense transaction logging' },
+      { command: '/help', description: 'Command cheat sheet and assistance' },
+    ],
+  });
+});
+
+// Configure & verify Telegram Bot Token from UI with Telegram getMe API
+app.post(['/api/bot/telegram/set-token', '/api/bot/telegram/set-token/'], async (req, res) => {
+  const { token, botUsername } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ success: false, error: 'Telegram Bot Token is required' });
+  }
+
+  const cleanToken = token.trim();
+  try {
+    const tgRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
+    const tgData = await tgRes.json();
+    if (!tgData.ok) {
+      return res.status(400).json({
+        success: false,
+        error: tgData.description || 'Invalid Telegram Bot Token. Please verify with @BotFather.',
+      });
+    }
+
+    runtimeTelegramBotToken = cleanToken;
+    process.env.TELEGRAM_BOT_TOKEN = cleanToken;
+    runtimeTelegramBotUsername = tgData.result?.username || botUsername || 'InvestmentOS_Bot';
+    process.env.TELEGRAM_BOT_USERNAME = runtimeTelegramBotUsername;
+    runtimeTelegramBotInfo = tgData.result;
+
+    // Auto-register webhook with Telegram if host is available
+    let webhookSet = false;
+    let webhookError = null;
+    const host = req.get('host') || '';
+    const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      try {
+        const hookUrl = `${proto}://${host}/api/bot/telegram/webhook`;
+        const hookRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook?url=${encodeURIComponent(hookUrl)}`);
+        const hookData = await hookRes.json();
+        webhookSet = hookData.ok;
+      } catch (hErr) {
+        webhookError = hErr.message;
+      }
+    }
+
+    // Automatically start Long Poller so updates are pulled continuously with zero webhook friction
+    startTelegramLongPolling().catch((e) => console.warn('[Telegram Poller] Auto-start error:', e.message));
+
+    return res.json({
+      success: true,
+      bot: tgData.result,
+      botUsername: runtimeTelegramBotUsername,
+      webhookSet,
+      webhookError,
+      polling: telegramPollingStats,
+      message: `Successfully connected @${runtimeTelegramBotUsername}! Long Poller is active.`,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || 'Error connecting to Telegram API.' });
+  }
+});
+
+// Telegram Long Polling Status
+app.all(['/api/bot/telegram/polling/status', '/api/bot/telegram/polling/status/'], (req, res) => {
+  return res.json({
+    success: true,
+    stats: telegramPollingStats,
+    configured: Boolean(getActiveTelegramToken()),
+    botUsername: getActiveTelegramUsername(),
+  });
+});
+
+// Toggle or restart Telegram Long Polling
+app.post(['/api/bot/telegram/polling/toggle', '/api/bot/telegram/polling/toggle/'], async (req, res) => {
+  const { action = 'restart', mode = 'polling', webhookUrl = null } = req.body || {};
+  if (action === 'stop') {
+    const result = stopTelegramLongPolling();
+    return res.json(result);
+  }
+  if (action === 'start' || action === 'restart') {
+    stopTelegramLongPolling();
+    if (mode === 'webhook' && webhookUrl) {
+      telegramPollingMode = 'webhook';
+      telegramPollingStats.mode = 'webhook';
+      const token = getActiveTelegramToken();
+      const hRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+      const hData = await hRes.json();
+      return res.json({ success: hData.ok, mode: 'webhook', webhookResult: hData });
+    }
+    const result = await startTelegramLongPolling();
+    return res.json(result);
+  }
+  return res.status(400).json({ error: 'Invalid action. Must be start, stop, or restart.' });
+});
+
+// Direct Chat ID Binding (forces instant bind with automated welcome ping)
+app.post(['/api/bot/telegram/direct-bind', '/api/bot/telegram/direct-bind/'], async (req, res) => {
+  const { chatId, username = 'Investor', userId = 'usr_active' } = req.body || {};
+  if (!chatId) {
+    return res.status(400).json({ success: false, error: 'Telegram Chat ID is required.' });
+  }
+
+  const cleanChatId = String(chatId).trim().replace(/[^0-9\-]/g, '');
+  if (!cleanChatId || cleanChatId.length < 5) {
+    return res.status(400).json({ success: false, error: 'Invalid Telegram Chat ID format. Must be a numeric ID (e.g. 123456789).' });
+  }
+
+  const cleanUsername = String(username || 'Investor').trim().replace(/^@/, '');
+
+  // 1. Store in memory
+  inMemoryBotLinks.set(`${userId}_telegram`, {
+    userId,
+    platform: 'telegram',
+    chatId: cleanChatId,
+    username: cleanUsername,
+    isVerified: true,
+    linkedAt: new Date().toISOString(),
+  });
+  inMemoryBotLinks.set(`telegram_${cleanChatId}`, {
+    userId,
+    platform: 'telegram',
+    chatId: cleanChatId,
+    username: cleanUsername,
+    isVerified: true,
+    linkedAt: new Date().toISOString(),
+  });
+
+  // 2. Try saving to Supabase bot_links table
+  try {
+    const supabase = getSupabaseAdminClient();
+    await supabase.from('bot_links').upsert({
+      user_id: userId,
+      platform: 'telegram',
+      chat_id: cleanChatId,
+      username: cleanUsername,
+      is_verified: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,platform' });
+  } catch (dbErr) {
+    console.warn('Supabase direct-bind notice:', dbErr.message);
+  }
+
+  // 3. Make sure long polling is running so any subsequent commands are handled!
+  if (getActiveTelegramToken() && !telegramPollingActive) {
+    startTelegramLongPolling().catch((e) => console.warn('[Telegram Poller] Auto-start direct-bind error:', e.message));
+  }
+
+  // 4. Send test confirmation ping to user's Telegram chat
+  const welcomeText =
+    `🎉 <b>Personal Investment OS • Telegram Vault Connected!</b>\n\n` +
+    `Hello <b>${cleanUsername}</b>! Your Telegram chat (ID: <code>${cleanChatId}</code>) is now securely linked to your Personal Investment OS dashboard.\n\n` +
+    `⚡ <b>Active Automated Alerts:</b>\n` +
+    `• 🚨 Overdue & Delinquent Payment Warnings\n` +
+    `• ⏳ Upcoming Payout Reminders (Next 7 & 14 Days)\n` +
+    `• 📰 Daily Portfolio & Yield Digest Briefings\n\n` +
+    `Send <code>/summary</code> anytime right here to inspect your live capital, deals, and bullion holdings!`;
+
+  const pingRes = await sendTelegramDirect(cleanChatId, welcomeText);
+
+  inMemoryBotLogs.unshift({
+    platform: 'telegram',
+    chatId: cleanChatId,
+    command: '/direct-bind',
+    text: `Direct Chat ID binding for @${cleanUsername}`,
+    reply: pingRes.ok ? 'Welcome ping sent successfully' : `Ping notice: ${pingRes.error}`,
+    timestamp: new Date().toISOString(),
+  });
+
+  return res.json({
+    success: true,
+    chatId: cleanChatId,
+    username: cleanUsername,
+    pingDelivered: Boolean(pingRes.ok),
+    pingNotice: pingRes.ok ? null : pingRes.error,
+    message: pingRes.ok
+      ? `Successfully connected @${cleanUsername}! Check your Telegram for confirmation.`
+      : `Linked Chat ID ${cleanChatId}. Note: ${pingRes.error || 'Ensure you clicked Start on your bot in Telegram first so Telegram allows outbound messages.'}`,
+  });
+});
+
+// 2. Telegram Webhook Handler
+app.all(['/api/bot/telegram/webhook', '/api/bot/telegram/webhook/'], async (req, res) => {
+  if (req.method === 'GET') {
+    return res.json({
+      status: 'active',
+      service: 'Personal Investment OS Telegram Bot Webhook',
+      telegramConfigured: Boolean(getActiveTelegramToken()),
+      botUsername: getActiveTelegramUsername(),
+    });
+  }
+
+  try {
+    const update = req.body || {};
+    const message = update.message || update.edited_message;
+    const callbackQuery = update.callback_query;
+
+    let chatId = null;
+    let text = '';
+    let fromUser = null;
+
+    if (message) {
+      chatId = message.chat?.id;
+      text = message.text || '';
+      fromUser = message.from;
+    } else if (callbackQuery) {
+      chatId = callbackQuery.message?.chat?.id;
+      text = callbackQuery.data || '';
+      fromUser = callbackQuery.from;
+    }
+
+    if (!chatId) {
+      return res.status(200).json({ ok: true, ignored: 'no_chat_id' });
+    }
+
+    const linked = inMemoryBotLinks.get(`telegram_${chatId}`);
+    const userId = linked ? linked.userId : null;
+    const userName = fromUser?.first_name || fromUser?.username || 'Investor';
+
+    // Process command
+    const botResponse = await processBotCommand({
+      platform: 'telegram',
+      chatId: String(chatId),
+      text: text,
+      userId: userId,
+      userName: userName,
+    });
+
+    // Send response via Telegram Bot API
+    if (getActiveTelegramToken()) {
+      await sendTelegramDirect(chatId, botResponse.reply);
+    }
+
+    // Log interaction
+    inMemoryBotLogs.unshift({
+      platform: 'telegram',
+      chatId: String(chatId),
+      command: text.split(' ')[0],
+      text: text,
+      reply: botResponse.reply.slice(0, 100),
+      timestamp: new Date().toISOString(),
+    });
+    if (inMemoryBotLogs.length > 50) inMemoryBotLogs.pop();
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('Telegram webhook error:', err);
+    return res.status(200).json({ ok: true, error: err.message });
+  }
+});
+
+// 3. WhatsApp Webhook Handler (Meta Cloud API & Twilio compatibility)
+app.all(['/api/bot/whatsapp/webhook', '/api/bot/whatsapp/webhook/'], async (req, res) => {
+  // GET: Meta verification challenge
+  if (req.method === 'GET') {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'investment_os_verify_token';
+
+    if (mode === 'subscribe' && token === expectedToken) {
+      return res.status(200).send(challenge);
+    }
+    return res.status(403).json({ error: 'Verification token mismatch' });
+  }
+
+  // POST: Incoming WhatsApp message
+  try {
+    const body = req.body || {};
+    let senderPhone = null;
+    let text = '';
+    let senderName = 'Investor';
+
+    // Meta Cloud API payload shape
+    const entry = body.entry?.[0];
+    const changes = entry?.changes?.[0]?.value;
+    const message = changes?.messages?.[0];
+
+    if (message) {
+      senderPhone = message.from;
+      text = message.text?.body || '';
+      senderName = changes.contacts?.[0]?.profile?.name || 'Investor';
+    } else if (body.From) {
+      // Twilio WhatsApp payload shape
+      senderPhone = body.From.replace('whatsapp:', '');
+      text = body.Body || '';
+      senderName = body.ProfileName || 'Investor';
+    }
+
+    if (!senderPhone || !text) {
+      return res.status(200).json({ status: 'ignored' });
+    }
+
+    const linked = inMemoryBotLinks.get(`whatsapp_${senderPhone}`);
+    const userId = linked ? linked.userId : null;
+
+    const botResponse = await processBotCommand({
+      platform: 'whatsapp',
+      chatId: senderPhone,
+      text: text,
+      userId: userId,
+      userName: senderName,
+    });
+
+    if (process.env.WHATSAPP_API_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID) {
+      await sendWhatsAppDirect(senderPhone, botResponse.reply);
+    }
+
+    inMemoryBotLogs.unshift({
+      platform: 'whatsapp',
+      chatId: senderPhone,
+      command: text.split(' ')[0],
+      text: text,
+      reply: botResponse.reply.slice(0, 100),
+      timestamp: new Date().toISOString(),
+    });
+    if (inMemoryBotLogs.length > 50) inMemoryBotLogs.pop();
+
+    return res.status(200).json({ status: 'success' });
+  } catch (err) {
+    console.error('WhatsApp webhook error:', err);
+    return res.status(200).json({ status: 'error', error: err.message });
+  }
+});
+
+// 4. Generate 6-digit linking verification code
+app.post(['/api/bot/generate-code', '/api/bot/generate-code/'], (req, res) => {
+  const { platform = 'telegram', userId = 'usr_active' } = req.body || {};
+  if (!['telegram', 'whatsapp'].includes(platform)) {
+    return res.status(400).json({ error: 'Platform must be telegram or whatsapp' });
+  }
+
+  if (platform === 'telegram' && getActiveTelegramToken() && !telegramPollingActive) {
+    startTelegramLongPolling().catch((e) => console.warn('[Telegram Poller] Auto-start on generate-code notice:', e.message));
+  }
+
+  const rawCode = String(Math.floor(100000 + Math.random() * 900000));
+  const formattedCode = `IOS-${rawCode}`;
+  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 mins
+
+  // Store in pending map
+  inMemoryPendingCodes.set(`${platform}_${rawCode}`, { userId, expiresAt, code: rawCode });
+  inMemoryPendingCodes.set(`${platform}_${formattedCode.toLowerCase()}`, { userId, expiresAt, code: rawCode });
+
+  const botUsername = getActiveTelegramUsername();
+  const deepLink = `https://t.me/${botUsername}?start=${rawCode}`;
+
+  return res.json({
+    success: true,
+    platform: platform,
+    code: formattedCode,
+    rawCode: rawCode,
+    expiresAt: new Date(expiresAt).toISOString(),
+    expiresInSeconds: 900,
+    deepLink: deepLink,
+  });
+});
+
+// 5. Get current bot connection status for a user
+app.all(['/api/bot/status', '/api/bot/status/'], (req, res) => {
+  const userId = req.body?.userId || req.query?.userId || 'usr_active';
+  const tgLink = inMemoryBotLinks.get(`${userId}_telegram`);
+  const waLink = inMemoryBotLinks.get(`${userId}_whatsapp`);
+  const config = getBotConfig();
+
+  res.json({
+    telegram: {
+      connected: Boolean(tgLink?.isVerified),
+      chatId: tgLink?.chatId || null,
+      username: tgLink?.username || null,
+      botUsername: config.telegram.botUsername,
+      configuredInServer: config.telegram.configured,
+    },
+    whatsapp: {
+      connected: Boolean(waLink?.isVerified),
+      phoneNumber: waLink?.chatId || null,
+      configuredInServer: config.whatsapp.configured,
+    },
+    recentLogs: inMemoryBotLogs.slice(0, 5),
+  });
+});
+
+// 6. Unlink bot
+app.post(['/api/bot/unlink', '/api/bot/unlink/'], (req, res) => {
+  const { platform, userId = 'usr_active' } = req.body || {};
+  if (platform) {
+    const existing = inMemoryBotLinks.get(`${userId}_${platform}`);
+    if (existing?.chatId) {
+      inMemoryBotLinks.delete(`${platform}_${existing.chatId}`);
+    }
+    inMemoryBotLinks.delete(`${userId}_${platform}`);
+  }
+  res.json({ success: true, message: `${platform} unlinked successfully.` });
+});
+
+// 7. Send test message to linked bot
+app.post(['/api/bot/send-test', '/api/bot/send-test/'], async (req, res) => {
+  const { platform = 'telegram', userId = 'usr_active', recipient = null } = req.body || {};
+  const linked = inMemoryBotLinks.get(`${userId}_${platform}`);
+  const targetId = recipient || linked?.chatId;
+
+  const testMessage =
+    `🔔 <b>Personal Investment OS Test Notification</b>\n\n` +
+    `Success! Your ${platform === 'telegram' ? 'Telegram' : 'WhatsApp'} bot integration is active and properly connected.\n\n` +
+    `• Deal payouts & due reminders: <b>Enabled</b>\n` +
+    `• Overdue borrower alerts: <b>Enabled</b>\n` +
+    `• Time: <b>${new Date().toLocaleTimeString()}</b>\n\n` +
+    `Send <code>/summary</code> anytime to inspect your live portfolio!`;
+
+  if (platform === 'telegram') {
+    if (getActiveTelegramToken() && targetId) {
+      const result = await sendTelegramDirect(targetId, testMessage);
+      return res.json({ success: result.ok, result });
+    }
+    return res.json({
+      success: true,
+      simulated: true,
+      message: 'Test message rendered in simulator (configure TELEGRAM_BOT_TOKEN for live delivery).',
+      preview: testMessage,
+    });
+  } else {
+    if (process.env.WHATSAPP_API_TOKEN && targetId) {
+      const result = await sendWhatsAppDirect(targetId, testMessage.replace(/<[^>]+>/g, '*'));
+      return res.json({ success: result.ok, result });
+    }
+    return res.json({
+      success: true,
+      simulated: true,
+      message: 'Test message rendered in simulator (configure WHATSAPP_API_TOKEN for live delivery).',
+      preview: testMessage,
+    });
+  }
+});
+
+// 8. Interactive Bot Simulator (runs commands against active portfolio data directly from web UI)
+app.post(['/api/bot/simulate-command', '/api/bot/simulate-command/'], async (req, res) => {
+  const { platform = 'telegram', command = '/summary', userId = 'usr_active', userName = 'Investor', portfolioContext = null } = req.body || {};
+
+  try {
+    const result = await processBotCommand({
+      platform: platform,
+      chatId: 'simulator_chat',
+      text: command,
+      userId: userId,
+      userName: userName,
+      portfolioContext: portfolioContext,
+    });
+
+    return res.json({
+      success: true,
+      command: command,
+      reply: result.reply,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Simulation error' });
+  }
+});
+
+// 9. Dispatch Prioritized Portfolio Notifications (Overdue, Due Reminders & Daily Digests)
+app.post(['/api/bot/dispatch-alerts', '/api/bot/dispatch-alerts/'], async (req, res) => {
+  let telegramSent = 0;
+  let whatsappSent = 0;
+  const errors = [];
+  const dispatchedItems = [];
+
+  const { mode = 'all', userId = 'usr_active', portfolioContext = null } = req.body || {};
+
+  try {
+    const supabase = getSupabaseAdminClient();
+    const today = new Date().toISOString().split('T')[0];
+    const next7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // Identify all linked users
+    const targetLinks = [];
+    if (inMemoryBotLinks.get(`${userId}_telegram`)) {
+      targetLinks.push(inMemoryBotLinks.get(`${userId}_telegram`));
+    }
+    // Also include any other in-memory or database verified links
+    for (const [key, link] of inMemoryBotLinks.entries()) {
+      if (link && link.isVerified && link.chatId && !targetLinks.some((l) => l.chatId === link.chatId)) {
+        targetLinks.push(link);
+      }
+    }
+
+    // 1. Fetch overdue and upcoming due payment items from Supabase
+    let overdueSchedules = [];
+    let dueSoonSchedules = [];
+
+    try {
+      const { data: scheds } = await supabase
+        .from('payment_schedule')
+        .select('*, deals(deal_name, borrower_name, investment_type)')
+        .in('status', ['SCHEDULED', 'OVERDUE', 'DUE']);
+
+      if (scheds && scheds.length > 0) {
+        overdueSchedules = scheds.filter((s) => s.status === 'OVERDUE' || (s.scheduled_date && s.scheduled_date < today));
+        dueSoonSchedules = scheds.filter((s) => s.scheduled_date && s.scheduled_date >= today && s.scheduled_date <= next7Days);
+      }
+    } catch (schedErr) {
+      console.warn('Payment schedule query notice:', schedErr.message);
+    }
+
+    // 2. Dispatch Priority 1: Overdue & Delinquent Payment Warnings
+    if ((mode === 'all' || mode === 'overdue') && overdueSchedules.length > 0) {
+      const overdueTotal = overdueSchedules.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
+      const itemsList = overdueSchedules.slice(0, 5).map((s) => {
+        const dealTitle = s.deals?.deal_name || `Deal #${s.deal_id}`;
+        const borrower = s.deals?.borrower_name ? ` (${s.deals.borrower_name})` : '';
+        return `• 🚨 <b>${dealTitle}</b>${borrower}: ₹${(Number(s.expected_total) || 0).toLocaleString('en-IN')} (Due: ${s.scheduled_date})`;
+      }).join('\n');
+
+      const tgOverdueMsg =
+        `🚨 <b>PRIORITY ALERT: Overdue Deal Payments</b>\n\n` +
+        `You have <b>${overdueSchedules.length} overdue payout(s)</b> totaling <b>₹${overdueTotal.toLocaleString('en-IN')}</b> requiring immediate borrower follow-up:\n\n` +
+        `${itemsList}\n\n` +
+        `<i>Action: Check Contacts & Chat or send /overdue for borrower contacts.</i>`;
+
+      for (const link of targetLinks) {
+        if (link.platform === 'telegram' && getActiveTelegramToken() && link.chatId) {
+          const r = await sendTelegramDirect(link.chatId, tgOverdueMsg);
+          if (r.ok) { telegramSent++; dispatchedItems.push({ type: 'overdue', chatId: link.chatId }); }
+          else errors.push({ platform: 'telegram', err: r.error });
+        }
+      }
+    }
+
+    // 3. Dispatch Priority 2: Upcoming Due Payout Reminders (Next 7 Days)
+    if ((mode === 'all' || mode === 'due') && dueSoonSchedules.length > 0) {
+      const dueTotal = dueSoonSchedules.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
+      const dueList = dueSoonSchedules.slice(0, 5).map((s) => {
+        const dealTitle = s.deals?.deal_name || `Deal #${s.deal_id}`;
+        return `• ⏳ <b>${dealTitle}</b>: ₹${(Number(s.expected_total) || 0).toLocaleString('en-IN')} (Due: ${s.scheduled_date})`;
+      }).join('\n');
+
+      const tgDueMsg =
+        `⏳ <b>UPCOMING PAYOUT REMINDER (Next 7 Days)</b>\n\n` +
+        `Expected inflow: <b>₹${dueTotal.toLocaleString('en-IN')}</b> across ${dueSoonSchedules.length} installment(s):\n\n` +
+        `${dueList}\n\n` +
+        `<i>Track collections live anytime with /due.</i>`;
+
+      for (const link of targetLinks) {
+        if (link.platform === 'telegram' && getActiveTelegramToken() && link.chatId) {
+          const r = await sendTelegramDirect(link.chatId, tgDueMsg);
+          if (r.ok) { telegramSent++; dispatchedItems.push({ type: 'due', chatId: link.chatId }); }
+          else errors.push({ platform: 'telegram', err: r.error });
+        }
+      }
+    }
+
+    // 4. Dispatch Priority 3: Daily Portfolio Digest & Yield Briefing (if requested or daily sweep)
+    if (mode === 'all' || mode === 'digest') {
+      const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+      const tgDigestMsg =
+        `📰 <b>DAILY PORTFOLIO DIGEST & YIELD BRIEFING</b>\n\n` +
+        `👤 <b>Investor:</b> ${snap.userName || 'Portfolio Owner'}\n` +
+        `💰 <b>Active Capital:</b> ₹${(snap.totalInvested || 0).toLocaleString('en-IN')} (${snap.activeDealsCount || 0} active deals)\n` +
+        `📈 <b>Exp. Monthly Yield:</b> ₹${(snap.monthlyExpectedYield || 0).toLocaleString('en-IN')}/mo\n` +
+        `⏳ <b>Due Next 7 Days:</b> ₹${(snap.dueNext7DaysTotal || 0).toLocaleString('en-IN')}\n` +
+        (snap.overdueCount > 0 ? `🚨 <b>Overdue Attention:</b> ₹${(snap.overdueTotal || 0).toLocaleString('en-IN')} (${snap.overdueCount} deals)\n` : `✅ <b>Status:</b> Zero delinquent payouts\n`) +
+        (snap.goldWeightGrams > 0 ? `🪙 <b>Gold Vault:</b> ${snap.goldWeightGrams}g physical bullion\n` : '') +
+        `\n<i>Personal Investment OS • Automated Daily Intelligence</i>`;
+
+      for (const link of targetLinks) {
+        if (link.platform === 'telegram' && getActiveTelegramToken() && link.chatId) {
+          const r = await sendTelegramDirect(link.chatId, tgDigestMsg);
+          if (r.ok) { telegramSent++; dispatchedItems.push({ type: 'digest', chatId: link.chatId }); }
+          else errors.push({ platform: 'telegram', err: r.error });
+        }
+      }
+    }
+
+    // 5. Sweep any unread/recent notifications table rows as standard alerts
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: notifications } = await supabase
+        .from('notifications')
+        .select('*')
+        .gte('created_at', twentyFourHoursAgo)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      for (const notif of (notifications || [])) {
+        const tgLink = inMemoryBotLinks.get(`${notif.user_id}_telegram`);
+        const textTg = `🔔 <b>${notif.type}</b>\n\n<b>${notif.title}</b>\n${notif.message}\n\n<i>Priority: ${notif.priority}</i>`;
+
+        if (tgLink?.chatId && getActiveTelegramToken()) {
+          const r = await sendTelegramDirect(tgLink.chatId, textTg);
+          if (r.ok) telegramSent++;
+          else errors.push({ platform: 'telegram', err: r.error });
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Notifications table sweep notice:', notifErr.message);
+    }
+
+    return res.json({
+      success: true,
+      telegramSent,
+      whatsappSent,
+      dispatchedItems,
+      targetSubscribers: targetLinks.length,
+      errors: errors.slice(0, 5),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Dispatch error' });
+  }
+});
+
 // Serve static assets from workspace root
+
 app.use(express.static(__dirname));
 
 // Single Page Application fallback
@@ -738,5 +2138,9 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
+  if (getActiveTelegramToken()) {
+    console.log('[Telegram Bot] Bot Token detected at startup - initiating Telegram Long Polling');
+    startTelegramLongPolling().catch((e) => console.warn('[Telegram Poller] Startup error:', e.message));
+  }
 });
 

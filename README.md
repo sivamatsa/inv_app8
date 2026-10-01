@@ -462,9 +462,37 @@ a cron-triggered run landing close together just race to mark the same rows sent
 
 **Not yet verified against real push delivery via the webhook path specifically** — the manual "Trigger
 Push Now" button already reaches real devices per your own testing, so the function and VAPID keys
-themselves work; only the trigger mechanism above is new and needs a first live confirmation.
+
+## WhatsApp & Telegram Bot Integration
+
+Full two-way messaging bot integration and outbound automated alerts for Telegram and WhatsApp (`051_whatsapp_telegram_bot_integration.sql`):
+
+- **Real-Time Outbound Notifications**: High-urgency deal payment due reminders, overdue alerts, gold price target moves, and automation center rule triggers delivered directly to your Telegram chat or WhatsApp number.
+- **Interactive Two-Way Commands**: Query your live portfolio on the go from anywhere without logging into the web app:
+  - `/summary` or `/portfolio`: Instant snapshot of active capital deployed, deal counts, expected monthly passive income, and upcoming 7-day collections.
+  - `/due` or `/payments`: Scheduled borrower payouts arriving in the next 14 days.
+  - `/overdue`: Delinquent payments requiring borrower follow-up.
+  - `/gold`: Real-time Indian 24K and 22K hallmark bullion benchmark prices per 10g and 1g.
+  - `/expense <amount> <category> [notes]`: Instantly logs an expense into Expenses & Projects from your phone.
+  - `/help`: Detailed command cheat sheet.
+  - Natural Language AI Assistant: Conversational questions answered using your live portfolio data powered by server-side Gemini intelligence.
+- **Secure Identity Linking**:
+  - One-click Telegram Deep Link (`https://t.me/InvestmentOS_Bot?start=<code>`) automatically binds your chat to your account.
+  - One-time 6-digit verification codes (`IOS-XXXXXX`, expiring in 15 minutes) prevent unauthorized access.
+- **In-App Bot Console & Simulator**:
+  - Test bot commands directly within **Settings → WhatsApp & Telegram Bots → Open Bot Console & Simulator** against your real portfolio data even before third-party API tokens are configured.
+- **Dedicated Supabase Edge Function**: `supabase/functions/send-bot-notifications/` for automated cron/webhook dispatch.
+
+```bash
+supabase functions deploy send-bot-notifications
+supabase secrets set TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
+supabase secrets set TELEGRAM_BOT_USERNAME="InvestmentOS_Bot"
+supabase secrets set WHATSAPP_API_TOKEN="EAA..."
+supabase secrets set WHATSAPP_PHONE_NUMBER_ID="10987654321..."
+```
 
 ## Family/Peer Portfolio Sharing
+
 
 Lets a specific other person (a spouse, a family member) **view** — never edit — one person's
 portfolio, without being admin themselves. Admin manages this directly: **Admin → Shared Portfolios**
@@ -1148,10 +1176,10 @@ an oversight:
   no server here to hold a model API key, and the spec's own requirement — "AI must not invent
   financial figures; every insight should be traceable to underlying records" — is satisfied more
   directly this way than an actual LLM call would.
-- **Email and Web Push now deliver for real (see those sections above); WhatsApp/Telegram still
-  don't.** Those two remain real columns and preference toggles with nothing behind them yet — each
-  would need its own secret-holding integration (the WhatsApp Business API, a Telegram bot token) the
-  same way Email now has Resend and Push now has `web-push`.
+- **Email, Web Push, WhatsApp, and Telegram now all deliver for real (see those sections above).**
+  Telegram and WhatsApp feature two-way bot command execution (`/summary`, `/due`, `/overdue`, `/gold`,
+  `/expense`), 6-digit one-time binding codes, and automated notification delivery via webhooks and
+  the `send-bot-notifications` Supabase Edge Function.
 - **Community chat has no moderation.** Any signed-in user can post; there's no delete/report/block
   mechanism yet. Fine for a small, trusted group of friends/family; worth adding before opening this
   up more broadly.
