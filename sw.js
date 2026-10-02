@@ -1,33 +1,55 @@
-/* Service worker for installability + basic repeat-visit speed. Deliberately
-   simple: no pre-baked file manifest to keep in sync (this project has no
-   build step and the view-file list has grown a lot), just an opportunistic
-   "network first, cache as you go, fall back to cache when offline" policy
-   for this app's OWN static files.
+/* Service Worker: Personal Investment OS
+   Version: v2.4.0
+   PWA Shell + Push Notifications + Dynamic Cache Invalidation
+*/
 
-   Never touches anything cross-origin - Supabase API calls (auth/data) and
-   CDN scripts always go straight to the network, untouched by this file.
-   Caching a stale Supabase response would mean showing old financial data
-   as if it were current, which is worse than no offline support at all. */
+const APP_VERSION = 'v2.4.0';
+const CACHE_NAME = `investment-os-shell-${APP_VERSION}`;
 
-const CACHE_NAME = 'investment-os-shell-v1';
-
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
+  // Activate immediately when a new service worker is installed
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((k) => {
+          if (k !== CACHE_NAME) {
+            console.log(`[SW ${APP_VERSION}] Purging stale cache:`, k);
+            return caches.delete(k);
+          }
+        })
+      );
+    }).then(() => {
+      return self.clients.claim();
+    }).then(() => {
+      // Notify all active clients that new version is ready
+      return self.clients.matchAll({ type: 'window' }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'SW_VERSION_ACTIVE', version: APP_VERSION });
+        });
+      });
+    })
   );
-  self.clients.claim();
 });
 
-// Web Push (023_web_push.sql / send-web-push Edge Function). A push payload
-// is always plain JSON here (never HTML/script) - showNotification() is the
-// only thing done with it, no eval, no innerHTML.
+// Allow client pages to force activation
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING' || (event.data && event.data.type === 'SKIP_WAITING')) {
+    self.skipWaiting();
+  }
+});
+
+// Web Push Notifications
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Investment OS', body: 'You have a new notification.' };
-  try { if (event.data) payload = Object.assign(payload, event.data.json()); } catch (e) { /* keep default */ }
+  let payload = { title: 'Personal Investment OS', body: 'You have a portfolio update.' };
+  try {
+    if (event.data) payload = Object.assign(payload, event.data.json());
+  } catch (e) {
+    // Keep default payload
+  }
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
@@ -43,25 +65,74 @@ self.addEventListener('notificationclick', (event) => {
   const url = (event.notification.data && event.notification.data.url) || './';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) { if ('focus' in client) return client.focus(); }
+      for (const client of clients) {
+        if ('focus' in client) return client.focus();
+      }
       if (self.clients.openWindow) return self.clients.openWindow(url);
     })
   );
 });
 
+// Fetch Strategy: Network-First with Cache Fallback for Local Assets
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // Supabase + CDN scripts: always live network
 
+  const url = new URL(req.url);
+
+  // 1. Cross-Origin (Supabase, CDNs, external APIs): Always live network
+  if (url.origin !== self.location.origin) return;
+
+  // 2. Version metadata & API routes: NEVER cache via ServiceWorker
+  if (url.pathname.includes('/version.json') || url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // 3. Same-origin navigation & shell assets: Network-First with 2.5s timeout, cache fallback
   event.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-        return res;
-      })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+    new Promise((resolve) => {
+      let didRespond = false;
+      const timeoutId = setTimeout(() => {
+        if (!didRespond) {
+          caches.match(req).then((cached) => {
+            if (cached) {
+              didRespond = true;
+              resolve(cached);
+            }
+          });
+        }
+      }, 2500);
+
+      fetch(req)
+        .then((res) => {
+          clearTimeout(timeoutId);
+          if (!didRespond) {
+            didRespond = true;
+            if (res && res.status === 200) {
+              const copy = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            }
+            resolve(res);
+          }
+        })
+        .catch(() => {
+          clearTimeout(timeoutId);
+          if (!didRespond) {
+            didRespond = true;
+            caches.match(req).then((cached) => {
+              if (cached) {
+                resolve(cached);
+              } else if (req.mode === 'navigate') {
+                resolve(caches.match('./index.html'));
+              } else {
+                resolve(new Response('Offline content unavailable', { status: 503 }));
+              }
+            });
+          }
+        });
+    })
   );
 });

@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to fix the static HTML JSON parsing error on external deployments, fix deal metrics in Telegram bot with case-insensitive and real Supabase user binding, and build a full Hybrid AI Financial Assistant bot powered by Gemini and live portfolio grounding.",
-  "updatedAt":  "2026-10-02T17:46:32.985070831Z",
+  "summary":  "Implementation plan for comprehensive app versioning, automatic update detection, PWA cache invalidation, and release notes across Sidebar, Topbar, and Settings.",
+  "updatedAt":  "2026-10-02T18:38:21.678628140Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

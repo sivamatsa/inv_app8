@@ -383,6 +383,53 @@ window.App = window.App || {};
         </div>
         <div class="table-scroll"><table class="data" id="platformsTable"></table></div>
       </div>
+      <!-- System & Application Version Card -->
+      <div class="panel" id="appVersionSettingsPanel" style="border:1px solid rgba(201,168,76,0.3);background:linear-gradient(135deg,rgba(201,168,76,0.04),rgba(12,22,40,0.4))">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="chart-title" style="margin:0;display:flex;align-items:center;gap:8px">
+              <span>💎</span>
+              <span>System &amp; Application Version</span>
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-top:2px">Manage PWA updates, cache purging, and review release history across major and minor updates.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge" style="background:rgba(34,197,94,0.18);color:#22c55e;font-weight:700" id="settingsVersionStatusBadge">● System Active</span>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:14px">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:700">Installed Version</div>
+            <div style="font-size:22px;font-weight:800;color:var(--gold);font-family:monospace;margin:4px 0" id="settingsAppVersionVal">v2.4.0</div>
+            <div style="font-size:11.5px;color:var(--text2)" id="settingsAppBuildVal">2026-10-02 &middot; Production Stable</div>
+          </div>
+
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:700">PWA &amp; Cache Status</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin:6px 0" id="settingsPwaStatusVal">Offline Shell Active</div>
+            <div style="font-size:11.5px;color:var(--text3)">Service Worker v2.4.0 (Network-First)</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:12px;color:var(--text2)">
+            <b>Automatic Background Reload:</b> When a new version is pushed, apply and refresh seamlessly.
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="chkAutoReloadUpdates" style="accent-color:var(--gold)">
+            <span>Enable Auto-Reload</span>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-gold btn-sm" id="btnCheckForUpdatesSettings">&#8635; Check for Updates</button>
+          <button class="btn btn-outline btn-sm" id="btnViewWhatNewSettings">&#128220; What's New &amp; Changelog</button>
+          <button class="btn btn-outline btn-sm" id="btnForceClearCacheSettings" style="color:var(--red,#e5484d);border-color:rgba(229,72,77,0.4)">&#128465; Force Clear PWA Cache &amp; Reload</button>
+        </div>
+        <div id="settingsUpdateCheckNote" style="font-size:11.5px;color:var(--text3);margin-top:8px"></div>
+      </div>
+
       <div class="panel">
         <div class="chart-title" style="margin-bottom:6px;color:var(--red,#e5484d)">Danger Zone</div>
         <div class="hint" style="margin-bottom:10px">Permanently deletes every deal, payment, recurring item, gold purchase, expense, contact, note, document, and notification you own - Community, Blog, Support Tickets, Chat, and any portfolio shared with you or by you are untouched. Your account and sign-in stay intact; this only clears data. There is no undo.</div>
@@ -2093,6 +2140,54 @@ window.App = window.App || {};
       }).join('');
     }
     await drawIntegrations();
+
+    // Wire System & Application Version Controls
+    const btnCheckUpdates = App.utils.qs('#btnCheckForUpdatesSettings', pane);
+    const btnViewWhatNew = App.utils.qs('#btnViewWhatNewSettings', pane);
+    const btnForceClear = App.utils.qs('#btnForceClearCacheSettings', pane);
+    const chkAutoReload = App.utils.qs('#chkAutoReloadUpdates', pane);
+    const updateNote = App.utils.qs('#settingsUpdateCheckNote', pane);
+
+    if (chkAutoReload) {
+      chkAutoReload.checked = localStorage.getItem('ios_auto_reload_updates') === 'true';
+      chkAutoReload.addEventListener('change', () => {
+        localStorage.setItem('ios_auto_reload_updates', chkAutoReload.checked ? 'true' : 'false');
+        App.utils.toast(chkAutoReload.checked ? 'Auto-reload on update enabled' : 'Auto-reload disabled');
+      });
+    }
+
+    btnCheckUpdates?.addEventListener('click', async () => {
+      btnCheckUpdates.disabled = true;
+      btnCheckUpdates.innerHTML = '&#8987; Checking server...';
+      if (updateNote) updateNote.textContent = 'Pinging update server and service worker...';
+      try {
+        const result = await App.updater.checkForUpdates(false);
+        if (updateNote) {
+          if (result.hasUpdate) {
+            updateNote.innerHTML = `<span style="color:var(--gold)">New version v${result.version} available! Check the update banner.</span>`;
+          } else {
+            updateNote.innerHTML = `<span style="color:#22c55e">✓ Running latest release (v${App.version}). All service workers up to date.</span>`;
+          }
+        }
+      } catch (e) {
+        if (updateNote) updateNote.textContent = 'Check notice: ' + (e.message || e);
+      } finally {
+        btnCheckUpdates.disabled = false;
+        btnCheckUpdates.innerHTML = '&#8635; Check for Updates';
+      }
+    });
+
+    btnViewWhatNew?.addEventListener('click', () => {
+      App.updater.showReleaseNotesModal();
+    });
+
+    btnForceClear?.addEventListener('click', async () => {
+      await App.updater.forceClearCacheAndReload();
+    });
+
+    if (App.updater && App.updater.updateBadges) {
+      App.updater.updateBadges();
+    }
   }
 
   App.router.register('settings', renderSettingsView);

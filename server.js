@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
@@ -82,6 +83,29 @@ function callWithTimeout(promise, timeoutMs = 12000) {
 }
 
 // Gemini Multi-turn Chat Endpoint with robust retry & fallback
+// Canonical Version and Release Metadata endpoint
+const VERSION_METADATA_PATH = path.join(process.cwd(), 'version.json');
+app.get(['/version.json', '/api/version', '/api/version/'], (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  try {
+    if (fs.existsSync(VERSION_METADATA_PATH)) {
+      const data = fs.readFileSync(VERSION_METADATA_PATH, 'utf-8');
+      return res.type('application/json').send(data);
+    }
+  } catch (err) {}
+
+  return res.json({
+    version: '2.4.0',
+    releaseDate: '2026-10-02',
+    channel: 'Stable',
+    build: '20261002.1'
+  });
+});
+
 app.all(['/api/chat', '/api/chat/'], async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {

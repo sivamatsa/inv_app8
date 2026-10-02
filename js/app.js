@@ -811,6 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
   App.utils.qs('#mobileBottomMenuBtn')?.addEventListener('click', toggleMobileSidebar);
   App.utils.qs('#sidebarCloseBtn')?.addEventListener('click', closeMobileSidebar);
   App.utils.qs('#sidebarBackdrop')?.addEventListener('click', closeMobileSidebar);
+  App.utils.qs('#sidebarVersionBtn')?.addEventListener('click', closeMobileSidebar);
 
   // Mobile Search Toggle
   const searchWrap = App.utils.qs('#topbarSearchWrap');
