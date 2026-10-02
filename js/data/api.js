@@ -1349,49 +1349,99 @@ App.api = (function () {
     return null;
   }
 
+  // Base URL resolver for external static deployments (e.g. GitHub Pages)
+  function getBackendApiBase() {
+    try {
+      const customUrl = localStorage.getItem('ios_backend_api_url') || '';
+      if (customUrl && typeof customUrl === 'string' && customUrl.startsWith('http')) {
+        return customUrl.replace(/\/+$/, '');
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  // Safe API Client preventing "Unexpected token '<'" JSON parsing crashes
+  async function safeApiFetch(endpoint, options = {}) {
+    const base = getBackendApiBase();
+    let fullUrl = endpoint;
+    if (base && endpoint.startsWith('/api/')) {
+      fullUrl = `${base}${endpoint}`;
+    }
+
+    try {
+      const response = await fetch(fullUrl, options);
+      const contentType = response.headers.get('content-type') || '';
+
+      // Guard against HTML error pages (preventing SyntaxError: Unexpected token '<')
+      if (contentType.includes('text/html')) {
+        return {
+          ok: false,
+          isHtml: true,
+          status: response.status,
+          error: 'Backend API endpoint returned an HTML page instead of JSON. If hosting statically, set your Cloud Backend URL in Settings.',
+          data: null,
+        };
+      }
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        return {
+          ok: false,
+          status: response.status,
+          error: errJson.error || errJson.message || `Server responded with ${response.status}`,
+          data: errJson,
+        };
+      }
+
+      const json = await response.json();
+      return { ok: true, status: response.status, data: json };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err.message || 'Network request failed',
+        data: null,
+      };
+    }
+  }
+
   async function fetchLiveGoldSearch(opts) {
     opts = opts || {};
     const forceRefresh = Boolean(opts.forceRefresh);
     const region = opts.region || 'hyderabad';
 
     try {
-      const response = await fetch('/api/gold-live-search', {
+      const res = await safeApiFetch('/api/gold-live-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ forceRefresh, region }),
       });
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server responded with ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data && data.prices) {
+      if (res.ok && res.data && res.data.prices) {
         try {
           localStorage.setItem(GOLD_LIVE_SEARCH_STORAGE_KEY, JSON.stringify({
-            ...data,
+            ...res.data,
             client_saved_at: new Date().toISOString(),
           }));
         } catch (e) {}
+        return res.data;
       }
-      return data;
     } catch (err) {
-      console.warn('fetchLiveGoldSearch notice, serving calibrated benchmark / cache:', err);
-      const cached = getStoredLiveGoldSearch();
-      if (cached && cached.prices) {
-        return {
-          ...cached,
-          fallback_cached: true,
-          notice: 'Showing latest verified bullion benchmark',
-        };
-      }
-      const benchmark = getDefaultLiveGoldBenchmark();
-      try {
-        localStorage.setItem(GOLD_LIVE_SEARCH_STORAGE_KEY, JSON.stringify(benchmark));
-      } catch (_) {}
-      return benchmark;
+      console.warn('fetchLiveGoldSearch notice, serving calibrated benchmark / cache:', err.message);
     }
+
+    const cached = getStoredLiveGoldSearch();
+    if (cached && cached.prices) {
+      return {
+        ...cached,
+        fallback_cached: true,
+        notice: 'Showing latest verified bullion benchmark',
+      };
+    }
+    const benchmark = getDefaultLiveGoldBenchmark();
+    try {
+      localStorage.setItem(GOLD_LIVE_SEARCH_STORAGE_KEY, JSON.stringify(benchmark));
+    } catch (_) {}
+    return benchmark;
   }
   const listGoldPriceObservations = (opts) => selectAll('gold_price_observations', Object.assign({ order: { column: 'observed_at', ascending: false } }, opts));
   async function getLatestGoldPrice(purity) {
@@ -3780,55 +3830,59 @@ App.api = (function () {
     listAiProviders, createAiProvider, updateAiProvider, deleteAiProvider,
     getAiSettings, updateAiSettings,
 
+    // Safe API client for external static / fullstack deployments
+    safeApiFetch,
+    getBackendApiBase,
+
     // WhatsApp & Telegram Bot Integration
     getBotConfig: async function () {
-      try {
-        const res = await fetch('/api/bot/config');
-        return await res.json();
-      } catch (e) {
-        return { telegram: { configured: false, botUsername: 'InvestmentOS_Bot' }, whatsapp: { configured: false } };
-      }
+      const res = await safeApiFetch('/api/bot/config');
+      if (res.ok && res.data) return res.data;
+      return {
+        telegram: { configured: false, botUsername: 'InvestmentOS_AssistantBot' },
+        whatsapp: { configured: false },
+        backendOffline: true,
+        error: res.error,
+      };
     },
     getBotStatus: async function () {
-      try {
-        const res = await fetch(`/api/bot/status?userId=${encodeURIComponent(uid())}`);
-        return await res.json();
-      } catch (e) {
-        return {
-          telegram: { connected: false, botUsername: 'InvestmentOS_Bot' },
-          whatsapp: { connected: false },
-          recentLogs: [],
-        };
-      }
+      const res = await safeApiFetch(`/api/bot/status?userId=${encodeURIComponent(uid())}`);
+      if (res.ok && res.data) return res.data;
+      return {
+        telegram: { connected: false, botUsername: 'InvestmentOS_AssistantBot' },
+        whatsapp: { connected: false },
+        recentLogs: [],
+        backendOffline: true,
+      };
     },
     generateBotLinkCode: async function (platform) {
-      const res = await fetch('/api/bot/generate-code', {
+      const res = await safeApiFetch('/api/bot/generate-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, userId: uid() }),
       });
-      if (!res.ok) throw new Error('Could not generate bot verification code');
-      return await res.json();
+      if (res.ok && res.data) return res.data;
+      throw new Error(res.error || 'Could not reach backend server. Please verify Backend URL in Settings.');
     },
     unlinkBot: async function (platform) {
-      const res = await fetch('/api/bot/unlink', {
+      const res = await safeApiFetch('/api/bot/unlink', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, userId: uid() }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { success: false, error: res.error };
     },
     sendBotTestMessage: async function (platform) {
-      const res = await fetch('/api/bot/send-test', {
+      const res = await safeApiFetch('/api/bot/send-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, userId: uid() }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { ok: false, error: res.error };
     },
     simulateBotCommand: async function (command, platform = 'telegram', portfolioContext = null) {
       const u = App.auth.getUser();
-      const res = await fetch('/api/bot/simulate-command', {
+      const res = await safeApiFetch('/api/bot/simulate-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3839,43 +3893,40 @@ App.api = (function () {
           portfolioContext,
         }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { success: false, reply: `⚠️ Error reaching bot backend: ${res.error || 'Check server status'}` };
     },
     setTelegramBotToken: async function (token, botUsername) {
-      const res = await fetch('/api/bot/telegram/set-token', {
+      const res = await safeApiFetch('/api/bot/telegram/set-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, botUsername }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { success: false, error: res.error };
     },
     getTelegramPollingStatus: async function () {
-      try {
-        const res = await fetch('/api/bot/telegram/polling/status');
-        return await res.json();
-      } catch (e) {
-        return { success: false, stats: { active: false, error: e.message } };
-      }
+      const res = await safeApiFetch('/api/bot/telegram/polling/status');
+      if (res.ok && res.data) return res.data;
+      return { success: false, stats: { active: false, error: res.error } };
     },
     toggleTelegramPolling: async function (action = 'restart', mode = 'polling', webhookUrl = null) {
-      const res = await fetch('/api/bot/telegram/polling/toggle', {
+      const res = await safeApiFetch('/api/bot/telegram/polling/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, mode, webhookUrl }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { success: false, error: res.error };
     },
     directBindTelegramChat: async function (chatId, username = 'Investor') {
-      const res = await fetch('/api/bot/telegram/direct-bind', {
+      const res = await safeApiFetch('/api/bot/telegram/direct-bind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatId, username, userId: uid() }),
       });
-      return await res.json();
+      return res.ok && res.data ? res.data : { success: false, error: res.error };
     },
     dispatchBotNotifications: async function () {
-      const res = await fetch('/api/bot/dispatch-alerts', { method: 'POST' });
-      return await res.json();
+      const res = await safeApiFetch('/api/bot/dispatch-alerts', { method: 'POST' });
+      return res.ok && res.data ? res.data : { success: false, error: res.error };
     },
   };
 

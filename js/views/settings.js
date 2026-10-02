@@ -300,6 +300,26 @@ window.App = window.App || {};
             </div>
           </div>
         </details>
+
+        <!-- Cloud Backend & External Hosting Gateway -->
+        <div style="margin-top:16px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:16px">&#9729;</span>
+              <span style="font-weight:700;font-size:13px">Cloud Backend &amp; External Hosting Gateway</span>
+            </div>
+            <span id="backendHostingBadge" class="badge" style="background:rgba(255,255,255,0.08);color:var(--text2)">Checking...</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.5">
+            If you host this web app on <b>GitHub Pages</b> or an external static site, enter your running Cloud Backend URL below so live Telegram commands, gold rate lookups, and AI Copilot communicate directly without HTML 404 syntax errors.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="cfgBackendApiUrl" class="search-input" placeholder="e.g. https://ais-pre-...run.app" style="flex:1;min-width:240px;font-family:monospace;font-size:12px">
+            <button class="btn btn-gold btn-sm" id="btnSaveBackendApiUrl">Test &amp; Save Backend URL</button>
+            <button class="btn btn-outline btn-sm" id="btnResetBackendApiUrl">Reset to Local</button>
+          </div>
+          <div id="backendApiStatusNote" style="font-size:11.5px;color:var(--text3);margin-top:6px"></div>
+        </div>
       </div>
 
       <div class="panel">
@@ -947,6 +967,95 @@ window.App = window.App || {};
       App.utils.qs('#btnRefreshBotStatus', pane)?.addEventListener('click', async () => {
         await refreshStatus();
         App.utils.toast('Bot connection status refreshed');
+      });
+
+      // Cloud Backend & External Hosting Gateway handlers
+      const cfgBackendApiUrl = App.utils.qs('#cfgBackendApiUrl', pane);
+      const btnSaveBackendApiUrl = App.utils.qs('#btnSaveBackendApiUrl', pane);
+      const btnResetBackendApiUrl = App.utils.qs('#btnResetBackendApiUrl', pane);
+      const backendHostingBadge = App.utils.qs('#backendHostingBadge', pane);
+      const backendApiStatusNote = App.utils.qs('#backendApiStatusNote', pane);
+
+      function updateBackendGatewayStatus() {
+        const stored = localStorage.getItem('ios_backend_api_url') || '';
+        if (cfgBackendApiUrl) cfgBackendApiUrl.value = stored;
+
+        const isGithub = window.location.hostname.endsWith('github.io') || window.location.hostname.includes('pages');
+        if (backendHostingBadge) {
+          if (stored) {
+            backendHostingBadge.textContent = '🟢 Connected to Cloud Backend';
+            backendHostingBadge.style.background = 'rgba(34,197,94,0.18)';
+            backendHostingBadge.style.color = '#22c55e';
+          } else if (isGithub) {
+            backendHostingBadge.textContent = '🌐 Static Hosting (GitHub Pages)';
+            backendHostingBadge.style.background = 'rgba(201,168,76,0.18)';
+            backendHostingBadge.style.color = 'var(--gold)';
+          } else {
+            backendHostingBadge.textContent = '🟢 Fullstack Server (Local/Container)';
+            backendHostingBadge.style.background = 'rgba(34,197,94,0.18)';
+            backendHostingBadge.style.color = '#22c55e';
+          }
+        }
+
+        if (backendApiStatusNote) {
+          if (stored) {
+            backendApiStatusNote.innerHTML = `Active API proxy target: <code>${App.utils.escapeHtml(stored)}</code>`;
+          } else if (isGithub) {
+            backendApiStatusNote.innerHTML = `⚠️ Running on GitHub Pages without a backend server URL. Enter your Cloud Run or Render backend URL above to link Telegram & AI features.`;
+          } else {
+            backendApiStatusNote.innerHTML = `Defaulting to current origin (<code>${window.location.origin}</code>).`;
+          }
+        }
+      }
+
+      updateBackendGatewayStatus();
+
+      btnSaveBackendApiUrl?.addEventListener('click', async () => {
+        const val = cfgBackendApiUrl?.value?.trim();
+        if (!val) {
+          localStorage.removeItem('ios_backend_api_url');
+          updateBackendGatewayStatus();
+          App.utils.toast('Backend URL reset to current origin.');
+          await refreshStatus();
+          return;
+        }
+
+        if (!val.startsWith('http://') && !val.startsWith('https://')) {
+          App.utils.toast('Please enter a full URL starting with https:// or http://', 'err');
+          return;
+        }
+
+        btnSaveBackendApiUrl.disabled = true;
+        btnSaveBackendApiUrl.innerHTML = '&#8987; Testing...';
+        try {
+          const testRes = await fetch(`${val.replace(/\/+$/, '')}/api/bot/config`).catch((e) => ({ ok: false, error: e }));
+          if (testRes.ok) {
+            const data = await testRes.json().catch(() => null);
+            if (data && data.telegram) {
+              localStorage.setItem('ios_backend_api_url', val.replace(/\/+$/, ''));
+              updateBackendGatewayStatus();
+              App.utils.toast('Cloud Backend connected and verified successfully!');
+              await refreshStatus();
+            } else {
+              App.utils.toast('Backend responded but did not return valid API JSON.', 'err');
+            }
+          } else {
+            App.utils.toast('Could not connect to that backend URL. Ensure the server is running and accessible.', 'err');
+          }
+        } catch (e) {
+          App.utils.toast('Connection error: ' + (e.message || e), 'err');
+        } finally {
+          btnSaveBackendApiUrl.disabled = false;
+          btnSaveBackendApiUrl.innerHTML = 'Test &amp; Save Backend URL';
+        }
+      });
+
+      btnResetBackendApiUrl?.addEventListener('click', async () => {
+        localStorage.removeItem('ios_backend_api_url');
+        if (cfgBackendApiUrl) cfgBackendApiUrl.value = '';
+        updateBackendGatewayStatus();
+        App.utils.toast('Reset backend URL to local domain.');
+        await refreshStatus();
       });
 
       // Restart Poller Button

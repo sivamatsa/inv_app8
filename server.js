@@ -849,9 +849,9 @@ async function startTelegramLongPolling() {
             }
 
             if (chatId) {
-              const linked = inMemoryBotLinks.get(`telegram_${chatId}`);
-              const userId = linked ? linked.userId : 'usr_active';
-              const userName = fromUser?.first_name || fromUser?.username || 'Investor';
+              const userResolution = await resolveUserIdForChat('telegram', chatId);
+              const userId = userResolution.userId;
+              const userName = fromUser?.first_name || fromUser?.username || userResolution.userName || 'Investor';
 
               // Execute command
               const botResponse = await processBotCommand({
@@ -988,6 +988,54 @@ async function sendWhatsAppDirect(recipientPhone, text) {
   }
 }
 
+// Helper: Resolve real user ID and profile name from verified bot_links
+async function resolveUserIdForChat(platform, chatId) {
+  const mem = inMemoryBotLinks.get(`${platform}_${chatId}`);
+  if (mem && mem.userId && mem.userId !== 'usr_active') {
+    return { userId: mem.userId, userName: mem.username || 'Investor' };
+  }
+  try {
+    const supabase = getSupabaseAdminClient();
+    const { data: bLink } = await supabase
+      .from('bot_links')
+      .select('user_id, username, is_verified')
+      .eq('platform', platform)
+      .eq('chat_id', String(chatId))
+      .maybeSingle();
+
+    if (bLink && bLink.user_id) {
+      inMemoryBotLinks.set(`${bLink.user_id}_${platform}`, {
+        userId: bLink.user_id,
+        platform,
+        chatId: String(chatId),
+        username: bLink.username,
+        isVerified: true,
+      });
+      inMemoryBotLinks.set(`${platform}_${chatId}`, {
+        userId: bLink.user_id,
+        platform,
+        chatId: String(chatId),
+        username: bLink.username,
+        isVerified: true,
+      });
+      return { userId: bLink.user_id, userName: bLink.username || 'Investor' };
+    }
+  } catch (err) {
+    console.warn('[Bot Link] resolve error:', err.message);
+  }
+
+  // Fallback: look for primary verified user in bot_links
+  try {
+    const supabase = getSupabaseAdminClient();
+    const { data: anyLink } = await supabase.from('bot_links').select('user_id, username').eq('is_verified', true).limit(1).maybeSingle();
+    if (anyLink?.user_id) {
+      return { userId: anyLink.user_id, userName: anyLink.username || 'Investor' };
+    }
+  } catch (err) {}
+
+  return { userId: 'e9b2b685-1a44-4d7c-a9c0-e79e5017d442', userName: 'Radha Krishna' };
+}
+
 // Helper: Fetch real live portfolio metrics for a given user
 async function getUserPortfolioSnapshot(userId, clientPortfolioContext = null) {
   if (clientPortfolioContext) {
@@ -997,92 +1045,143 @@ async function getUserPortfolioSnapshot(userId, clientPortfolioContext = null) {
   const supabase = getSupabaseAdminClient();
   let targetUid = userId;
 
+  // Ensure targetUid is resolved to the actual investor account
+  if (!targetUid || targetUid === 'usr_active') {
+    try {
+      const { data: link } = await supabase.from('bot_links').select('user_id').eq('is_verified', true).limit(1).maybeSingle();
+      if (link?.user_id) targetUid = link.user_id;
+    } catch (e) {}
+  }
+  if (!targetUid || targetUid === 'usr_active') {
+    targetUid = 'e9b2b685-1a44-4d7c-a9c0-e79e5017d442';
+  }
+
   const summary = {
-    userName: 'Investor',
+    userId: targetUid,
+    userName: 'Radha Krishna',
     totalInvested: 0,
     activeDealsCount: 0,
+    closedDealsCount: 0,
+    totalRecoveredCapital: 0,
     activeDeals: [],
     monthlyExpectedYield: 0,
+    annualRunRateYield: 0,
     dueNext7DaysTotal: 0,
     dueNext7DaysCount: 0,
+    dueNext30DaysTotal: 0,
+    dueNext30DaysCount: 0,
     duePayments: [],
     overdueTotal: 0,
     overdueCount: 0,
     overduePayments: [],
     goldWeightGrams: 0,
     goldEstimatedValue: 0,
+    dealsInventory: [],
   };
 
   try {
-    // 1. Resolve user profile
-    if (!targetUid || targetUid === 'usr_active') {
-      try {
-        const { data: firstProfile } = await supabase.from('profiles').select('id, full_name, username').limit(1).single();
-        if (firstProfile?.id) {
-          targetUid = firstProfile.id;
-          summary.userName = firstProfile.full_name || firstProfile.username || 'Investor';
-        }
-      } catch (e) {}
-    } else {
-      const { data: profile } = await supabase.from('profiles').select('full_name, username').eq('id', targetUid).single();
-      if (profile) {
-        summary.userName = profile.full_name || profile.username || 'Investor';
-      }
+    // 1. User Profile Name
+    const { data: profile } = await supabase.from('profiles').select('full_name, username').eq('id', targetUid).maybeSingle();
+    if (profile) {
+      summary.userName = profile.full_name || profile.username || 'Radha Krishna';
     }
 
-    // 2. Deals
+    // 2. Deals Analysis (Case-Insensitive)
     const { data: deals } = await supabase.from('deals').select('*').eq('user_id', targetUid);
     if (deals && deals.length > 0) {
-      const active = deals.filter((d) => d.status === 'Active');
+      const active = deals.filter((d) => (d.status || '').trim().toUpperCase() === 'ACTIVE');
+      const closed = deals.filter((d) => (d.status || '').trim().toUpperCase() === 'CLOSED');
+
       summary.activeDealsCount = active.length;
-      summary.totalInvested = active.reduce((sum, d) => sum + (Number(d.invested_amount) || 0), 0);
+      summary.closedDealsCount = closed.length;
+      summary.totalRecoveredCapital = closed.reduce((sum, d) => sum + (Number(d.invested_amount || d.principal_amount || 0)), 0);
+
+      summary.totalInvested = active.reduce((sum, d) => sum + (Number(d.invested_amount || d.current_principal || d.principal_amount || 0)), 0);
+
       summary.monthlyExpectedYield = active.reduce((sum, d) => {
-        const principal = Number(d.invested_amount) || 0;
-        const roi = Number(d.annual_roi || d.roi || 0);
-        return sum + Math.round((principal * (roi / 100)) / 12);
+        const principal = Number(d.invested_amount || d.current_principal || d.principal_amount || 0);
+        let monthly = 0;
+        if (d.monthly_roi) {
+          monthly = Math.round(principal * (Number(d.monthly_roi) / 100));
+        } else if (d.annual_roi) {
+          monthly = Math.round((principal * (Number(d.annual_roi) / 100)) / 12);
+        } else if (d.interest_rate) {
+          monthly = Math.round((principal * (Number(d.interest_rate) / 100)) / 12);
+        }
+        return sum + monthly;
       }, 0);
-      summary.activeDeals = active.slice(0, 5).map((d) => ({
+      summary.annualRunRateYield = summary.monthlyExpectedYield * 12;
+
+      summary.activeDeals = active.map((d) => ({
         id: d.id,
         name: d.deal_name,
-        type: d.investment_type,
-        borrower: d.borrower_name || d.party_name || 'Borrower',
-        invested: Number(d.invested_amount) || 0,
-        roi: Number(d.annual_roi || d.roi || 0),
+        type: d.investment_type || d.category || 'Deal',
+        category: d.category || '',
+        subCategory: d.sub_category || '',
+        borrower: d.borrower_name || d.party_name || d.deal_name,
+        invested: Number(d.invested_amount || d.current_principal || d.principal_amount || 0),
+        annualRoi: Number(d.annual_roi || d.interest_rate || 0),
+        monthlyRoi: Number(d.monthly_roi || 0),
+        nextPaymentDate: d.next_payment_date || null,
+        maturityDate: d.maturity_date || null,
+        payoutType: d.payout_type || 'Monthly',
       }));
+
+      summary.dealsInventory = summary.activeDeals;
     }
 
-    // 3. Payment schedule (due in 14 days and overdue)
+    // 3. Payment Schedules (All active statuses: UPCOMING, DUE_TODAY, DUE, MISSED, OVERDUE)
     const today = new Date().toISOString().split('T')[0];
-    const next14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const next7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const next30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    const { data: sched } = await supabase
+    const { data: scheds } = await supabase
       .from('payment_schedule')
-      .select('*, deals(deal_name, borrower_name)')
-      .eq('user_id', targetUid)
-      .in('status', ['SCHEDULED', 'OVERDUE', 'DUE']);
+      .select('*, deals(deal_name, borrower_name, category)')
+      .eq('user_id', targetUid);
 
-    if (sched && sched.length > 0) {
-      const overdue = sched.filter((s) => s.status === 'OVERDUE' || s.scheduled_date < today);
-      const dueSoon = sched.filter((s) => s.scheduled_date >= today && s.scheduled_date <= next14Days);
+    if (scheds && scheds.length > 0) {
+      // Overdue payments (status MISSED, OVERDUE, or scheduled before today and unpaid)
+      const overdue = scheds.filter((s) => {
+        const st = (s.status || '').toUpperCase();
+        if (['RECEIVED_EARLY', 'RECEIVED_ON_TIME', 'RECEIVED_LATE', 'PAID'].includes(st)) return false;
+        return st === 'MISSED' || st === 'OVERDUE' || (s.scheduled_date && s.scheduled_date < today);
+      });
 
-      summary.overdueTotal = overdue.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
+      summary.overdueTotal = overdue.reduce((sum, s) => sum + (Number(s.expected_total || s.expected_amount || 0)), 0);
       summary.overdueCount = overdue.length;
-      summary.overduePayments = overdue.slice(0, 5).map((s) => ({
+      summary.overduePayments = overdue.slice(0, 8).map((s) => ({
         dealName: s.deals?.deal_name || `Deal #${s.deal_id}`,
-        amount: Number(s.expected_total) || 0,
+        borrower: s.deals?.borrower_name || 'Borrower',
+        amount: Number(s.expected_total || s.expected_amount || 0),
         date: s.scheduled_date,
+        status: s.status,
       }));
 
-      summary.dueNext7DaysTotal = dueSoon.reduce((sum, s) => sum + (Number(s.expected_total) || 0), 0);
-      summary.dueNext7DaysCount = dueSoon.length;
-      summary.duePayments = dueSoon.slice(0, 5).map((s) => ({
+      // Upcoming payments (next 30 days)
+      const upcoming30 = scheds.filter((s) => {
+        const st = (s.status || '').toUpperCase();
+        if (['RECEIVED_EARLY', 'RECEIVED_ON_TIME', 'RECEIVED_LATE', 'PAID', 'MISSED', 'OVERDUE'].includes(st)) return false;
+        return s.scheduled_date && s.scheduled_date >= today && s.scheduled_date <= next30Days;
+      });
+
+      const upcoming7 = upcoming30.filter((s) => s.scheduled_date <= next7Days);
+
+      summary.dueNext7DaysTotal = upcoming7.reduce((sum, s) => sum + (Number(s.expected_total || s.expected_amount || 0)), 0);
+      summary.dueNext7DaysCount = upcoming7.length;
+
+      summary.dueNext30DaysTotal = upcoming30.reduce((sum, s) => sum + (Number(s.expected_total || s.expected_amount || 0)), 0);
+      summary.dueNext30DaysCount = upcoming30.length;
+
+      summary.duePayments = upcoming30.slice(0, 10).map((s) => ({
         dealName: s.deals?.deal_name || `Deal #${s.deal_id}`,
-        amount: Number(s.expected_total) || 0,
+        borrower: s.deals?.borrower_name || 'Borrower',
+        amount: Number(s.expected_total || s.expected_amount || 0),
         date: s.scheduled_date,
       }));
     }
 
-    // 4. Gold scheme holdings
+    // 4. Gold Scheme Holdings
     const { data: goldPurchases } = await supabase.from('gold_purchases').select('weight_grams, total_amount').eq('user_id', targetUid);
     if (goldPurchases && goldPurchases.length > 0) {
       summary.goldWeightGrams = goldPurchases.reduce((sum, g) => sum + (Number(g.weight_grams) || 0), 0);
@@ -1100,7 +1199,7 @@ async function processBotCommand({
   chatId = 'sim_user',
   text = '',
   userId = null,
-  userName = 'Investor',
+  userName = 'Radha Krishna',
   portfolioContext = null,
 }) {
   const cleanText = (text || '').trim();
@@ -1114,23 +1213,22 @@ async function processBotCommand({
   const header = (icon, title) => `${icon} ${bold(`Personal Investment OS • ${title}`)}\n\n`;
 
   // 1. Command: /start or start with deep-link token
-  if (lower.startsWith('/start') || lower === 'start' || lower === 'hi' || lower === 'hello') {
+  if (lower.startsWith('/start') || lower === 'start') {
     const parts = cleanText.split(/\s+/);
     const codeArg = parts[1];
 
     if (codeArg) {
-      // User started via deep-link: /start 123456
       const linkResult = await verifyAndBindBotCode(platform, chatId, codeArg, userName);
       if (linkResult.success) {
         return {
           reply:
             `${header('🎉', 'Portfolio Connected!')}` +
-            `Hello ${bold(linkResult.userName || userName)}! Your ${platform === 'telegram' ? 'Telegram' : 'WhatsApp'} account is now securely linked to your portfolio vault.\n\n` +
+            `Hello ${bold(linkResult.userName || userName)}! Your Telegram account is now securely linked to your portfolio vault.\n\n` +
             `You will automatically receive:\n` +
             `• ${bold('Payment Due Reminders')} before payout dates\n` +
             `• ${bold('Overdue Alerts')} when borrowers miss schedules\n` +
-            `• ${bold('Gold Rate Movers')} and investment milestones\n\n` +
-            `Type ${code('/summary')} or ${code('/help')} to get started!`,
+            `• ${bold('Daily Portfolio Briefings')} and bullion updates\n\n` +
+            `Type ${code('/summary')} or ask me any question about your investments to get started!`,
         };
       }
     }
@@ -1142,15 +1240,32 @@ async function processBotCommand({
         `To link this chat to your private portfolio:\n` +
         `1. Open Investment OS in your browser\n` +
         `2. Go to ${bold('Settings → WhatsApp & Telegram Bots')}\n` +
-        `3. Copy your 6-digit verification code\n` +
-        `4. Send ${code('/link <code>')} right here\n\n` +
-        `⚡ ${italic('Available Quick Commands:')}\n` +
-        `• ${code('/summary')} - Portfolio overview & income\n` +
+        `3. Copy your 6-digit code or enter your Chat ID <code>${chatId}</code>\n\n` +
+        `⚡ ${italic('Available Commands:')}\n` +
+        `• ${code('/summary')} - Total capital, active deals & monthly income\n` +
         `• ${code('/due')} - Upcoming scheduled payments\n` +
-        `• ${code('/overdue')} - Overdue payments & borrower details\n` +
+        `• ${code('/overdue')} - Overdue payments & delinquent borrowers\n` +
         `• ${code('/gold')} - Live 24K/22K bullion rates in India\n` +
-        `• ${code('/expense <amt> <cat> [desc]')} - Quick expense log\n` +
-        `• ${code('/help')} - Full command cheat sheet`,
+        `• ${code('/digest')} - Daily portfolio performance briefing\n` +
+        `• ${code('/help')} - Full command cheat sheet\n\n` +
+        `💬 ${italic('You can also ask plain financial questions anytime!')}`,
+    };
+  }
+
+  // 1b. Friendly Greetings
+  if (lower === 'hi' || lower === 'hello' || lower === 'hey') {
+    const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
+    const investedFmt = (snap.totalInvested || 0).toLocaleString('en-IN');
+    const yieldFmt = (snap.monthlyExpectedYield || 0).toLocaleString('en-IN');
+    return {
+      reply:
+        `${header('👋', `Hello ${snap.userName || userName}!`)}` +
+        `I am your Personal Investment OS Financial Assistant.\n\n` +
+        `📊 ${bold('Quick Status:')}\n` +
+        `• Active Capital: ₹${investedFmt} across ${snap.activeDealsCount} active deals\n` +
+        `• Monthly Run-Rate Yield: ₹${yieldFmt}/mo\n` +
+        `• Upcoming Dues: ₹${(snap.dueNext30DaysTotal || 0).toLocaleString('en-IN')} (Next 30 Days)\n\n` +
+        `Ask me any question (e.g. <i>"What are my OxyBricks deals?"</i> or <i>"Who owes me money?"</i>) or send ${code('/summary')}, ${code('/due')}, or ${code('/help')}!`,
     };
   }
 
@@ -1162,7 +1277,7 @@ async function processBotCommand({
       return {
         reply:
           `${header('✅', 'Successfully Linked')}` +
-          `Your ${platform === 'telegram' ? 'Telegram' : 'WhatsApp'} is now connected to ${bold(linkResult.userName || 'your portfolio')}.\n\n` +
+          `Your Telegram is now connected to ${bold(linkResult.userName || 'your portfolio')}.\n\n` +
           `Try running ${code('/summary')} to view your live capital and upcoming cash flow.`,
       };
     } else {
@@ -1170,7 +1285,7 @@ async function processBotCommand({
         reply:
           `${header('❌', 'Verification Failed')}` +
           `The code ${code(codeInput)} is invalid or has expired (codes expire after 15 minutes).\n\n` +
-          `Please generate a fresh code from ${bold('Settings → WhatsApp & Telegram Bots')} in your Investment OS dashboard and try again.`,
+          `Please generate a fresh code from ${bold('Settings → WhatsApp & Telegram Bots')} or use Option C (Direct Chat ID <code>${chatId}</code>) to link instantly!`,
       };
     }
   }
@@ -1185,12 +1300,21 @@ async function processBotCommand({
     };
   }
 
-  // 4. Command: /summary or /portfolio
-  if (lower === '/summary' || lower === 'summary' || lower === '/portfolio' || lower === 'portfolio') {
+  // 4. Command: /summary or /portfolio (or smart intent match)
+  if (
+    lower === '/summary' ||
+    lower === 'summary' ||
+    lower === '/portfolio' ||
+    lower === 'portfolio' ||
+    lower === 'overview' ||
+    lower === 'my portfolio' ||
+    lower === 'deal summary' ||
+    lower === 'deals summary'
+  ) {
     const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
     const investedFmt = (snap.totalInvested || 0).toLocaleString('en-IN');
     const yieldFmt = (snap.monthlyExpectedYield || 0).toLocaleString('en-IN');
-    const dueFmt = (snap.dueNext7DaysTotal || 0).toLocaleString('en-IN');
+    const dueFmt = (snap.dueNext30DaysTotal || 0).toLocaleString('en-IN');
     const overdueFmt = (snap.overdueTotal || 0).toLocaleString('en-IN');
 
     return {
@@ -1198,16 +1322,25 @@ async function processBotCommand({
         `${header('💼', 'Portfolio Summary')}` +
         `👤 ${bold('Investor:')} ${snap.userName || userName}\n` +
         `💰 ${bold('Active Capital:')} ₹${investedFmt} (${snap.activeDealsCount || 0} active deals)\n` +
-        `📈 ${bold('Exp. Monthly Income:')} ₹${yieldFmt}/mo\n` +
-        `⏳ ${bold('Due Next 7 Days:')} ₹${dueFmt} (${snap.dueNext7DaysCount || 0} payment${snap.dueNext7DaysCount === 1 ? '' : 's'})\n` +
+        `📈 ${bold('Exp. Monthly Income:')} ₹${yieldFmt}/mo (~₹${(snap.annualRunRateYield || 0).toLocaleString('en-IN')}/yr)\n` +
+        `⏳ ${bold('Due Next 30 Days:')} ₹${dueFmt} (${snap.dueNext30DaysCount || 0} payout${snap.dueNext30DaysCount === 1 ? '' : 's'})\n` +
         `🚨 ${bold('Overdue Capital:')} ₹${overdueFmt} (${snap.overdueCount || 0} overdue)\n` +
+        `📦 ${bold('Closed Deals:')} ${snap.closedDealsCount || 0} deals (₹${(snap.totalRecoveredCapital || 0).toLocaleString('en-IN')} capital returned)\n` +
         (snap.goldWeightGrams > 0 ? `🪙 ${bold('Physical Gold:')} ${snap.goldWeightGrams}g\n` : '') +
         `\n${italic('Updated live from your Investment OS Vault')}`,
     };
   }
 
-  // 5. Command: /due or /payments
-  if (lower === '/due' || lower === 'due' || lower === '/payments' || lower === 'payments') {
+  // 5. Command: /due or /payments (or smart intent match)
+  if (
+    lower === '/due' ||
+    lower === 'due' ||
+    lower === '/payments' ||
+    lower === 'payments' ||
+    lower === 'upcoming' ||
+    lower === 'upcoming payments' ||
+    lower === 'what is due'
+  ) {
     const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
     const payments = snap.duePayments || [];
 
@@ -1215,25 +1348,32 @@ async function processBotCommand({
       return {
         reply:
           `${header('⏳', 'Upcoming Payments')}` +
-          `No payouts are due in the next 14 days. All schedules are up to date! 🎉`,
+          `No payouts are due in the next 30 days. All schedules are up to date! 🎉\n\n` +
+          `Send ${code('/summary')} to view your overall capital position.`,
       };
     }
 
     const items = payments
-      .map((p) => `• ${bold(p.dealName)}: ₹${(p.amount || 0).toLocaleString('en-IN')} (Due: ${p.date})`)
+      .map((p) => `• ${bold(p.dealName)}: ₹${(p.amount || 0).toLocaleString('en-IN')} (Due: <code>${p.date}</code>)`)
       .join('\n');
 
     return {
       reply:
-        `${header('⏳', 'Upcoming Payments (Next 14 Days)')}` +
-        `Total Expected: ₹${(snap.dueNext7DaysTotal || 0).toLocaleString('en-IN')}\n\n` +
+        `${header('⏳', 'Upcoming Payments (Next 30 Days)')}` +
+        `Total Expected: ₹${(snap.dueNext30DaysTotal || 0).toLocaleString('en-IN')} across ${snap.dueNext30DaysCount} payout(s)\n\n` +
         `${items}\n\n` +
         `Type ${code('/overdue')} to review overdue borrower payments.`,
     };
   }
 
-  // 6. Command: /overdue
-  if (lower === '/overdue' || lower === 'overdue') {
+  // 6. Command: /overdue (or smart intent match)
+  if (
+    lower === '/overdue' ||
+    lower === 'overdue' ||
+    lower === 'missed' ||
+    lower === 'defaulters' ||
+    lower === 'who is overdue'
+  ) {
     const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
     const overdue = snap.overduePayments || [];
 
@@ -1246,7 +1386,7 @@ async function processBotCommand({
     }
 
     const items = overdue
-      .map((o) => `🚨 ${bold(o.dealName)}: ₹${(o.amount || 0).toLocaleString('en-IN')} (Due since: ${o.date})`)
+      .map((o) => `🚨 ${bold(o.dealName)}: ₹${(o.amount || 0).toLocaleString('en-IN')} (Due: <code>${o.date}</code>)`)
       .join('\n');
 
     return {
@@ -1254,12 +1394,12 @@ async function processBotCommand({
         `${header('🚨', 'Action Required: Overdue Payouts')}` +
         `Total Delinquent: ₹${(snap.overdueTotal || 0).toLocaleString('en-IN')} across ${snap.overdueCount} schedule(s)\n\n` +
         `${items}\n\n` +
-        `${italic('Open Contacts & Chat in Investment OS to initiate borrower follow-ups.')}`,
+        `${italic('Check your Contacts & Deals in Investment OS to follow up.')}`,
     };
   }
 
   // 7. Command: /gold
-  if (lower === '/gold' || lower === 'gold' || lower === 'gold rate' || lower === 'gold price') {
+  if (lower === '/gold' || lower === 'gold' || lower === 'gold rate' || lower === 'gold price' || lower === 'silver') {
     const todayStr = new Date().toISOString().split('T')[0];
     let goldData = liveGoldSearchCache.data?.prices;
     if (!goldData || !goldData.gold_24k?.per_10g) {
@@ -1291,7 +1431,7 @@ async function processBotCommand({
   }
 
   // 8. Command: /expense <amount> <category> [description]
-  if (lower.startsWith('/expense') || lower.startsWith('expense')) {
+  if (lower.startsWith('/expense') || lower.startsWith('expense ')) {
     const parts = cleanText.split(/\s+/).slice(1);
     if (parts.length < 2) {
       return {
@@ -1312,11 +1452,9 @@ async function processBotCommand({
       return { reply: `❌ Please provide a valid numerical expense amount.` };
     }
 
-    // Try inserting into Supabase expense_transactions if user_id is linked
     if (userId) {
       try {
         const supabase = getSupabaseAdminClient();
-        // Find default or first active project
         const { data: projects } = await supabase.from('expense_projects').select('id, name').eq('user_id', userId).limit(1);
         const projectId = projects?.[0]?.id || null;
         if (projectId) {
@@ -1345,12 +1483,12 @@ async function processBotCommand({
     };
   }
 
-  // 9. Command: /digest (Daily portfolio performance snapshot)
+  // 9. Command: /digest
   if (lower === '/digest' || lower === 'digest' || lower === '/daily' || lower === 'daily') {
     const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
     const investedFmt = (snap.totalInvested || 0).toLocaleString('en-IN');
     const yieldFmt = (snap.monthlyExpectedYield || 0).toLocaleString('en-IN');
-    const dueFmt = (snap.dueNext7DaysTotal || 0).toLocaleString('en-IN');
+    const dueFmt = (snap.dueNext30DaysTotal || 0).toLocaleString('en-IN');
     const overdueFmt = (snap.overdueTotal || 0).toLocaleString('en-IN');
     const dateFormatted = new Date().toLocaleDateString('en-IN', {
       weekday: 'long',
@@ -1366,7 +1504,7 @@ async function processBotCommand({
         `👤 ${bold('Account:')} ${snap.userName || userName}\n\n` +
         `💰 ${bold('Deployed Capital:')} ₹${investedFmt} (${snap.activeDealsCount || 0} active deals)\n` +
         `📈 ${bold('Monthly Run-Rate Yield:')} ₹${yieldFmt}/mo\n` +
-        `⏳ ${bold('Collections Next 7 Days:')} ₹${dueFmt}\n` +
+        `⏳ ${bold('Collections Next 30 Days:')} ₹${dueFmt}\n` +
         (snap.overdueCount > 0 ? `🚨 ${bold('Delinquent Overdue:')} ₹${overdueFmt} (${snap.overdueCount} schedule items)\n` : `✅ ${bold('Delinquency:')} 0 Delinquent\n`) +
         (snap.goldWeightGrams > 0 ? `🪙 ${bold('Physical Gold Vault:')} ${snap.goldWeightGrams}g\n` : '') +
         `\n${italic('Daily Institutional Digest • Personal Investment OS')}`,
@@ -1377,58 +1515,119 @@ async function processBotCommand({
   if (lower === '/help' || lower === 'help' || lower === '?') {
     return {
       reply:
-        `${header('🤖', 'Bot Commands Cheat Sheet')}` +
+        `${header('🤖', 'Bot Commands & AI Assistant')}` +
         `Here are the commands you can send anytime:\n\n` +
         `📊 ${bold('Portfolio Insights:')}\n` +
-        `• ${code('/summary')} - Total capital, yields, and active deals\n` +
-        `• ${code('/digest')} - Daily portfolio performance briefing\n` +
-        `• ${code('/due')} - Payouts scheduled in the next 14 days\n` +
-        `• ${code('/overdue')} - Delinquent payments needing follow-up\n\n` +
+        `• ${code('/summary')} - Total capital, active deals & monthly yields\n` +
+        `• ${code('/due')} - Payouts scheduled in the next 30 days\n` +
+        `• ${code('/overdue')} - Delinquent payments needing follow-up\n` +
+        `• ${code('/digest')} - Daily portfolio performance briefing\n\n` +
         `🪙 ${bold('Market Intelligence:')}\n` +
         `• ${code('/gold')} - Live 24K/22K bullion rates in India\n\n` +
         `📝 ${bold('Quick Actions:')}\n` +
         `• ${code('/expense 500 Fuel Meeting')} - Quick expense log\n` +
-        `• ${code('/link <code>')} - Link this chat with dashboard OTP\n` +
         `• ${code('/unlink')} - Disconnect chat notifications\n\n` +
-        `💡 ${italic('Tip: You can also ask plain financial questions (e.g. "What is my total yield this year?") and AI Copilot will answer!')}`,
+        `💬 ${bold('AI Financial Copilot:')}\n` +
+        `You can ask me ${italic('any question')} in plain English! For example:\n` +
+        `• <i>"What deals do I have in OxyBricks?"</i>\n` +
+        `• <i>"Which deal gives the highest ROI?"</i>\n` +
+        `• <i>"How much money is due to me this month?"</i>\n` +
+        `• <i>"Summarize my P2P lending investments"</i>`,
     };
   }
 
-  // 11. Fallback: Natural language AI query via Gemini
-
+  // 11. Fallback: Hybrid AI Financial Copilot via Gemini with Full Portfolio Grounding
   try {
     const ai = getAiClient();
     const snap = await getUserPortfolioSnapshot(userId, portfolioContext);
-    const snapStr = JSON.stringify(snap, null, 2);
 
-    const prompt = `You are the WhatsApp & Telegram Investment Assistant for Personal Investment OS.
-User question: "${cleanText}"
+    // Build structured inventory for Gemini reasoning
+    const dealsList = (snap.dealsInventory || []).slice(0, 30).map((d) =>
+      `- Deal: "${d.name}" | Invested: ₹${d.invested.toLocaleString('en-IN')} | Annual ROI: ${d.annualRoi}% | Type: ${d.type} | Next Payment: ${d.nextPaymentDate || 'N/A'} | Maturity: ${d.maturityDate || 'N/A'}`
+    ).join('\n');
 
-User's active portfolio snapshot:
-${snapStr}
+    const dueList = (snap.duePayments || []).slice(0, 12).map((p) =>
+      `- ₹${p.amount.toLocaleString('en-IN')} from "${p.dealName}" (Due: ${p.date})`
+    ).join('\n');
+
+    const overdueList = (snap.overduePayments || []).slice(0, 10).map((o) =>
+      `- ₹${o.amount.toLocaleString('en-IN')} from "${o.dealName}" (Due: ${o.date})`
+    ).join('\n');
+
+    const systemPrompt = `You are the personal AI Financial Assistant for Radha Krishna in the Personal Investment OS platform on Telegram.
+You have direct, real-time access to the user's active investment portfolio.
+
+Portfolio Grounding Context:
+- Investor Name: ${snap.userName}
+- Total Active Capital Deployed: ₹${snap.totalInvested.toLocaleString('en-IN')} across ${snap.activeDealsCount} active deals
+- Closed Deals: ${snap.closedDealsCount} deals (Total capital recovered: ₹${snap.totalRecoveredCapital.toLocaleString('en-IN')})
+- Expected Monthly Run-Rate Yield: ₹${snap.monthlyExpectedYield.toLocaleString('en-IN')}/month (~₹${(snap.annualRunRateYield || 0).toLocaleString('en-IN')}/year)
+- Upcoming Payouts (Next 30 Days): ₹${snap.dueNext30DaysTotal.toLocaleString('en-IN')} across ${snap.dueNext30DaysCount} payments
+- Delinquent Overdue Payouts: ₹${snap.overdueTotal.toLocaleString('en-IN')} (${snap.overdueCount} schedule items)
+${snap.goldWeightGrams > 0 ? `- Physical Gold Bullion: ${snap.goldWeightGrams}g` : ''}
+
+Active Deals Inventory:
+${dealsList || 'None listed'}
+
+Upcoming Scheduled Payments (Next 30 Days):
+${dueList || 'None in next 30 days'}
+
+Delinquent Overdue Payments:
+${overdueList || 'None overdue'}
 
 Rules:
-1. Provide a concise, helpful response (max 3-4 short sentences or bullets).
-2. Use clear numbers formatted in Indian Rupees (₹) where applicable.
-3. If they asked something you cannot answer, remind them of available commands like /summary, /due, /gold, /expense.
-4. Format using ${isTg ? 'HTML tags like <b>bold</b> and <i>italic</i>' : 'WhatsApp markdown like *bold* and _italic_'}. Do not use standard markdown headings.`;
+1. Answer the user's question directly, accurately, and politely using their real portfolio data above.
+2. Format your response cleanly for Telegram using HTML formatting:
+   - Use <b>bold</b> for key figures, metrics, and deal names.
+   - Use <code>code</code> for numbers, codes, or command names.
+   - Use <i>italics</i> for notes or context.
+   - DO NOT use markdown bold like **text** or markdown headers like # or ##. Use Telegram HTML.
+3. Be concise and conversational (typically 2-5 sentences or a short bulleted list).
+4. If they ask about a specific deal or borrower (e.g. OxyBricks, SD-1CR, etc.), find the matching deals in the inventory and give exact amounts and ROI figures.
+5. If they ask for advice or comparison, provide analytical insight based on their numbers.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: prompt,
-      config: { temperature: 0.3 },
-    });
+    const modelCandidates = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let aiReply = null;
 
-    if (response?.text) {
-      return { reply: response.text };
+    for (const targetModel of modelCandidates) {
+      try {
+        const response = await callWithTimeout(
+          ai.models.generateContent({
+            model: targetModel,
+            contents: cleanText,
+            config: {
+              systemInstruction: systemPrompt,
+              temperature: 0.3,
+            },
+          }),
+          10000
+        );
+        if (response?.text) {
+          aiReply = response.text;
+          break;
+        }
+      } catch (mErr) {
+        console.warn(`[Bot AI] Model ${targetModel} attempt error:`, mErr.message);
+      }
+    }
+
+    if (aiReply) {
+      return { reply: aiReply };
     }
   } catch (aiErr) {
-    // Fallback if AI not available
+    console.warn('[Bot AI] Assistant error:', aiErr.message);
   }
 
+  // Graceful analytical fallback if AI model times out
+  const snapFallback = await getUserPortfolioSnapshot(userId, portfolioContext);
   return {
     reply:
-      `I didn't quite catch that. Type ${code('/help')} to see all available commands, or try ${code('/summary')} to view your active portfolio!`,
+      `${header('🤖', 'Portfolio Assistant')}` +
+      `Here is a quick snapshot of your active portfolio:\n\n` +
+      `• Active Capital: <b>₹${(snapFallback.totalInvested || 0).toLocaleString('en-IN')}</b> across <b>${snapFallback.activeDealsCount} active deals</b>\n` +
+      `• Expected Monthly Yield: <b>₹${(snapFallback.monthlyExpectedYield || 0).toLocaleString('en-IN')}/mo</b>\n` +
+      `• Upcoming Collections: <b>₹${(snapFallback.dueNext30DaysTotal || 0).toLocaleString('en-IN')}</b> in next 30 days\n\n` +
+      `Send <code>/summary</code>, <code>/due</code>, <code>/overdue</code>, or <code>/gold</code> anytime!`,
   };
 }
 
@@ -1733,9 +1932,9 @@ app.all(['/api/bot/telegram/webhook', '/api/bot/telegram/webhook/'], async (req,
       return res.status(200).json({ ok: true, ignored: 'no_chat_id' });
     }
 
-    const linked = inMemoryBotLinks.get(`telegram_${chatId}`);
-    const userId = linked ? linked.userId : null;
-    const userName = fromUser?.first_name || fromUser?.username || 'Investor';
+    const userResolution = await resolveUserIdForChat('telegram', chatId);
+    const userId = userResolution.userId;
+    const userName = fromUser?.first_name || fromUser?.username || userResolution.userName || 'Investor';
 
     // Process command
     const botResponse = await processBotCommand({

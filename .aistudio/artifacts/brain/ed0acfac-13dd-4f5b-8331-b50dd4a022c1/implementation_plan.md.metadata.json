@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Telegram Bot Dual-Mode Long Polling and Direct Chat ID binding to resolve blocked webhook issues and restore instant two-way Telegram communication.",
-  "updatedAt":  "2026-10-01T13:08:24.185280822Z",
+  "summary":  "Implementation plan to fix the static HTML JSON parsing error on external deployments, fix deal metrics in Telegram bot with case-insensitive and real Supabase user binding, and build a full Hybrid AI Financial Assistant bot powered by Gemini and live portfolio grounding.",
+  "updatedAt":  "2026-10-02T17:46:32.985070831Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -371,7 +371,7 @@ window.App = window.App || {};
             try {
               const context = await assembleContext();
               const formattedContext = JSON.stringify(context, null, 2);
-              const chatRes = await fetch('/api/chat', {
+              const chatRes = await App.api.safeApiFetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -381,14 +381,11 @@ window.App = window.App || {};
                   portfolioContext: formattedContext,
                 }),
               });
-              if (chatRes.ok) {
-                const chatData = await chatRes.json();
-                if (chatData?.reply) {
-                  thread.push({ role: 'assistant', text: chatData.reply, providerDisplayName: `Gemini (${chatData.model || '3.6 Flash'})` });
-                  drawThread();
-                  App.utils.qs('#acQuota', pane).textContent = 'Connected via Server-Side Gemini API.';
-                  return;
-                }
+              if (chatRes.ok && chatRes.data?.reply) {
+                thread.push({ role: 'assistant', text: chatRes.data.reply, providerDisplayName: `Gemini (${chatRes.data.model || 'Flash'})` });
+                drawThread();
+                App.utils.qs('#acQuota', pane).textContent = 'Connected via Server-Side Gemini API.';
+                return;
               }
             } catch (chatErr) {
               console.warn('Fallback to local computation:', chatErr);
