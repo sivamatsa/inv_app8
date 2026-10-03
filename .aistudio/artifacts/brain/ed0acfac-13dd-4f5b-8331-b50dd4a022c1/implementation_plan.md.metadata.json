@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for comprehensive app versioning, automatic update detection, PWA cache invalidation, and release notes across Sidebar, Topbar, and Settings.",
-  "updatedAt":  "2026-10-02T18:38:21.678628140Z",
+  "summary":  "Comprehensive plan to resolve 405 errors on GitHub Pages and provide seamless, zero-disruption Telegram bot connectivity via Supabase database token persistence, direct client-side poller, and cloud webhook backup.",
+  "updatedAt":  "2026-10-03T19:13:22.208502748Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

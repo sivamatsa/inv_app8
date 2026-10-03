@@ -311,10 +311,10 @@ window.App = window.App || {};
             <span id="backendHostingBadge" class="badge" style="background:rgba(255,255,255,0.08);color:var(--text2)">Checking...</span>
           </div>
           <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.5">
-            If you host this web app on <b>GitHub Pages</b> or an external static site, enter your running Cloud Backend URL below so live Telegram commands, gold rate lookups, and AI Copilot communicate directly without HTML 404 syntax errors.
+            When deployed to <b>GitHub Pages</b> (<code>sivamatsa.github.io</code>) or custom domains (<code>sri.qzz.io</code>), your Telegram Bot operates in <b>Hybrid Direct Mode</b> &mdash; running directly via Supabase and browser long-polling without needing an external Node.js backend. If you also have a dedicated Cloud Run or Render server, you can link it below.
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="cfgBackendApiUrl" class="search-input" placeholder="e.g. https://ais-pre-...run.app" style="flex:1;min-width:240px;font-family:monospace;font-size:12px">
+            <input type="text" id="cfgBackendApiUrl" class="search-input" placeholder="e.g. https://my-backend-app.onrender.com" style="flex:1;min-width:240px;font-family:monospace;font-size:12px">
             <button class="btn btn-gold btn-sm" id="btnSaveBackendApiUrl">Test &amp; Save Backend URL</button>
             <button class="btn btn-outline btn-sm" id="btnResetBackendApiUrl">Reset to Local</button>
           </div>
@@ -1027,16 +1027,16 @@ window.App = window.App || {};
         const stored = localStorage.getItem('ios_backend_api_url') || '';
         if (cfgBackendApiUrl) cfgBackendApiUrl.value = stored;
 
-        const isGithub = window.location.hostname.endsWith('github.io') || window.location.hostname.includes('pages');
+        const isStaticHost = window.location.hostname.endsWith('github.io') || window.location.hostname.includes('qzz.io') || window.location.hostname.includes('pages');
         if (backendHostingBadge) {
           if (stored) {
             backendHostingBadge.textContent = '🟢 Connected to Cloud Backend';
             backendHostingBadge.style.background = 'rgba(34,197,94,0.18)';
             backendHostingBadge.style.color = '#22c55e';
-          } else if (isGithub) {
-            backendHostingBadge.textContent = '🌐 Static Hosting (GitHub Pages)';
-            backendHostingBadge.style.background = 'rgba(201,168,76,0.18)';
-            backendHostingBadge.style.color = 'var(--gold)';
+          } else if (isStaticHost) {
+            backendHostingBadge.textContent = '🟢 Hybrid Direct Mode (Supabase)';
+            backendHostingBadge.style.background = 'rgba(34,197,94,0.18)';
+            backendHostingBadge.style.color = '#22c55e';
           } else {
             backendHostingBadge.textContent = '🟢 Fullstack Server (Local/Container)';
             backendHostingBadge.style.background = 'rgba(34,197,94,0.18)';
@@ -1047,8 +1047,8 @@ window.App = window.App || {};
         if (backendApiStatusNote) {
           if (stored) {
             backendApiStatusNote.innerHTML = `Active API proxy target: <code>${App.utils.escapeHtml(stored)}</code>`;
-          } else if (isGithub) {
-            backendApiStatusNote.innerHTML = `⚠️ Running on GitHub Pages without a backend server URL. Enter your Cloud Run or Render backend URL above to link Telegram & AI features.`;
+          } else if (isStaticHost) {
+            backendApiStatusNote.innerHTML = `✨ <b>Hybrid Direct Mode Active:</b> Running on <code>${window.location.hostname}</code>. Your Telegram Bot and portfolio intelligence connect directly to Supabase and Telegram Bot API. No external Node.js backend URL is needed!`;
           } else {
             backendApiStatusNote.innerHTML = `Defaulting to current origin (<code>${window.location.origin}</code>).`;
           }
@@ -1062,13 +1062,26 @@ window.App = window.App || {};
         if (!val) {
           localStorage.removeItem('ios_backend_api_url');
           updateBackendGatewayStatus();
-          App.utils.toast('Backend URL reset to current origin.');
+          App.utils.toast('Backend URL reset to default direct mode.');
           await refreshStatus();
           return;
         }
 
         if (!val.startsWith('http://') && !val.startsWith('https://')) {
           App.utils.toast('Please enter a full URL starting with https:// or http://', 'err');
+          return;
+        }
+
+        // Smart guard: Detect if user entered their frontend website instead of a backend server
+        const isFrontendStatic = val.includes('github.io') || val.includes('qzz.io') || val.includes('pages.dev') || val.includes('netlify.app');
+        if (isFrontendStatic) {
+          App.utils.toast('Notice: This is your frontend website. Your Telegram bot now runs directly through Supabase — no backend URL is required!', 'info');
+          if (backendApiStatusNote) {
+            backendApiStatusNote.innerHTML = `💡 <b>Frontend static website detected:</b> <code>${App.utils.escapeHtml(val)}</code> is your web client. The Telegram bot and portfolio alerts now run directly through your Supabase connection and browser poller without needing an external backend URL!`;
+          }
+          localStorage.removeItem('ios_backend_api_url');
+          updateBackendGatewayStatus();
+          await refreshStatus();
           return;
         }
 
@@ -1101,7 +1114,7 @@ window.App = window.App || {};
         localStorage.removeItem('ios_backend_api_url');
         if (cfgBackendApiUrl) cfgBackendApiUrl.value = '';
         updateBackendGatewayStatus();
-        App.utils.toast('Reset backend URL to local domain.');
+        App.utils.toast('Reset backend URL to direct Supabase mode.');
         await refreshStatus();
       });
 
