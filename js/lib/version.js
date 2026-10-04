@@ -9,10 +9,10 @@
 
   window.App = window.App || {};
 
-  const CURRENT_VERSION = '2.4.0';
-  const BUILD_DATE = '2026-10-02';
+  const CURRENT_VERSION = '2.4.1';
+  const BUILD_DATE = '2026-10-04';
   const BUILD_CHANNEL = 'Stable';
-  const BUILD_ID = '20261002.1';
+  const BUILD_ID = '20261004.1';
 
   App.version = CURRENT_VERSION;
   App.buildInfo = {

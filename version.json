@@ -1,11 +1,23 @@
 {
-  "version": "2.4.0",
+  "version": "2.4.1",
   "name": "Personal Investment Operating System",
-  "releaseDate": "2026-10-02",
+  "releaseDate": "2026-10-04",
   "channel": "Stable",
-  "build": "20261002.1",
+  "build": "20261004.1",
   "minSupportedVersion": "2.0.0",
   "releases": [
+    {
+      "version": "2.4.1",
+      "type": "minor",
+      "date": "2026-10-04",
+      "title": "Static Host Telegram Linking & Direct Supabase Verification",
+      "highlights": [
+        "Resolved linking code generation on static hosts (sri.qzz.io and github.io)",
+        "Direct Supabase PostgreSQL persistence for 6-digit verification codes with RLS",
+        "Direct Telegram Chat ID instant binding (Option C) with automated welcome ping",
+        "Dynamic Telegram deep linking (t.me/BotName?start=CODE) with auto-bind"
+      ]
+    },
     {
       "version": "2.4.0",
       "type": "major",

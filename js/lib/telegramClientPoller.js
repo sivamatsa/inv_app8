@@ -46,9 +46,16 @@
     return App.auth?.getUser()?.id || null;
   }
 
+  // Get active Supabase client instance
+  function getSb() {
+    return (window.App && App.auth && typeof App.auth.getClient === 'function')
+      ? App.auth.getClient()
+      : (window.App && App.supabase && App.supabase.client);
+  }
+
   // Fetch portfolio stats directly from Supabase
   async function getLivePortfolioSummary() {
-    const sb = App.supabase?.client;
+    const sb = getSb();
     const uid = getUserId();
     if (!sb || !uid) return null;
 
@@ -142,7 +149,7 @@
 
   // Fetch upcoming payouts (next 30 days)
   async function getUpcomingPayouts() {
-    const sb = App.supabase?.client;
+    const sb = getSb();
     const uid = getUserId();
     if (!sb || !uid) return [];
 
@@ -167,7 +174,7 @@
 
   // Fetch overdue payouts
   async function getOverduePayouts() {
-    const sb = App.supabase?.client;
+    const sb = getSb();
     const uid = getUserId();
     if (!sb || !uid) return [];
 
@@ -189,7 +196,7 @@
 
   // Fetch gold portfolio stats
   async function getGoldSummary() {
-    const sb = App.supabase?.client;
+    const sb = getSb();
     const uid = getUserId();
     if (!sb || !uid) return null;
 
@@ -255,7 +262,7 @@
     const chatId = String(msg.chat.id);
     const text = (msg.text || '').trim();
     const fromUser = msg.from?.username || msg.from?.first_name || 'Friend';
-    const sb = App.supabase?.client;
+    const sb = getSb();
     const uid = getUserId();
 
     console.log(`[TelegramPoller] Inbound from @${fromUser} (Chat: ${chatId}): ${text}`);
@@ -593,7 +600,7 @@
     // Broadcast urgent notifications to linked Telegram chat directly
     broadcastAlert: async function (title, body) {
       if (!activeToken) return false;
-      const sb = App.supabase?.client;
+      const sb = getSb();
       const uid = getUserId();
       if (!sb || !uid) return false;
 

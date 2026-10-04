@@ -508,3 +508,11 @@ App.auth = (function () {
     restoreQuickAuthSession,
   };
 })();
+
+// Canonical global Supabase accessor for background scripts and utilities
+window.App.supabase = {
+  get client() {
+    return (window.App && App.auth && typeof App.auth.getClient === 'function') ? App.auth.getClient() : null;
+  }
+};
+
