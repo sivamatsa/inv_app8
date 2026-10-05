@@ -20,7 +20,10 @@ window.App = window.App || {};
     pane.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
         <div class="section-title" style="margin-bottom:0">Reports — Tax &amp; Financial Year <div class="line"></div><small>${fy.label} by default; pick a custom range below</small></div>
-        <button class="btn btn-gold btn-sm" id="btnGenExecReport">&#128196; Generate Executive PDF / Print Report</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-gold btn-sm" id="btnDownloadFullDossier">&#128450; Download Full Portfolio Dossier</button>
+          <button class="btn btn-outline btn-sm" id="btnGenExecReport">&#128196; Executive Report</button>
+        </div>
       </div>
       <div class="panel">
         <div class="filterbar">
@@ -39,17 +42,21 @@ window.App = window.App || {};
         <div class="table-scroll" style="margin-top:10px"><table class="data" id="taxTable"></table></div>
       </div>`;
 
+    App.utils.qs('#btnDownloadFullDossier', pane)?.addEventListener('click', () => {
+      App.executiveReport.openFullPortfolioDossierModal();
+    });
+
     App.utils.qs('#btnGenExecReport', pane)?.addEventListener('click', async () => {
       const btn = App.utils.qs('#btnGenExecReport', pane);
       btn.disabled = true;
-      btn.textContent = 'Generating Report...';
+      btn.textContent = 'Generating...';
       try {
         await App.executiveReport.openExecutiveReportModal();
       } catch (e) {
-        App.utils.toast('Could not generate executive report: ' + (e.message || e), 'err');
+        App.utils.toast('Could not generate report: ' + (e.message || e), 'err');
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '&#128196; Generate Executive PDF / Print Report';
+        btn.innerHTML = '&#128196; Executive Report';
       }
     });
 

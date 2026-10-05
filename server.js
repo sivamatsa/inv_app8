@@ -67,15 +67,15 @@ Your mission:
 
 // Candidate models normalization and selection
 function normalizeModelName(m) {
-  if (!m) return 'gemini-3.6-flash';
-  if (m === 'gemini-flash-latest' || m.startsWith('gemini-1.5') || m.startsWith('gemini-2.0') || m.startsWith('gemini-2.5')) {
-    return 'gemini-3.6-flash';
+  if (!m) return 'gemini-3.8-flash';
+  if (m === 'gemini-flash-latest' || m.startsWith('gemini-1.5') || m.startsWith('gemini-2.0') || m.startsWith('gemini-2.5') || m.startsWith('gemini-3.6') || m.startsWith('gemini-3.7')) {
+    return 'gemini-3.8-flash';
   }
   return m;
 }
 
 // Helper with timeout
-function callWithTimeout(promise, timeoutMs = 12000) {
+function callWithTimeout(promise, timeoutMs = 25000) {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs))
@@ -118,7 +118,7 @@ app.all(['/api/chat', '/api/chat/'], async (req, res) => {
       });
     }
 
-    const { messages, model = 'gemini-3.6-flash', systemInstruction, portfolioContext } = (req.body || {});
+    const { messages, model = 'gemini-3.8-flash', systemInstruction, portfolioContext } = (req.body || {});
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required.' });
@@ -142,9 +142,9 @@ app.all(['/api/chat', '/api/chat/'], async (req, res) => {
     // Candidate models in priority order of attempt
     const modelCandidates = [
       requestedModel,
-      'gemini-3.6-flash',
+      'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
-      'gemini-3.7-flash',
+      'gemini-flash-latest',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let lastErr = null;
@@ -163,7 +163,7 @@ app.all(['/api/chat', '/api/chat/'], async (req, res) => {
                 temperature: 0.7,
               },
             }),
-            12000
+            25000
           );
           responseText = response?.text || '';
           successfulModel = targetModel;
@@ -316,7 +316,7 @@ Rules for Extraction:
     }
     parts.push({ text: extractionPrompt });
 
-    const modelCandidates = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+    const modelCandidates = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let parsedResult = null;
     let lastErr = null;
 
@@ -331,7 +331,7 @@ Rules for Extraction:
               temperature: 0.2,
             },
           }),
-          20000
+          25000
         );
 
         const textOut = response?.text || '';
@@ -446,7 +446,7 @@ Output MUST be a single valid JSON object strictly matching this schema with no 
   "key_drivers": ["string", "string", "string"]
 }`;
 
-    const modelCandidates = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite-preview'];
+    const modelCandidates = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let searchResponse = null;
     let successfulModel = null;
     let lastErr = null;
@@ -1610,7 +1610,7 @@ Rules:
 4. If they ask about a specific deal or borrower (e.g. OxyBricks, SD-1CR, etc.), find the matching deals in the inventory and give exact amounts and ROI figures.
 5. If they ask for advice or comparison, provide analytical insight based on their numbers.`;
 
-    const modelCandidates = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const modelCandidates = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let aiReply = null;
 
     for (const targetModel of modelCandidates) {
@@ -1624,7 +1624,7 @@ Rules:
               temperature: 0.3,
             },
           }),
-          10000
+          25000
         );
         if (response?.text) {
           aiReply = response.text;

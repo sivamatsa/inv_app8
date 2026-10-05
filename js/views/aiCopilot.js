@@ -376,7 +376,7 @@ window.App = window.App || {};
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   messages: [{ role: 'user', content: question }],
-                  model: 'gemini-3.6-flash',
+                  model: 'gemini-3.8-flash',
                   systemInstruction: 'You are the AI Portfolio Copilot for Personal Investment OS. Analyze user portfolio data and questions with institutional precision and clarity.',
                   portfolioContext: formattedContext,
                 }),

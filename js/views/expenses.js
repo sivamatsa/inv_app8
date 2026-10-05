@@ -255,12 +255,20 @@ window.App = window.App || {};
 
   async function drawProjectsTab(host) {
     host.innerHTML = `<div class="panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div class="chart-title">My Projects</div>
-        <button class="btn btn-gold btn-sm" id="newProjectBtn">+ New Project</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-sm" id="btnExpensesRecycleBin" title="View deleted expenses &amp; recovery">&#128465; Recycle Bin</button>
+          <button class="btn btn-gold btn-sm" id="newProjectBtn">+ New Project</button>
+        </div>
       </div>
       <div id="projectsList" class="card-row" style="flex-wrap:wrap"></div>
     </div>`;
+    App.utils.qs('#btnExpensesRecycleBin', host)?.addEventListener('click', () => {
+      if (App.recycleBin && App.recycleBin.openTrashModal) {
+        App.recycleBin.openTrashModal(() => drawProjectsTab(host));
+      }
+    });
     App.utils.qs('#newProjectBtn', host).addEventListener('click', () => openProjectWizard(null, () => drawProjectsTab(host)));
 
     async function draw() {
@@ -276,7 +284,7 @@ window.App = window.App || {};
           <div style="display:flex;gap:6px;margin-top:10px">
             <button class="btn btn-outline btn-sm" data-open-project="${p.id}">Open</button>
             <button class="btn btn-outline btn-sm" data-edit-project="${p.id}">Edit</button>
-            <button class="icon-btn del" data-del-project="${p.id}">&#128465;</button>
+            <button class="icon-btn del" data-del-project="${p.id}" title="Delete project with 2-step confirmation">&#128465;</button>
           </div>
         </div>`;
       }).join('') || '<div class="empty-note">No projects yet.</div>';
@@ -290,10 +298,30 @@ window.App = window.App || {};
         const project = projects.find((p) => p.id === Number(b.dataset.editProject));
         openProjectWizard(project, draw);
       }));
-      App.utils.qsa('[data-del-project]', host).forEach((b) => b.addEventListener('click', async () => {
-        if (!confirm('Delete this project and every transaction/category in it? This cannot be undone.')) return;
-        try { await App.api.deleteExpenseProject(Number(b.dataset.delProject)); App.utils.toast('Project deleted'); draw(); }
-        catch (e) { App.utils.toast('Could not delete: ' + (e.message || e), 'err'); }
+      App.utils.qsa('[data-del-project]', host).forEach((b) => b.addEventListener('click', () => {
+        const prjId = Number(b.dataset.delProject);
+        const project = projects.find((p) => p.id === prjId);
+        if (!project) return;
+
+        App.ui.confirmTwoStepDelete({
+          title: 'Delete Expense Project',
+          itemName: project.name || 'Expense Project',
+          itemType: 'Expense Project',
+          itemValue: project.budget_total,
+          warningText: `Deleting project "${project.name}" will remove all its tracked expenses and vendor records. It will be moved to the Recycle Bin and can be restored.`,
+          onConfirm: async () => {
+            try {
+              if (App.recycleBin && App.recycleBin.moveToTrash) {
+                await App.recycleBin.moveToTrash('Expense', Object.assign({ name: project.name, amount: project.budget_total }, project), { reason: 'User deleted expense project' });
+              }
+              await App.api.deleteExpenseProject(prjId);
+              App.utils.toast('Project moved to Recycle Bin & deleted', 'ok');
+              draw();
+            } catch (e) {
+              App.utils.toast('Could not delete project: ' + (e.message || e), 'err');
+            }
+          },
+        });
       }));
     }
     await draw();
@@ -533,10 +561,30 @@ window.App = window.App || {};
             }
           }, 30);
         }));
-        App.utils.qsa('[data-del-txn]', host).forEach((b) => b.addEventListener('click', async () => {
-          if (!confirm('Delete this transaction?')) return;
-          try { await App.api.deleteExpenseTransaction(Number(b.dataset.delTxn)); App.utils.toast('Deleted'); draw(); }
-          catch (e) { App.utils.toast('Could not delete: ' + (e.message || e), 'err'); }
+        App.utils.qsa('[data-del-txn]', host).forEach((b) => b.addEventListener('click', () => {
+          const txnId = Number(b.dataset.delTxn);
+          const txn = (txns || []).find((x) => x.id === txnId);
+          if (!txn) return;
+
+          App.ui.confirmTwoStepDelete({
+            title: 'Delete Expense Transaction',
+            itemName: txn.description || 'Expense Entry',
+            itemType: 'Expense Transaction',
+            itemValue: txn.amount,
+            warningText: `Deleting this transaction will remove its ${App.utils.fmtMoney(txn.amount)} expense from project totals. It will be moved to the Recycle Bin and can be restored.`,
+            onConfirm: async () => {
+              try {
+                if (App.recycleBin && App.recycleBin.moveToTrash) {
+                  await App.recycleBin.moveToTrash('Expense', Object.assign({ name: txn.description || 'Expense Transaction', amount: txn.amount }, txn), { reason: 'User deleted expense transaction' });
+                }
+                await App.api.deleteExpenseTransaction(txnId);
+                App.utils.toast('Transaction moved to Recycle Bin & deleted', 'ok');
+                draw();
+              } catch (e) {
+                App.utils.toast('Could not delete: ' + (e.message || e), 'err');
+              }
+            },
+          });
         }));
       }
       drawRows();

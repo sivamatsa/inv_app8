@@ -1,11 +1,23 @@
 {
-  "version": "2.4.1",
+  "version": "2.4.2",
   "name": "Personal Investment Operating System",
-  "releaseDate": "2026-10-04",
+  "releaseDate": "2026-10-05",
   "channel": "Stable",
-  "build": "20261004.1",
+  "build": "20261005.1",
   "minSupportedVersion": "2.0.0",
   "releases": [
+    {
+      "version": "2.4.2",
+      "type": "minor",
+      "date": "2026-10-05",
+      "title": "Full Portfolio Dossier, Auto-Reload Loop Guard & Settings Accordions",
+      "highlights": [
+        "Full Portfolio Dossier export covering Deals, Recurring SIPs, Gold Vault, Expense Projects, Accounts, and Liabilities in PDF, Excel, and Print",
+        "Dedicated Full Portfolio Dossier action buttons in Reports, Dashboard, and Settings",
+        "Infinite Auto-Reload loop fix on static domains (sri.qzz.io) with session attempt locks and SW cache flushing",
+        "Interactive expandable accordion panels for Profile, Privacy, Sidebar, and Notification Delivery with Expand/Collapse All"
+      ]
+    },
     {
       "version": "2.4.1",
       "type": "minor",

@@ -323,7 +323,8 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
 .wizard-step.done{color:var(--teal);border-color:var(--teal)}
 
 /* MODAL */
-.modal-backdrop{position:fixed;inset:0;background:rgba(3,7,15,0.72);backdrop-filter:blur(4px);z-index:500;display:none;align-items:center;justify-content:center}
+.modal-backdrop{position:fixed;inset:0;background:rgba(3,7,15,0.72);backdrop-filter:blur(4px);z-index:10000;display:none;align-items:center;justify-content:center}
+#sharedModalBackdrop{z-index:120000 !important}
 .modal-backdrop.show{display:flex;animation:fadeIn .2s ease}
 .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:24px;max-width:900px;width:94%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
 .modal.modal-sm{max-width:520px}

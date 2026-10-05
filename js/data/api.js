@@ -1787,28 +1787,50 @@ App.api = (function () {
     const combined = Array.from(map.values());
     const extra = getAccountExtraMeta();
     return combined.map((a) => {
-      const ex = extra[a.id];
-      if (ex) {
-        return Object.assign({}, ex, a, {
-          start_date: a.start_date || ex.start_date || null,
-          maturity_date: a.maturity_date || ex.maturity_date || null,
-          interest_rate: a.interest_rate !== undefined && a.interest_rate !== null ? a.interest_rate : (ex.interest_rate !== undefined ? ex.interest_rate : null),
-          maturity_amount: a.maturity_amount !== undefined && a.maturity_amount !== null ? a.maturity_amount : (ex.maturity_amount !== undefined ? ex.maturity_amount : null),
-          account_type: ex.account_type || a.account_type,
-        });
+      const ex = extra[a.id] || {};
+      let resolvedType = ex.account_type || a.account_type;
+      if (a.notes && a.notes.includes('[Type:')) {
+        const m = a.notes.match(/\[Type:\s*([^\]]+)\]/);
+        if (m && m[1]) resolvedType = m[1].trim();
       }
-      return a;
+      return Object.assign({}, ex, a, {
+        start_date: a.start_date || ex.start_date || null,
+        maturity_date: a.maturity_date || ex.maturity_date || null,
+        interest_rate: a.interest_rate !== undefined && a.interest_rate !== null ? a.interest_rate : (ex.interest_rate !== undefined ? ex.interest_rate : null),
+        maturity_amount: a.maturity_amount !== undefined && a.maturity_amount !== null ? a.maturity_amount : (ex.maturity_amount !== undefined ? ex.maturity_amount : null),
+        account_type: resolvedType || 'Savings',
+      });
     });
   };
 
   const createAccount = async (row) => {
     let payload = Object.assign({}, row);
+    const rawType = (row.account_type || 'Savings').trim();
+    const legacyValidTypes = ['Bank', 'Cash', 'Wallet', 'Investment Account', 'Other'];
+    let supaAccountType = 'Bank';
+    if (legacyValidTypes.includes(rawType)) {
+      supaAccountType = rawType;
+    } else if (rawType.toLowerCase().includes('cash')) {
+      supaAccountType = 'Cash';
+    } else if (rawType.toLowerCase().includes('wallet')) {
+      supaAccountType = 'Wallet';
+    } else if (rawType.toLowerCase().includes('invest')) {
+      supaAccountType = 'Investment Account';
+    } else {
+      supaAccountType = 'Bank';
+    }
+
+    payload.account_type = supaAccountType;
+    if (rawType !== supaAccountType && (!row.notes || !row.notes.includes(`[Type: ${rawType}]`))) {
+      payload.notes = row.notes ? `${row.notes} [Type: ${rawType}]` : `[Type: ${rawType}]`;
+    }
+
     const extraData = {
       start_date: row.start_date || null,
       maturity_date: row.maturity_date || null,
       interest_rate: row.interest_rate !== undefined && row.interest_rate !== '' ? Number(row.interest_rate) : null,
       maturity_amount: row.maturity_amount !== undefined && row.maturity_amount !== '' ? Number(row.maturity_amount) : null,
-      account_type: row.account_type || 'Savings',
+      account_type: rawType,
     };
 
     let saved = null;

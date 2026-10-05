@@ -9,10 +9,10 @@
 
   window.App = window.App || {};
 
-  const CURRENT_VERSION = '2.4.1';
-  const BUILD_DATE = '2026-10-04';
+  const CURRENT_VERSION = '2.4.2';
+  const BUILD_DATE = '2026-10-05';
   const BUILD_CHANNEL = 'Stable';
-  const BUILD_ID = '20261004.1';
+  const BUILD_ID = '20261005.1';
 
   App.version = CURRENT_VERSION;
   App.buildInfo = {
@@ -151,16 +151,29 @@
               swRegistration.update().catch(() => {});
             }
 
-            // Check auto-reload preference
+            // Check auto-reload preference with infinite loop circuit breaker
             const autoReload = localStorage.getItem('ios_auto_reload_updates') === 'true';
-            if (autoReload) {
-              App.utils.toast?.(`Auto-updating to v${remoteVersion} in 3 seconds...`);
+            const reloadKey = `ios_auto_reload_attempt_${remoteVersion}`;
+            const lastAttempt = Number(sessionStorage.getItem(reloadKey) || 0);
+            const now = Date.now();
+            const alreadyAttempted = (now - lastAttempt) < 60000; // 60s cooldown per version
+
+            if (autoReload && !alreadyAttempted) {
+              sessionStorage.setItem(reloadKey, String(now));
+              App.utils.toast?.(`Auto-updating to v${remoteVersion}...`);
               setTimeout(() => {
                 App.updater.applyUpdate();
-              }, 3000);
+              }, 2500);
+            } else if (autoReload && alreadyAttempted) {
+              console.warn(`[Updater] Auto-reload already attempted for v${remoteVersion}. Suppressing reload loop.`);
             }
 
             return { hasUpdate: true, version: remoteVersion, data };
+          } else {
+            // Version is already current; clear any lingering attempt markers
+            try {
+              sessionStorage.removeItem(`ios_auto_reload_attempt_${remoteVersion}`);
+            } catch (_) {}
           }
         }
 
@@ -226,13 +239,22 @@
       });
     },
 
-    // Apply update: postMessage to SW and hard reload
-    applyUpdate: function () {
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
-      }
+    // Apply update: postMessage to SW, flush cache, and clean reload
+    applyUpdate: async function () {
+      try {
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.filter((k) => k.includes('investment-os')).map((k) => caches.delete(k)));
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+        }
+      } catch (_) {}
+
       setTimeout(() => {
-        window.location.reload();
+        const cleanUrl = window.location.href.replace(/([?&])_t=[^&]+/, '');
+        const sep = cleanUrl.includes('?') ? '&' : '?';
+        window.location.replace(cleanUrl + sep + '_t=' + Date.now());
       }, 300);
     },
 

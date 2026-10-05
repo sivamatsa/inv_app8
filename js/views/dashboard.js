@@ -24,7 +24,8 @@ window.App = window.App || {};
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline btn-sm" id="dashAiAuditBtn">&#9889; AI Risk Audit</button>
           <button class="btn btn-outline btn-sm" id="dashQuickIngestBtn">📸 Scan Statement / Receipt</button>
-          <button class="btn btn-gold btn-sm" id="dashExecReportBtn">&#128196; Executive Report</button>
+          <button class="btn btn-gold btn-sm" id="dashFullDossierBtn">&#128450; Full Portfolio Dossier</button>
+          <button class="btn btn-outline btn-sm" id="dashExecReportBtn">&#128196; Executive Report</button>
         </div>
       </div>
 
@@ -140,6 +141,9 @@ window.App = window.App || {};
     `;
 
     // Navigation and Action Handlers
+    App.utils.qs('#dashFullDossierBtn', pane)?.addEventListener('click', () => {
+      App.executiveReport.openFullPortfolioDossierModal();
+    });
     App.utils.qs('#dashExecReportBtn', pane)?.addEventListener('click', () => {
       App.executiveReport.openExecutiveReportModal();
     });
@@ -808,9 +812,12 @@ window.App = window.App || {};
 
             <!-- Designated Liquid Accounts List -->
             <div style="margin-bottom:14px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
                 <span style="font-weight:700;font-size:13px;color:var(--teal)">🏦 Liquid &amp; Emergency Accounts (${liquidAccounts.length})</span>
-                <button class="btn btn-teal btn-sm" id="btnAddEmergencyAccountBtn" style="font-size:11.5px;padding:4px 10px">➕ Add New Account / FD</button>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button class="btn btn-outline btn-sm" id="btnOpenRecycleBinDash" style="font-size:11px;padding:3px 8px">&#128465; Recycle Bin</button>
+                  <button class="btn btn-teal btn-sm" id="btnAddEmergencyAccountBtn" style="font-size:11.5px;padding:4px 10px">➕ Add New Account / FD</button>
+                </div>
               </div>
 
               <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:220px;overflow-y:auto">
@@ -873,6 +880,15 @@ window.App = window.App || {};
           });
         }
 
+        // Wire Recycle Bin button
+        container.querySelector('#btnOpenRecycleBinDash')?.addEventListener('click', () => {
+          App.recycleBin.openTrashModal(async () => {
+            accountsState = await App.api.listAccounts();
+            renderModalContent(container);
+            if (typeof onUpdate === 'function') onUpdate();
+          });
+        });
+
         // Wire Add Account button
         container.querySelector('#btnAddEmergencyAccountBtn')?.addEventListener('click', () => {
           openAccountEditOrAddModal(null, async () => {
@@ -914,22 +930,32 @@ window.App = window.App || {};
           });
         });
 
-        // Wire Delete Account buttons
+        // Wire Delete Account buttons with Mandatory Two-Step Confirmation
         container.querySelectorAll('[data-del-ef-acct]').forEach((btn) => {
-          btn.addEventListener('click', async () => {
+          btn.addEventListener('click', () => {
             const acctId = Number(btn.dataset.delEfAcct);
             const acct = accountsState.find((a) => a.id === acctId);
             if (!acct) return;
-            if (!confirm(`Are you sure you want to delete "${acct.account_name}"?`)) return;
-            try {
-              await App.api.deleteAccount(acctId);
-              App.utils.toast('Account deleted successfully.', 'ok');
-              accountsState = await App.api.listAccounts();
-              renderModalContent(container);
-              if (typeof onUpdate === 'function') onUpdate();
-            } catch (err) {
-              App.utils.toast('Could not delete account: ' + (err.message || err), 'err');
-            }
+
+            App.ui.confirmTwoStepDelete({
+              title: 'Delete Liquid Account / Fixed Deposit',
+              itemName: acct.account_name,
+              itemType: acct.account_type || 'Liquid Account',
+              itemValue: acct.current_balance,
+              warningText: `Deleting "${acct.account_name}" will remove its ${App.utils.fmtMoney(acct.current_balance)} balance from Emergency Reserve calculations. It will be safely moved to the Recycle Bin and can be restored.`,
+              onConfirm: async () => {
+                try {
+                  await App.recycleBin.moveToTrash('Account', acct, { reason: 'User deleted from Emergency Buffer modal' });
+                  await App.api.deleteAccount(acctId);
+                  App.utils.toast(`"${acct.account_name}" moved to Recycle Bin.`, 'ok');
+                  accountsState = await App.api.listAccounts();
+                  renderModalContent(container);
+                  if (typeof onUpdate === 'function') onUpdate();
+                } catch (err) {
+                  App.utils.toast('Could not delete account: ' + (err.message || err), 'err');
+                }
+              },
+            });
           });
         });
       }

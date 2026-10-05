@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive plan to resolve 405 errors on GitHub Pages and provide seamless, zero-disruption Telegram bot connectivity via Supabase database token persistence, direct client-side poller, and cloud webhook backup.",
-  "updatedAt":  "2026-10-03T19:13:22.208502748Z",
+  "summary":  "Implementation plan to fix the modal z-index foreground stacking and expand the Recycle Bin and 2-step deletion confirmation to all investment types (Deals, SIPs, Gold, Accounts/FDs, Expenses) with a tabbed interface, 90-day auto-purge toggle, and access from Settings and Portfolio views.",
+  "updatedAt":  "2026-10-05T07:13:45.793986517Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

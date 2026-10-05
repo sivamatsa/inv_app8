@@ -510,29 +510,26 @@ window.App = window.App || {};
   }
 
   function openDeleteDealModal(deal, onDone) {
-    App.ui.open({
-      title: 'Delete Deal',
-      bodyHtml: `
-        <div class="hint" style="color:var(--red,#e5484d);margin-bottom:10px">This permanently deletes "${App.utils.escapeHtml(deal.deal_name)}" and its payment schedule. There is no undo.</div>
-        <div class="field span2"><label>Type the deal name to confirm: ${App.utils.escapeHtml(deal.deal_name)}</label><input id="confirmDeleteDealName" type="text"></div>
-        <div class="auth-error" id="deleteDealError"></div>`,
-      actions: [
-        { label: 'Delete Permanently', className: 'btn-outline', onClick: async () => {
-          const typed = App.utils.qs('#confirmDeleteDealName').value.trim();
-          if (typed !== deal.deal_name) { App.utils.qs('#deleteDealError').textContent = 'Name does not match - nothing was deleted.'; return; }
-          try {
-            await App.api.deleteDeal(deal.id);
-            App.utils.toast('Deal deleted');
-            App.ui.close();
-            if (onDone) onDone();
-          } catch (e) {
-            App.utils.qs('#deleteDealError').textContent = e.code === '23503'
-              ? 'This deal has recorded payments and can\'t be deleted - edit it and set Status to CLOSED instead to keep its history.'
-              : (e.message || String(e));
+    App.ui.confirmTwoStepDelete({
+      title: 'Delete Deal / Investment',
+      itemName: deal.deal_name,
+      itemType: deal.investment_type || 'Deal',
+      itemValue: deal.invested_amount || deal.principal_amount,
+      warningText: `Deleting "${deal.deal_name}" will remove this investment and its scheduled payouts from active calculations. It will be moved to the Recycle Bin and can be restored.`,
+      onConfirm: async () => {
+        try {
+          if (App.recycleBin && App.recycleBin.moveToTrash) {
+            await App.recycleBin.moveToTrash('Deal', deal, { reason: 'User deleted deal' });
           }
-        } },
-        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-      ],
+          await App.api.deleteDeal(deal.id);
+          App.utils.toast('Deal moved to Recycle Bin & deleted', 'ok');
+          if (onDone) onDone();
+        } catch (e) {
+          App.utils.toast(e.code === '23503'
+            ? 'This deal has recorded payments and cannot be deleted - edit it and set Status to CLOSED instead.'
+            : (e.message || String(e)), 'err');
+        }
+      },
     });
   }
 
@@ -2091,6 +2088,7 @@ ${App.utils.escapeHtml(msgText)}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
             <input class="search-input" id="dealsSearch" placeholder="Search deal name / external id...">
             <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" id="btnDealsRecycleBin" title="View deleted deals &amp; recovery">&#128465; Recycle Bin</button>
               <button class="btn btn-outline btn-sm" id="btnManagePlatforms">🏢 Platforms</button>
               <button class="btn btn-outline btn-sm" id="scanAgreementBtn">🤖 Scan Agreement / Deed</button>
               <button class="btn btn-outline btn-sm" id="smartQuickAddBtn">&#9889; AI Quick Add</button>
@@ -2172,6 +2170,14 @@ ${App.utils.escapeHtml(msgText)}
     });
 
     App.filters.renderBar(App.utils.qs('#dealsFilterBar'), draw);
+    App.utils.qs('#btnDealsRecycleBin')?.addEventListener('click', () => {
+      if (App.recycleBin && App.recycleBin.openTrashModal) {
+        App.recycleBin.openTrashModal(async () => {
+          App.state.deals = await App.api.listDeals();
+          draw();
+        });
+      }
+    });
     App.utils.qs('#addDealBtn').addEventListener('click', () => openDealWizard(null));
     App.utils.qs('#scanAgreementBtn')?.addEventListener('click', () => {
       if (App.docScanner && App.docScanner.openScannerModal) {

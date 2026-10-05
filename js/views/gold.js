@@ -1177,11 +1177,12 @@ window.App = window.App || {};
       const totalPaid = purchases.reduce((a, p) => a + (p.amount_paid || 0), 0);
       const totalGrams = purchases.reduce((a, p) => a + (p.net_grams || p.grams || 0), 0);
       host.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
           <div class="chart-title" style="margin:0">Physical Gold Purchases</div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="btnGoldRecycleBin" title="View deleted gold purchases &amp; recovery">&#128465; Recycle Bin</button>
             <button class="btn btn-outline btn-sm" id="exportGoldPurchasesBtn">&#8595; Export</button>
-            <button class="btn btn-outline btn-sm" id="addGoldPurchaseBtn">+ Add Purchase</button>
+            <button class="btn btn-gold btn-sm" id="addGoldPurchaseBtn">+ Add Purchase</button>
           </div>
         </div>
         <div class="hint" style="margin-bottom:8px">Total: ${App.utils.fmtNum(totalGrams, 3)} g for ${App.utils.fmtMoney(totalPaid)} (avg ${totalGrams ? fmtGramPrice(totalPaid / totalGrams) : '—'}/g including making charges &amp; GST).</div>
@@ -1190,16 +1191,41 @@ window.App = window.App || {};
           <td>${App.utils.fmtDate(p.purchase_date)}</td><td>${p.purity}</td><td>${App.utils.fmtNum(p.net_grams || p.grams, 3)}</td>
           <td>${fmtGramPrice(p.price_per_gram)}</td><td>${App.utils.fmtMoney((p.making_charges || 0) + (p.gst || 0) + (p.other_charges || 0) - (p.discount || 0))}</td>
           <td>${App.utils.fmtMoney(p.amount_paid)}</td><td>${App.utils.escapeHtml(p.source || '—')}</td>
-          <td><button class="icon-btn del" data-del-purchase="${p.id}">&#128465;</button></td>
+          <td><button class="icon-btn del" data-del-purchase="${p.id}" title="Delete gold purchase with 2-step confirmation">&#128465;</button></td>
         </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">No physical gold purchases logged yet.</td></tr>'}</tbody></table></div>`;
+      App.utils.qs('#btnGoldRecycleBin', host)?.addEventListener('click', () => {
+        if (App.recycleBin && App.recycleBin.openTrashModal) {
+          App.recycleBin.openTrashModal(draw);
+        }
+      });
       App.utils.qs('#addGoldPurchaseBtn', host).addEventListener('click', () => openPurchaseForm());
       App.utils.qs('#exportGoldPurchasesBtn', host).addEventListener('click', async () => {
         try { await App.exportData.exportSection('gold_purchases'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
       });
-      App.utils.qsa('[data-del-purchase]', host).forEach((b) => b.addEventListener('click', async () => {
-        if (!confirm('Delete this purchase record?')) return;
-        await App.api.deleteGoldPurchase(Number(b.dataset.delPurchase));
-        draw();
+      App.utils.qsa('[data-del-purchase]', host).forEach((b) => b.addEventListener('click', () => {
+        const pId = Number(b.dataset.delPurchase);
+        const p = purchases.find((x) => x.id === pId);
+        if (!p) return;
+
+        App.ui.confirmTwoStepDelete({
+          title: 'Delete Gold Purchase Record',
+          itemName: `${p.net_grams || p.grams}g ${p.purity} Gold`,
+          itemType: 'Gold Investment',
+          itemValue: p.amount_paid,
+          warningText: `Deleting this gold entry (${p.net_grams || p.grams}g) will remove its value from gold holdings and net worth. It will be moved to the Recycle Bin and can be restored.`,
+          onConfirm: async () => {
+            try {
+              if (App.recycleBin && App.recycleBin.moveToTrash) {
+                await App.recycleBin.moveToTrash('Gold', Object.assign({ name: `${p.net_grams || p.grams}g ${p.purity} Gold Purchase`, amount: p.amount_paid }, p), { reason: 'User deleted gold purchase' });
+              }
+              await App.api.deleteGoldPurchase(pId);
+              App.utils.toast('Gold purchase moved to Recycle Bin & deleted', 'ok');
+              draw();
+            } catch (err) {
+              App.utils.toast('Could not delete gold purchase: ' + (err.message || err), 'err');
+            }
+          },
+        });
       }));
     }
 

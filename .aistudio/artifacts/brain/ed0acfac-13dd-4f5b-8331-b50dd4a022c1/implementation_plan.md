@@ -1,104 +1,100 @@
-# Implementation Plan: 24/7 Telegram Bot Integration for Static Deployments (GitHub Pages & sri.qzz.io)
+# Universal Portfolio Recycle Bin & Foreground Modal Stacking Architecture
 
-Fixes the `Server responded with 405` and `Server cannot connect to that backend URL` errors when running on GitHub Pages (`sivamatsa.github.io`) or custom domains (`sri.qzz.io`). Implements a resilient hybrid architecture: direct Supabase token storage, browser-based live poller with instant execution, and automated cloud webhook backup.
+Fix the foreground z-index stacking bug so the Recycle Bin and 2-step confirmation modals always open on top of any active screen or parent modal, and expand both the Two-Step Deletion Protection and the Recycle Bin to cover ALL investment asset classes across the application (Deals, SIPs & Recurring, Gold & Bullion, Accounts/FDs, Expenses, and Liabilities).
 
 ---
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Based on your selections and architecture requirements, here are the decisions to be executed:
+> The following decisions were confirmed by the user in Phase 1 and govern this implementation:
 
-- **Confirmed Decision 1 (Storage)**: Store the Telegram Bot token directly in your private Supabase database (`public.bot_links` table) with Row-Level Security (RLS). This eliminates HTTP POST calls to static hosting domains, completely fixing the `405 Method Not Allowed` error.
-- **Confirmed Decision 2 (Runtime)**: Implement a **Hybrid Telegram Poller**:
-  - **Primary (In-App)**: A resilient client-side polling engine (`js/lib/telegramClientPoller.js`) that runs seamlessly in the browser / installed PWA. It calls `https://api.telegram.org/bot<token>/getUpdates`, answers all commands (`/summary`, `/due`, `/overdue`, `/gold`, etc.) with live Supabase portfolio data, and replies in real-time.
-  - **Secondary (Cloud Webhook)**: Full support for Telegram Webhooks (`setWebhook`) pointing to Supabase Edge Functions or a cloud backend, so messages continue to be answered even when all browser tabs are closed.
-- **Confirmed Decision 3 (UX Guardrails)**: Add smart detection in Settings so that entering a GitHub Pages or static URL (`sivamatsa.github.io` / `sri.qzz.io`) automatically guides the user to use the direct Supabase integration instead of failing with connection errors.
-
----
-
-### 1. Root Cause Analysis
-
-1. **Why `Server responded with 405` Occurred**:
-   - `https://sivamatsa.github.io/inv_app8/` and `https://sri.qzz.io/` are static file hosts.
-   - When entering the BotFather token, the app called `safeApiFetch('/api/bot/telegram/set-token', { method: 'POST' })`.
-   - GitHub Pages does not support POST requests to static URLs and rejected it with **HTTP 405 (Method Not Allowed)**.
-2. **Why `Server can not connect to that backend URL` Occurred**:
-   - Entering `https://sri.qzz.io/` or `https://sivamatsa.github.io/` into the "Cloud Backend URL" input caused the app to test `GET https://sri.qzz.io/api/bot/config`.
-   - Because GitHub Pages does not run Node.js/Express, it returned a 404 HTML page instead of API JSON, failing the health check.
+- **Confirmed Decision 1 (Foreground z-index Stacking)**: Ensure modals opened via `App.ui.open` (including the Recycle Bin and Two-Step Delete modals) dynamically calculate or set an ultra-high foreground stacking index (`z-index: 120000`), resolving the bug where it was opening behind parent modals (such as the Emergency Reserve modal with `z-index: 10060`).
+- **Confirmed Decision 2 (Universal Scope for All Investments)**: Expand soft-delete protection and the two-step confirmation beyond Fixed Deposits to ALL investment types: Investment Deals, Systematic Recurring / SIPs, Gold & Bullion, Accounts & FDs, Expense Projects/Transactions, and Liabilities.
+- **Confirmed Decision 3 (Tabbed Organization)**: Structure the Recycle Bin modal with tabbed filtering: `All Items`, `Deals`, `SIPs & Recurring`, `Gold & Bullion`, `Accounts & FDs`, and `Expenses`.
+- **Confirmed Decision 4 (Retention & Purge Controls)**: Include a default-enabled checkbox `[x] Automatically prune items older than 90 days` alongside the ability for the user to manually purge single items or empty the entire trash with two-step confirmation.
+- **Confirmed Decision 5 (Access Locations)**: Provide clear entry points under **Settings** (Backup & Disaster Recovery) and across primary **Portfolio Views** (Deals, Recurring Investments, Gold, Net Worth, and Dashboard).
 
 ---
 
-### 2. Technical Architecture & Hybrid Workflow
+### 1. Root Cause & Solution Details
+
+#### A. Modal Stacking & Background Issue
+- **Root Cause**:
+  Parent views (like the Dashboard Emergency Buffer modal, line 965 and line 1075 of `dashboard.js`) set inline styles with `z-index: 10060`, whereas `#sharedModalBackdrop` created by `App.ui.open` used `.modal-backdrop` which was defined in `css/app.css` with `z-index: 500`. Consequently, opening the Recycle Bin from within the Emergency Reserve modal caused it to render physically beneath the parent modal.
+- **Fix**:
+  1. In `App.ui.open`, dynamically assign `backdropEl.style.zIndex = 120000` (or 10 higher than the highest visible `.modal-backdrop`).
+  2. In `css/app.css`, elevate the base `.modal-backdrop` index to `10000`.
+  3. Ensure nested dialogs and confirmation modals always nest above whatever view opened them.
+
+#### B. Universal Recycle Bin Service (`App.recycleBin`)
+Expand `js/lib/recycleBin.js` with comprehensive type adapters:
+- **Deals**: Restores deal details, platform attribution, principal, ROI, maturity, and re-links payment schedules via `App.api.createDeal`.
+- **SIPs & Recurring**: Restores systematic investment plans and payment frequency via `App.api.createRecurringItem`.
+- **Gold & Bullion**: Restores weight (grams), purchase rate, purity, provider, and total cost via `App.api.createGoldPurchase`.
+- **Accounts & Fixed Deposits**: Restores account details, bank, maturity date, and interest rates via `App.api.createAccount`.
+- **Expenses & Projects**: Restores expense transactions and projects via `App.api.createExpenseTransaction`.
+- **Liabilities**: Restores loan/debt obligations via `App.api.createLiability`.
+
+#### C. Tabbed UI with 90-Day Retention Filter
+- The Recycle Bin modal will render tab navigation:
+  `[All (${total})] [Deals (${dCount})] [SIPs (${rCount})] [Gold (${gCount})] [Accounts/FDs (${aCount})] [Expenses (${eCount})]`
+- **Retention Checkbox**:
+  `[x] Auto-prune items deleted more than 90 days ago` (enabled by default; automatically cleans up stale entries while keeping recent deletions safe).
+- **Audit Columns**:
+  - Item Name & Sub-Category
+  - Asset Class / Investment Type
+  - Amount / Invested Value
+  - Deleted When (Date & Time)
+  - Deleted By (`SIVAAIM12345@gmail.com`)
+  - Actions: **"↩️ Restore"** and **"✕ Purge"**
+
+---
+
+### 2. User Experience & Visual Layout
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   STATIC HOST (GitHub Pages / sri.qzz.io)              │
+│  🗑️ Universal Portfolio Recycle Bin (Recover Deleted Investments)   ✕  │
+├────────────────────────────────────────────────────────────────────────┤
+│  [All (14)]  [Deals (3)]  [SIPs (2)]  [Gold (1)]  [Accounts/FD (6)]... │
+├────────────────────────────────────────────────────────────────────────┤
+│  ☑ Auto-purge items deleted >90 days ago        [ Empty Recycle Bin ]  │
 │                                                                        │
-│   ┌───────────────────────────┐      ┌───────────────────────────────┐ │
-│   │ Settings View             │      │ js/lib/telegramClientPoller.js│ │
-│   │  • Enter BotFather Token  │      │  • Long-polling getUpdates    │ │
-│   │  • Test with Telegram API │      │  • Process /summary, /due     │ │
-│   └─────────────┬─────────────┘      │  • Ground with Supabase Data  │ │
-│                 │                    └──────────────┬────────────────┘ │
-└─────────────────┼───────────────────────────────────┼──────────────────┘
-                  │ 1. Upsert Bot Link                │ 2. Realtime Queries
-                  ▼                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                        SUPABASE (PostgreSQL + RLS)                     │
+│  Item Name          Type         Amount      Deleted When   Deleted By Actions  │
+│  ────────────────────────────────────────────────────────────────────────────  │
+│  HDFC 10L FD        Fixed Dep.   ₹10,00,000  Oct 05 07:15   SIVA...    [↩ Restore]│
+│  Grip Corporate Bnd Deal         ₹2,00,000   Oct 02 11:20   SIVA...    [↩ Restore]│
+│  Karat 24K Gold Bar Gold         ₹75,400     Sep 28 16:04   SIVA...    [↩ Restore]│
+│  Nifty 50 Monthly   SIP          ₹15,000     Sep 20 09:30   SIVA...    [↩ Restore]│
 │                                                                        │
-│   • public.bot_links: stores token, chat_id, is_verified, preferences  │
-│   • public.deals, public.payment_schedules: live portfolio data        │
-│   • Edge Function / Webhook backup for background delivery             │
-└────────────────────────────────────────────────────────────────────────┘
-                  ▲                                   │
-                  │ 3. Direct Telegram API (CORS OK)  │ 4. Send Responses
-                  ▼                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                          TELEGRAM BOT API                              │
-│             https://api.telegram.org/bot<TOKEN>/...                    │
-│             (getMe, getUpdates, sendMessage, setWebhook)               │
+│  [ Close ]                                                             │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### 3. Step-by-Step Implementation Sequence
+### 3. Step-by-Step Implementation Roadmap
 
-1. **Direct Supabase Token Management (`js/data/api.js`)**:
-   - Update `setTelegramBotToken(token, botUsername)`:
-     - First, tests the token directly against `https://api.telegram.org/bot<token>/getMe` via browser `fetch` (CORS-friendly).
-     - Retrieves the verified bot username (e.g., `@MyInvestmentOS_bot`).
-     - Saves the token and configuration directly into the user's Supabase `public.bot_links` row under `platform = 'telegram'`.
-     - Zero reliance on Node.js `/api/bot/telegram/set-token` &mdash; eliminating the 405 error on GitHub Pages.
-   - Update `getTelegramBotConfig()`:
-     - First checks Supabase `public.bot_links` for the active token and verification state.
-     - Falls back to server API if a backend URL is configured.
-2. **Client-Side Telegram Poller (`js/lib/telegramClientPoller.js`)**:
-   - Implements a resilient client-side long poller using `https://api.telegram.org/bot<token>/getUpdates?offset=...&timeout=25`.
-   - On incoming message:
-     - Checks user verification code or authorized `chat_id`.
-     - Executes commands:
-       - `/start [code]` &rarr; Verifies and links the user's chat ID to their Supabase account.
-       - `/summary` &rarr; Returns active capital, deal count, monthly yield, and overdue status.
-       - `/due` &rarr; Lists upcoming payment dates for next 30 days.
-       - `/overdue` &rarr; Lists any past-due payouts with borrower counter-party contacts.
-       - `/gold` &rarr; Current gold holdings and live bullion valuation.
-       - `/digest` &rarr; Daily portfolio briefing.
-       - Natural language financial queries via Gemini AI.
-     - Sends rich formatted HTML replies back via `https://api.telegram.org/bot<token>/sendMessage`.
-3. **Settings UI Enhancements (`js/views/settings.js`)**:
-   - Update the "Set BotFather Token" dialog:
-     - Connects directly via Supabase + Telegram API without triggering 405.
-     - Validates token format and live Telegram connectivity before saving.
-   - Update "Cloud Backend Gateway" section:
-     - Add smart helper note: If user types `github.io` or `qzz.io`, display a friendly banner: *"Note: This domain is a static frontend. Your bot uses direct Supabase connection &mdash; no backend URL required!"*
-   - Add a Live Poller Status indicator in Settings showing:
-     - `🟢 Active (Polling via Browser/PWA)` or `🌐 Active (Cloud Webhook)`
-     - Updates processed counter and last message timestamp.
-4. **Standalone Supabase Edge Function Webhook Reference (`supabase/functions/telegram-webhook/index.ts`)**:
-   - Provide a clean, zero-maintenance Deno Edge Function script that can be deployed to Supabase with 1 command (`supabase functions deploy telegram-webhook`), providing 24/7 background webhook coverage when all browser tabs are closed.
-5. **Testing & Verification**:
-   - Verify token saving on both local and static domains without 405 errors.
-   - Test Telegram `/start`, `/summary`, and `/due` commands.
-   - Compile applet and verify zero build or lint warnings.
+1. **Foreground Stacking & z-index Resolution (`js/lib/ui.js` & `css/app.css`)**:
+   - Update `App.ui.open` in `js/lib/ui.js` to dynamically compute the topmost z-index or default to `120000`, ensuring any confirmation or Recycle Bin modal always displays in the foreground.
+   - Update `css/app.css` to set `#sharedModalBackdrop` to `z-index: 120000`.
+
+2. **Universal Item Restoration in `js/lib/recycleBin.js`**:
+   - Implement handlers in `restoreItem` for all investment asset classes (`Deal`, `Recurring`, `Gold`, `Account`, `Expense`, `Liability`).
+   - Add tabbed switching in `openTrashModal` (`All`, `Deals`, `SIPs`, `Gold`, `Accounts`, `Expenses`).
+   - Add the 90-day retention toggle logic and auto-prune functionality.
+
+3. **Wire 2-Step Confirmation & Soft Delete Across Portfolio Views**:
+   - **Deals (`js/views/deals.js`)**: Integrate 2-step confirmation and Recycle Bin button in deals toolbar.
+   - **Recurring / SIPs (`js/views/recurring.js`)**: Replace standard delete with 2-step confirmation and Recycle Bin button.
+   - **Gold (`js/views/gold.js`)**: Protect gold purchase deletion with 2-step confirmation and Recycle Bin button.
+   - **Expenses (`js/views/expenses.js`)**: Protect expense deletion with 2-step confirmation and Recycle Bin button.
+   - **Net Worth & Accounts (`js/views/netWorth.js`)**: Maintain and verify Recycle Bin button and 2-step confirmation.
+   - **Dashboard (`js/views/dashboard.js`)**: Verify foreground presentation of the Recycle Bin modal from within the Emergency Reserve modal.
+   - **Settings (`js/views/settings.js`)**: Keep the central Recycle Bin management button in the Backup & Disaster Recovery panel.
+
+4. **Verification & Testing**:
+   - Compile via `compile_applet`.
+   - Test modal opening from inside the Emergency Reserve dialog to verify foreground stacking.
+   - Verify tabbed switching and restoration across each investment type.

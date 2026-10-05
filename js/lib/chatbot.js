@@ -10,9 +10,9 @@ App.chatbot = (function () {
   const DOCKED_STORAGE_KEY = 'pios_gemini_chat_docked_v1';
 
   const MODELS = [
-    { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', tag: 'Fast & Stable', desc: 'Recommended general intelligence, financial math, and live portfolio advice' },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', tag: 'Fast & Stable', desc: 'Recommended general intelligence, financial math, and live portfolio advice' },
     { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', tag: 'Ultra-Fast', desc: 'High-speed low-latency answers for quick formulas, definitions, and scenario lookups' },
-    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', tag: 'Advanced Reasoning', desc: 'Extended reasoning preview for multifaceted portfolio queries' },
+    { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', tag: 'Latest Model', desc: 'Always up-to-date Gemini Flash model' },
   ];
 
   const ROLES = {
@@ -62,7 +62,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     isDocked: true,
     fabTop: null,
     messages: [],
-    model: 'gemini-3.6-flash',
+    model: 'gemini-3.8-flash',
     role: 'advisor',
     attachContext: true,
     isLoading: false,
@@ -79,7 +79,7 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       if (savedModel && MODELS.some((m) => m.id === savedModel)) {
         state.model = savedModel;
       } else {
-        state.model = 'gemini-3.6-flash';
+        state.model = 'gemini-3.8-flash';
       }
       const savedRole = localStorage.getItem(ROLE_STORAGE_KEY);
       if (savedRole && ROLES[savedRole]) {

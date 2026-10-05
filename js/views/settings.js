@@ -81,12 +81,29 @@ window.App = window.App || {};
     // has avoided everywhere else, so this one panel is hidden there.
     const showConnectionPanel = isAdminUser && !App.auth.isDemoMode();
     pane.innerHTML = `
-      <div class="section-title">Settings <div class="line"></div><small>profile, reminders, platforms, integrations</small></div>
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:10px">Profile</div>
-        <div id="profileFormHost"></div>
-        <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold" id="saveProfileBtn">Save Profile</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div class="section-title" style="margin-bottom:0">Settings <div class="line"></div><small>profile, reminders, platforms, integrations</small></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" id="btnSettingsExpandAll" title="Expand all sections">&#9660; Expand All</button>
+          <button class="btn btn-outline btn-sm" id="btnSettingsCollapseAll" title="Collapse all sections">&#9650; Collapse All</button>
+        </div>
       </div>
+
+      <!-- Section: Profile (Collapsible) -->
+      <div class="panel settings-collapsible-panel" id="panel-profile" data-section="profile">
+        <div class="settings-panel-header" data-toggle="profile" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="settings-chevron" id="chevron-profile" style="font-size:12px;transition:transform 0.2s;display:inline-block">▼</span>
+            <div class="chart-title" style="margin:0;font-size:14px">Profile</div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)" class="settings-toggle-hint">Click to collapse / expand</span>
+        </div>
+        <div class="settings-panel-content" id="content-profile" style="margin-top:12px">
+          <div id="profileFormHost"></div>
+          <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold" id="saveProfileBtn">Save Profile</button></div>
+        </div>
+      </div>
+
       <div class="panel" id="settingsForexPanel">
         <details id="settingsForexDetails" style="cursor:pointer">
           <summary style="list-style:none;outline:none;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -125,34 +142,63 @@ window.App = window.App || {};
           </div>
         </details>
       </div>
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:10px">Privacy &amp; Contacts</div>
-        <div class="hint" style="margin-bottom:10px">Controls how Contacts discovery, private chat, and calling work - separate from Investment Deals/Recurring Investments/Community/Write to Us, which don't use these settings at all.</div>
-        <div class="field span2" style="margin-bottom:10px"><label>Username (for "find by unique ID")</label><input id="usernameInput" placeholder="e.g. yourname"></div>
-        <div id="privacyFormHost"></div>
-        <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold btn-sm" id="savePrivacyBtn">Save Privacy Settings</button></div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
-          <div class="chart-title" style="margin-bottom:6px;font-size:13px">Sign-in Activity Logging</div>
-          <div class="hint" style="margin-bottom:8px">Whether approximate location/device is logged with your sign-ins (admin-visible only). Declining still logs that a sign-in happened, never IP/location/device.</div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer">
-            <input type="checkbox" id="analyticsConsentToggle"> Log approximate location and device with my sign-ins
-          </label>
+
+      <!-- Section: Privacy & Contacts (Collapsible) -->
+      <div class="panel settings-collapsible-panel" id="panel-privacy" data-section="privacy">
+        <div class="settings-panel-header" data-toggle="privacy" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="settings-chevron" id="chevron-privacy" style="font-size:12px;transition:transform 0.2s;display:inline-block">▼</span>
+            <div class="chart-title" style="margin:0;font-size:14px">Privacy &amp; Contacts</div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)" class="settings-toggle-hint">Click to collapse / expand</span>
+        </div>
+        <div class="settings-panel-content" id="content-privacy" style="margin-top:12px">
+          <div class="hint" style="margin-bottom:10px">Controls how Contacts discovery, private chat, and calling work - separate from Investment Deals/Recurring Investments/Community/Write to Us, which don't use these settings at all.</div>
+          <div class="field span2" style="margin-bottom:10px"><label>Username (for "find by unique ID")</label><input id="usernameInput" placeholder="e.g. yourname"></div>
+          <div id="privacyFormHost"></div>
+          <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold btn-sm" id="savePrivacyBtn">Save Privacy Settings</button></div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
+            <div class="chart-title" style="margin-bottom:6px;font-size:13px">Sign-in Activity Logging</div>
+            <div class="hint" style="margin-bottom:8px">Whether approximate location/device is logged with your sign-ins (admin-visible only). Declining still logs that a sign-in happened, never IP/location/device.</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer">
+              <input type="checkbox" id="analyticsConsentToggle"> Log approximate location and device with my sign-ins
+            </label>
+          </div>
         </div>
       </div>
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:6px">Customize Sidebar</div>
-        <div class="hint" style="margin-bottom:10px">Reorder or hide any section (within its own group), or switch to icon-only mode for a narrower sidebar. Hiding a section only removes its link here - nothing it manages is deleted, and it's still reachable via a direct link (e.g. clicking through from a notification).</div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;margin-bottom:12px">
-          <input type="checkbox" id="sidebarCompactToggle"> Icon-only (compact) sidebar
-        </label>
-        <div id="sidebarCustomizeList"></div>
-        <div class="modal-actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-outline btn-sm" id="resetSidebarBtn">Reset to Default</button></div>
+
+      <!-- Section: Customize Sidebar (Collapsible) -->
+      <div class="panel settings-collapsible-panel" id="panel-sidebar" data-section="sidebar">
+        <div class="settings-panel-header" data-toggle="sidebar" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="settings-chevron" id="chevron-sidebar" style="font-size:12px;transition:transform 0.2s;display:inline-block">▼</span>
+            <div class="chart-title" style="margin:0;font-size:14px">Customize Sidebar</div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)" class="settings-toggle-hint">Click to collapse / expand</span>
+        </div>
+        <div class="settings-panel-content" id="content-sidebar" style="margin-top:12px">
+          <div class="hint" style="margin-bottom:10px">Reorder or hide any section (within its own group), or switch to icon-only mode for a narrower sidebar. Hiding a section only removes its link here - nothing it manages is deleted, and it's still reachable via a direct link (e.g. clicking through from a notification).</div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;margin-bottom:12px">
+            <input type="checkbox" id="sidebarCompactToggle"> Icon-only (compact) sidebar
+          </label>
+          <div id="sidebarCustomizeList"></div>
+          <div class="modal-actions" style="justify-content:flex-start;margin-top:10px"><button class="btn btn-outline btn-sm" id="resetSidebarBtn">Reset to Default</button></div>
+        </div>
       </div>
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:10px">Reminder Preferences</div>
-        <div class="hint" style="margin-bottom:10px">Default offsets (days relative to a due date; negative = before, positive = overdue): -7, -3, -1, 0, 1, 3, 7, 30 (spec Section 10).</div>
-        <div class="field span2"><label>Reminder Offsets (comma-separated days)</label><input class="search-input" id="offsetsInput" style="width:100%"></div>
-        <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold btn-sm" id="savePrefsBtn">Save Preferences</button></div>
+
+      <!-- Section: Notification Delivery Preferences (Collapsible) -->
+      <div class="panel settings-collapsible-panel" id="panel-notif-delivery" data-section="notif-delivery">
+        <div class="settings-panel-header" data-toggle="notif-delivery" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="settings-chevron" id="chevron-notif-delivery" style="font-size:12px;transition:transform 0.2s;display:inline-block">▼</span>
+            <div class="chart-title" style="margin:0;font-size:14px">Notification Delivery Preferences</div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)" class="settings-toggle-hint">Click to collapse / expand</span>
+        </div>
+        <div class="settings-panel-content" id="content-notif-delivery" style="margin-top:12px">
+          <div class="hint" style="margin-bottom:10px">Default offsets (days relative to a due date; negative = before, positive = overdue): -7, -3, -1, 0, 1, 3, 7, 30 (spec Section 10).</div>
+          <div class="field span2"><label>Reminder Offsets (comma-separated days)</label><input class="search-input" id="offsetsInput" style="width:100%"></div>
+          <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold btn-sm" id="savePrefsBtn">Save Preferences</button></div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
           <div class="chart-title" style="margin-bottom:6px;font-size:13px">Do Not Disturb</div>
           <div class="hint" style="margin-bottom:8px">Silences your notification bell and toast pop-ups for a while - nothing is lost, everything generated while disabled is still there the moment you turn it back on.</div>
@@ -201,6 +247,7 @@ window.App = window.App || {};
           </div>` : ''}
         </div>
       </div>
+    </div>
 
       <!-- WhatsApp & Telegram Bot Integration Center -->
       <div class="panel" id="botIntegrationPanel" style="border:1px solid rgba(201,168,76,0.35);background:linear-gradient(135deg,rgba(201,168,76,0.06),rgba(12,22,40,0.5))">
@@ -322,16 +369,29 @@ window.App = window.App || {};
         </div>
       </div>
 
-      <div class="panel">
-        <div class="chart-title" style="margin-bottom:6px">Notification Delivery, by Type</div>
-
-        <div class="hint" style="margin-bottom:10px">Choose exactly which channels each kind of notification is allowed to reach. Unchecking every box for a type means it generates nothing on any channel - the notification setting applies to all your devices.</div>
-        <div class="table-scroll" style="max-height:360px"><table class="data" id="notifTypeMatrix"></table></div>
+      <!-- Section: Notification Delivery, by Type (Collapsible) -->
+      <div class="panel settings-collapsible-panel" id="panel-notif-type" data-section="notif-type">
+        <div class="settings-panel-header" data-toggle="notif-type" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="settings-chevron" id="chevron-notif-type" style="font-size:12px;transition:transform 0.2s;display:inline-block">▼</span>
+            <div class="chart-title" style="margin:0;font-size:14px">Notification Delivery, by Type</div>
+          </div>
+          <span style="font-size:11px;color:var(--text3)" class="settings-toggle-hint">Click to collapse / expand</span>
+        </div>
+        <div class="settings-panel-content" id="content-notif-type" style="margin-top:12px">
+          <div class="hint" style="margin-bottom:10px">Choose exactly which channels each kind of notification is allowed to reach. Unchecking every box for a type means it generates nothing on any channel - the notification setting applies to all your devices.</div>
+          <div class="table-scroll" style="max-height:360px"><table class="data" id="notifTypeMatrix"></table></div>
+        </div>
       </div>
+
       <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div class="chart-title">Backup &amp; Disaster Recovery</div>
-          <button class="btn btn-outline btn-sm" id="exportAllBtn">&#8595; Export All My Data</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div class="chart-title">Backup, Dossier &amp; Disaster Recovery</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="btnOpenRecycleBinSettings">&#128465; Portfolio Recycle Bin</button>
+            <button class="btn btn-gold btn-sm" id="btnFullDossierSettings">&#128450; Download Full Portfolio Dossier</button>
+            <button class="btn btn-outline btn-sm" id="exportAllBtn">&#8595; Export All My Data</button>
+          </div>
         </div>
         <div class="hint">Downloads every section you have access to as one Excel workbook (one sheet per section) - Platforms, Deals, Payment Schedule, Payments, Recurring Items/Occurrences, Contacts, Gold Purchases, Accounts, Liabilities, Expense Projects/Transactions/Vendors, Notes, Documents, Goals, Tax Records, and Import History. Individual sections also have their own Export button on their own page.</div>
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border2)">
@@ -2201,6 +2261,81 @@ window.App = window.App || {};
     if (App.updater && App.updater.updateBadges) {
       App.updater.updateBadges();
     }
+
+    // Wire Collapsible Settings Panels & Expand/Collapse All
+    (function initCollapsiblePanels() {
+      const STORAGE_KEY = 'ios_settings_collapsed_sections';
+      let collapsedMap = {};
+      try {
+        collapsedMap = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      } catch (_) {}
+
+      const sections = ['profile', 'privacy', 'sidebar', 'notif-delivery', 'notif-type'];
+
+      function setSectionState(key, isCollapsed) {
+        const content = App.utils.qs(`#content-${key}`, pane);
+        const chevron = App.utils.qs(`#chevron-${key}`, pane);
+        if (!content) return;
+
+        if (isCollapsed) {
+          content.style.display = 'none';
+          if (chevron) chevron.textContent = '▶';
+          collapsedMap[key] = true;
+        } else {
+          content.style.display = 'block';
+          if (chevron) chevron.textContent = '▼';
+          delete collapsedMap[key];
+        }
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsedMap));
+        } catch (_) {}
+      }
+
+      // Restore saved states
+      sections.forEach((k) => {
+        if (collapsedMap[k]) {
+          setSectionState(k, true);
+        }
+      });
+
+      // Wire header click listeners
+      pane.querySelectorAll('.settings-panel-header').forEach((hdr) => {
+        hdr.addEventListener('click', (e) => {
+          if (e.target.closest('button, input, select, a, label')) return;
+          const key = hdr.getAttribute('data-toggle');
+          if (!key) return;
+          const currentlyCollapsed = !!collapsedMap[key];
+          setSectionState(key, !currentlyCollapsed);
+        });
+      });
+
+      // Expand All
+      App.utils.qs('#btnSettingsExpandAll', pane)?.addEventListener('click', () => {
+        sections.forEach((k) => setSectionState(k, false));
+        App.utils.toast('Expanded all settings sections');
+      });
+
+      // Collapse All
+      App.utils.qs('#btnSettingsCollapseAll', pane)?.addEventListener('click', () => {
+        sections.forEach((k) => setSectionState(k, true));
+        App.utils.toast('Collapsed all settings sections');
+      });
+
+      // Wire Full Portfolio Dossier button in Settings
+      App.utils.qs('#btnFullDossierSettings', pane)?.addEventListener('click', () => {
+        if (App.executiveReport && App.executiveReport.openFullPortfolioDossierModal) {
+          App.executiveReport.openFullPortfolioDossierModal();
+        }
+      });
+
+      // Wire Recycle Bin button in Settings
+      App.utils.qs('#btnOpenRecycleBinSettings', pane)?.addEventListener('click', () => {
+        if (App.recycleBin && App.recycleBin.openTrashModal) {
+          App.recycleBin.openTrashModal();
+        }
+      });
+    })();
   }
 
   App.router.register('settings', renderSettingsView);

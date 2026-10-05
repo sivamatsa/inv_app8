@@ -26,6 +26,25 @@ App.ui = (function () {
 
   function open(opts) {
     const el = ensureBackdrop();
+    // Ensure backdrop is last element in body for correct DOM stacking
+    if (el.parentNode === document.body) {
+      document.body.appendChild(el);
+    }
+    // Compute highest z-index across all open modals to always render in foreground
+    let maxZ = 120000;
+    try {
+      const allBackdrops = document.querySelectorAll('.modal-backdrop, [style*="z-index"]');
+      allBackdrops.forEach((m) => {
+        if (m !== el && m.classList.contains('show') || (m.style && m.style.display !== 'none' && m.style.zIndex)) {
+          const z = parseInt(window.getComputedStyle(m).zIndex, 10);
+          if (!isNaN(z) && z >= maxZ) {
+            maxZ = z + 50;
+          }
+        }
+      });
+    } catch (_) {}
+    el.style.zIndex = String(maxZ);
+
     App.utils.qs('#sharedModalTitle', el).textContent = opts.title || '';
     App.utils.qs('#sharedModal', el).className = 'modal' + (opts.small ? ' modal-sm' : '');
     App.utils.qs('#sharedModalBody', el).innerHTML = opts.bodyHtml || opts.content || '';
@@ -107,7 +126,100 @@ App.ui = (function () {
     return { values: out, errors };
   }
 
-  return { open, modal: open, close, renderForm, readForm, fieldHtml };
+  // Two-Step Type "DELETE" or Item Name confirmation modal
+  function confirmTwoStepDelete({
+    title = 'Confirm Permanent Deletion',
+    itemName = 'this item',
+    itemType = 'Record',
+    itemValue = null,
+    warningText = 'This action will move this record to the Recycle Bin and remove it from active calculations.',
+    onConfirm,
+  }) {
+    const cleanName = String(itemName || '').trim();
+    const isSpecialShort = cleanName.length > 0 && cleanName.length <= 30;
+
+    open({
+      title: '⚠️ ' + title,
+      small: true,
+      bodyHtml: `
+        <div style="margin-bottom:14px">
+          <div style="background:rgba(217,83,79,0.08);border:1px solid rgba(217,83,79,0.25);border-radius:8px;padding:12px;margin-bottom:14px">
+            <div style="font-weight:700;color:var(--red);font-size:13px;display:flex;align-items:center;gap:6px">
+              <span>⚠️</span>
+              <span>Destructive Action Warning</span>
+            </div>
+            <div style="font-size:12px;color:var(--text);margin-top:6px;line-height:1.4">
+              ${App.utils.escapeHtml(warningText)}
+            </div>
+          </div>
+
+          <div style="background:var(--fill-1);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target ${App.utils.escapeHtml(itemType)}</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-top:2px">${App.utils.escapeHtml(cleanName)}</div>
+            ${itemValue != null ? `<div style="font-size:13px;font-weight:600;color:var(--gold);margin-top:2px">${App.utils.fmtMoney(itemValue)}</div>` : ''}
+          </div>
+
+          <div style="font-size:12.5px;color:var(--text);margin-bottom:8px">
+            To proceed, type <b>DELETE</b> ${isSpecialShort ? `or <b>${App.utils.escapeHtml(cleanName)}</b>` : ''} below:
+          </div>
+          <input type="text" id="confirmDeleteInput" class="search-input" style="width:100%;border-color:var(--border)" placeholder="Type DELETE to confirm" autocomplete="off" />
+          <div id="confirmDeleteFeedback" style="font-size:11px;color:var(--text3);margin-top:4px">Type exactly to enable confirmation button</div>
+        </div>
+      `,
+      onMount: (modalBody) => {
+        const input = App.utils.qs('#confirmDeleteInput', modalBody);
+        const feedback = App.utils.qs('#confirmDeleteFeedback', modalBody);
+        const confirmBtn = App.utils.qs('#sharedModalActions button.btn-danger', backdropEl) || App.utils.qs('#sharedModalActions button:last-child', backdropEl);
+
+        if (confirmBtn) {
+          confirmBtn.disabled = true;
+          confirmBtn.style.opacity = '0.4';
+          confirmBtn.style.cursor = 'not-allowed';
+          confirmBtn.style.background = 'var(--red, #d9534f)';
+          confirmBtn.style.color = '#fff';
+        }
+
+        if (input) {
+          input.focus();
+          input.addEventListener('input', () => {
+            const val = input.value.trim();
+            const matchesDelete = val.toUpperCase() === 'DELETE';
+            const matchesName = isSpecialShort && val.toLowerCase() === cleanName.toLowerCase();
+            const isValid = matchesDelete || matchesName;
+
+            if (confirmBtn) {
+              confirmBtn.disabled = !isValid;
+              confirmBtn.style.opacity = isValid ? '1' : '0.4';
+              confirmBtn.style.cursor = isValid ? 'pointer' : 'not-allowed';
+            }
+
+            if (feedback) {
+              if (isValid) {
+                feedback.innerHTML = '<span style="color:var(--teal)">✓ Confirmation matched. Click button below to delete.</span>';
+              } else if (val.length > 0) {
+                feedback.innerHTML = '<span style="color:var(--red)">Does not match yet.</span>';
+              } else {
+                feedback.innerHTML = 'Type exactly to enable confirmation button';
+              }
+            }
+          });
+        }
+      },
+      actions: [
+        { label: 'Cancel', className: 'btn-outline', onClick: close },
+        {
+          label: 'Move to Trash (Delete)',
+          className: 'btn-danger',
+          onClick: () => {
+            close();
+            if (typeof onConfirm === 'function') onConfirm();
+          },
+        },
+      ],
+    });
+  }
+
+  return { open, modal: open, close, renderForm, readForm, fieldHtml, confirmTwoStepDelete };
 })();
 
 App.dialogs = App.dialogs || {};

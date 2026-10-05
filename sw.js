@@ -3,7 +3,7 @@
    PWA Shell + Push Notifications + Dynamic Cache Invalidation
 */
 
-const APP_VERSION = 'v2.4.1';
+const APP_VERSION = 'v2.4.2';
 const CACHE_NAME = `investment-os-shell-${APP_VERSION}`;
 
 self.addEventListener('install', (event) => {

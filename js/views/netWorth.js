@@ -162,11 +162,13 @@ window.App = window.App || {};
       const accounts = await App.api.listAccounts();
       const total = accounts.filter((a) => a.is_active).reduce((a, r) => a + (r.current_balance || 0), 0);
       host.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div class="chart-title" style="margin:0">Accounts</div>
-          <div style="display:flex;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div class="chart-title" style="margin:0">Accounts &amp; Fixed Deposits</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="nwRestore10LFdBtn" style="border-color:var(--gold);color:var(--gold)">⚡ Quick-Add / Restore 10L FD</button>
+            <button class="btn btn-outline btn-sm" id="nwRecycleBinBtn">&#128465; Recycle Bin / Trash</button>
             <button class="btn btn-outline btn-sm" id="nwExportAccountsBtn">&#8595; Export</button>
-            <button class="btn btn-gold btn-sm" id="nwAddAccountBtn">+ Add Account</button>
+            <button class="btn btn-gold btn-sm" id="nwAddAccountBtn">+ Add Account / FD</button>
           </div>
         </div>
         <div class="hint" style="margin-bottom:8px">Total across active accounts: <b>${App.utils.fmtMoney(total)}</b></div>
@@ -194,20 +196,53 @@ window.App = window.App || {};
             <td><span class="badge ${a.is_active ? 'st-active' : 'st-cancelled'}">${a.is_active ? 'Active' : 'Inactive'}</span></td>
             <td style="white-space:nowrap">
               <button class="btn btn-sm btn-outline" data-edit-acct="${a.id}">Edit</button>
-              <button class="icon-btn del" data-del-acct="${a.id}">&#128465;</button>
+              <button class="icon-btn del" data-del-acct="${a.id}" title="Delete account with 2-step confirmation">&#128465;</button>
             </td>
           </tr>`;
         }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">No accounts yet.</td></tr>'}</tbody></table></div>`;
 
+      App.utils.qs('#nwRestore10LFdBtn', host)?.addEventListener('click', () => {
+        openAccountForm({
+          account_name: 'Fixed Deposit (10 Lakh)',
+          account_type: 'Fixed Deposit',
+          institution: 'HDFC Bank',
+          current_balance: 1000000,
+          opening_balance: 1000000,
+          interest_rate: 7.5,
+          is_active: 'true',
+          notes: 'Fixed Deposit (10 Lakh) added to Liquid & Emergency Accounts',
+        }, () => drawAccountsTab(host));
+      });
+      App.utils.qs('#nwRecycleBinBtn', host)?.addEventListener('click', () => {
+        App.recycleBin.openTrashModal(() => drawAccountsTab(host));
+      });
       App.utils.qs('#nwAddAccountBtn', host).addEventListener('click', () => openAccountForm(null, () => drawAccountsTab(host)));
       App.utils.qs('#nwExportAccountsBtn', host).addEventListener('click', async () => {
         try { await App.exportData.exportSection('accounts'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
       });
       App.utils.qsa('[data-edit-acct]', host).forEach((b) => b.addEventListener('click', () => openAccountForm(accounts.find((a) => a.id === Number(b.dataset.editAcct)), () => drawAccountsTab(host))));
-      App.utils.qsa('[data-del-acct]', host).forEach((b) => b.addEventListener('click', async () => {
-        if (!confirm('Delete this account?')) return;
-        await App.api.deleteAccount(Number(b.dataset.delAcct));
-        drawAccountsTab(host);
+      App.utils.qsa('[data-del-acct]', host).forEach((b) => b.addEventListener('click', () => {
+        const acctId = Number(b.dataset.delAcct);
+        const acct = accounts.find((a) => a.id === acctId);
+        if (!acct) return;
+
+        App.ui.confirmTwoStepDelete({
+          title: 'Delete Account / Fixed Deposit',
+          itemName: acct.account_name,
+          itemType: acct.account_type || 'Account',
+          itemValue: acct.current_balance,
+          warningText: `Deleting "${acct.account_name}" will remove its ${App.utils.fmtMoney(acct.current_balance)} balance from total net worth. It will be moved to the Recycle Bin and can be restored anytime.`,
+          onConfirm: async () => {
+            try {
+              await App.recycleBin.moveToTrash('Account', acct, { reason: 'User deleted from Net Worth view' });
+              await App.api.deleteAccount(acctId);
+              App.utils.toast(`"${acct.account_name}" moved to Recycle Bin.`, 'ok');
+              drawAccountsTab(host);
+            } catch (err) {
+              App.utils.toast('Could not delete account: ' + (err.message || err), 'err');
+            }
+          },
+        });
       }));
     }
 
@@ -231,7 +266,7 @@ window.App = window.App || {};
           <td><span class="badge ${l.is_active ? 'st-active' : 'st-cancelled'}">${l.is_active ? 'Active' : 'Inactive'}</span></td>
           <td style="white-space:nowrap">
             <button class="btn btn-sm btn-outline" data-edit-liab="${l.id}">Edit</button>
-            <button class="icon-btn del" data-del-liab="${l.id}">&#128465;</button>
+            <button class="icon-btn del" data-del-liab="${l.id}" title="Delete liability with 2-step confirmation">&#128465;</button>
           </td>
         </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">No liabilities yet.</td></tr>'}</tbody></table></div>`;
 
@@ -240,10 +275,28 @@ window.App = window.App || {};
         try { await App.exportData.exportSection('liabilities'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
       });
       App.utils.qsa('[data-edit-liab]', host).forEach((b) => b.addEventListener('click', () => openLiabilityForm(liabilities.find((l) => l.id === Number(b.dataset.editLiab)), () => drawLiabilitiesTab(host))));
-      App.utils.qsa('[data-del-liab]', host).forEach((b) => b.addEventListener('click', async () => {
-        if (!confirm('Delete this liability?')) return;
-        await App.api.deleteLiability(Number(b.dataset.delLiab));
-        drawLiabilitiesTab(host);
+      App.utils.qsa('[data-del-liab]', host).forEach((b) => b.addEventListener('click', () => {
+        const liabId = Number(b.dataset.delLiab);
+        const liab = liabilities.find((l) => l.id === liabId);
+        if (!liab) return;
+
+        App.ui.confirmTwoStepDelete({
+          title: 'Delete Liability',
+          itemName: liab.liability_name,
+          itemType: liab.liability_type || 'Liability',
+          itemValue: liab.outstanding_amount,
+          warningText: `Deleting "${liab.liability_name}" will remove this obligation from debt totals. It will be moved to the Recycle Bin.`,
+          onConfirm: async () => {
+            try {
+              await App.recycleBin.moveToTrash('Liability', liab, { reason: 'User deleted from Net Worth view' });
+              await App.api.deleteLiability(liabId);
+              App.utils.toast(`"${liab.liability_name}" moved to Recycle Bin.`, 'ok');
+              drawLiabilitiesTab(host);
+            } catch (err) {
+              App.utils.toast('Could not delete liability: ' + (err.message || err), 'err');
+            }
+          },
+        });
       }));
     }
 

@@ -297,25 +297,24 @@ window.App = window.App || {};
   // ---- Item detail: Overview / History / Consistency / Manage (pause,
   // resume, skip, change amount, change frequency - Sections 79-84). ----
   function openDeleteRecurringItemModal(item, onDone) {
-    App.ui.open({
-      title: 'Delete Recurring Item',
-      bodyHtml: `
-        <div class="hint" style="color:var(--red,#e5484d);margin-bottom:10px">This permanently deletes "${App.utils.escapeHtml(item.item_name)}" and every occurrence, confirmation, and history record for it. There is no undo.</div>
-        <div class="field span2"><label>Type the item name to confirm: ${App.utils.escapeHtml(item.item_name)}</label><input id="confirmDeleteItemName" type="text"></div>
-        <div class="auth-error" id="deleteItemError"></div>`,
-      actions: [
-        { label: 'Delete Permanently', className: 'btn-outline', onClick: async () => {
-          const typed = App.utils.qs('#confirmDeleteItemName').value.trim();
-          if (typed !== item.item_name) { App.utils.qs('#deleteItemError').textContent = 'Name does not match - nothing was deleted.'; return; }
-          try {
-            await App.api.deleteRecurringItem(item.id);
-            App.utils.toast('Recurring item deleted');
-            App.ui.close();
-            if (onDone) onDone();
-          } catch (e) { App.utils.qs('#deleteItemError').textContent = e.message || String(e); }
-        } },
-        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
-      ],
+    App.ui.confirmTwoStepDelete({
+      title: 'Delete Recurring Investment / SIP',
+      itemName: item.item_name,
+      itemType: item.item_type || 'Recurring SIP',
+      itemValue: item.current_amount || item.amount,
+      warningText: `Deleting "${item.item_name}" will remove this systematic plan and its scheduled occurrences. It will be moved to the Recycle Bin and can be restored anytime.`,
+      onConfirm: async () => {
+        try {
+          if (App.recycleBin && App.recycleBin.moveToTrash) {
+            await App.recycleBin.moveToTrash('Recurring', item, { reason: 'User deleted recurring plan' });
+          }
+          await App.api.deleteRecurringItem(item.id);
+          App.utils.toast('Recurring item moved to Recycle Bin & deleted', 'ok');
+          if (onDone) onDone();
+        } catch (e) {
+          App.utils.toast('Could not delete recurring item: ' + (e.message || e), 'err');
+        }
+      },
     });
   }
 
@@ -515,12 +514,20 @@ window.App = window.App || {};
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
           <div class="chip-row" id="recurringTypeFilter">${Object.keys(TYPE_FILTER_GROUPS).map((g) => `<div class="chip ${g === 'All' ? 'active' : ''}" data-type-filter="${g}">${g}</div>`).join('')}</div>
-          <button class="btn btn-outline btn-sm" id="exportRecurringBtn">&#8595; Export</button>
-          <button class="btn btn-gold btn-sm" id="addRecurringBtn">+ Add Recurring Item</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="btnRecurringRecycleBin" title="View deleted recurring plans &amp; recovery">&#128465; Recycle Bin</button>
+            <button class="btn btn-outline btn-sm" id="exportRecurringBtn">&#8595; Export</button>
+            <button class="btn btn-gold btn-sm" id="addRecurringBtn">+ Add Recurring Item</button>
+          </div>
         </div>
         <div class="table-scroll"><table class="data" id="recurringTable"></table></div>
       </div>`;
 
+    App.utils.qs('#btnRecurringRecycleBin', pane)?.addEventListener('click', () => {
+      if (App.recycleBin && App.recycleBin.openTrashModal) {
+        App.recycleBin.openTrashModal(draw);
+      }
+    });
     App.utils.qs('#addRecurringBtn', pane).addEventListener('click', () => openItemWizard(null));
     App.utils.qs('#exportRecurringBtn', pane).addEventListener('click', async () => {
       try { await App.exportData.exportSection('recurring_items'); } catch (e) { App.utils.toast('Could not export: ' + (e.message || e), 'err'); }
