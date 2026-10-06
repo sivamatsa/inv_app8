@@ -99,23 +99,74 @@ window.App = window.App || {};
     Expenses: 'expenses-only',
   };
 
+  let currentCalTab = 'grid'; // 'grid' | 'intelligence'
+
   async function renderCalendarView() {
     const pane = App.utils.qs('#pane-calendar');
     pane.innerHTML = `
-      <div class="section-title">Calendar <div class="line"></div><small>deal payments, maturities &amp; recurring commitments by day</small></div>
-      <div class="panel">
-        <div class="chip-row" id="calTypeFilter" style="margin-bottom:14px">${Object.keys(TYPE_FILTERS).map((g) => `<div class="chip ${g === 'All' ? 'active' : ''}" data-cal-filter="${g}">${g}</div>`).join('')}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-          <button class="btn btn-outline btn-sm" id="calPrev">&larr; Prev</button>
-          <div class="chart-title" id="calLabel"></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-gold btn-sm" id="calAddEventBtn">+ Add Event</button>
-            <button class="btn btn-outline btn-sm" id="calNext">Next &rarr;</button>
-          </div>
+      <div class="section-title">Calendar &amp; Date Intelligence <div class="line"></div><small>deal payments, maturities, countdowns &amp; date intelligence</small></div>
+
+      <!-- Tab Switcher & Header Actions -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div class="tabbar" id="calendarMainTabs" style="margin:0">
+          <button class="tab-btn ${currentCalTab === 'grid' ? 'active' : ''}" data-cal-main-tab="grid">📅 Calendar Grid</button>
+          <button class="tab-btn ${currentCalTab === 'intelligence' ? 'active' : ''}" data-cal-main-tab="intelligence">⚡ Date Intelligence</button>
         </div>
-        <div id="calGrid"></div>
-        <div id="calDayDetail" class="hint"></div>
-      </div>`;
+        <div id="calHeaderActions">
+          <button class="btn btn-gold btn-sm" id="calHeadAddCustomCard" style="font-size:11.5px;display:${currentCalTab === 'intelligence' ? 'inline-flex' : 'none'}">➕ Add Custom Card</button>
+        </div>
+      </div>
+
+      <!-- Tab 1: Classic Calendar Grid -->
+      <div id="tabCalendarGrid" style="${currentCalTab === 'grid' ? 'display:block' : 'display:none'}">
+        <div class="panel">
+          <div class="chip-row" id="calTypeFilter" style="margin-bottom:14px">${Object.keys(TYPE_FILTERS).map((g) => `<div class="chip ${g === 'All' ? 'active' : ''}" data-cal-filter="${g}">${g}</div>`).join('')}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <button class="btn btn-outline btn-sm" id="calPrev">&larr; Prev</button>
+            <div class="chart-title" id="calLabel"></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-gold btn-sm" id="calAddEventBtn">+ Add Event</button>
+              <button class="btn btn-outline btn-sm" id="calNext">Next &rarr;</button>
+            </div>
+          </div>
+          <div id="calGrid"></div>
+          <div id="calDayDetail" class="hint"></div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Date Intelligence Dashboard -->
+      <div id="tabDateIntelligence" style="${currentCalTab === 'intelligence' ? 'display:block' : 'display:none'}"></div>
+    `;
+
+    const btnHeadAdd = App.utils.qs('#calHeadAddCustomCard', pane);
+    btnHeadAdd?.addEventListener('click', () => {
+      if (App.dateIntelligence && App.dateIntelligence.openCustomCardModal) {
+        const intelEl = App.utils.qs('#tabDateIntelligence', pane);
+        App.dateIntelligence.openCustomCardModal(null, () => App.dateIntelligence.render(intelEl));
+      }
+    });
+
+    App.utils.qsa('[data-cal-main-tab]', pane).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        currentCalTab = btn.dataset.calMainTab;
+        App.utils.qsa('[data-cal-main-tab]', pane).forEach((b) => b.classList.toggle('active', b === btn));
+        const gridEl = App.utils.qs('#tabCalendarGrid', pane);
+        const intelEl = App.utils.qs('#tabDateIntelligence', pane);
+        if (btnHeadAdd) btnHeadAdd.style.display = currentCalTab === 'intelligence' ? 'inline-flex' : 'none';
+        if (currentCalTab === 'grid') {
+          gridEl.style.display = 'block';
+          intelEl.style.display = 'none';
+          draw();
+        } else {
+          gridEl.style.display = 'none';
+          intelEl.style.display = 'block';
+          if (App.dateIntelligence && App.dateIntelligence.render) {
+            App.dateIntelligence.render(intelEl);
+          }
+        }
+      });
+    });
+
     App.utils.qs('#calPrev', pane).addEventListener('click', () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } draw(); });
     App.utils.qs('#calNext', pane).addEventListener('click', () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } draw(); });
     App.utils.qs('#calAddEventBtn', pane).addEventListener('click', () => openEventWizard(null));
@@ -124,6 +175,13 @@ window.App = window.App || {};
       App.utils.qsa('[data-cal-filter]', pane).forEach((c) => c.classList.toggle('active', c === chip));
       draw();
     }));
+
+    if (currentCalTab === 'intelligence') {
+      const intelEl = App.utils.qs('#tabDateIntelligence', pane);
+      if (App.dateIntelligence && App.dateIntelligence.render) {
+        App.dateIntelligence.render(intelEl);
+      }
+    }
 
     async function draw() {
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
