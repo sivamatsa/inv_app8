@@ -549,22 +549,79 @@ App.api = (function () {
   // ---- payments ----
   const listPayments = (opts) => selectAll('payments', Object.assign({ order: { column: 'transaction_date', ascending: false } }, opts));
   async function recordPayment(p) {
-    const { data, error } = await client().rpc('fn_record_payment', {
-      p_deal_id: p.dealId,
-      p_transaction_date: p.transactionDate,
-      p_amount: p.amount,
-      p_interest_amount: p.interestAmount ?? null,
-      p_principal_amount: p.principalAmount ?? null,
-      p_fee_amount: p.feeAmount ?? 0,
-      p_tax_amount: p.taxAmount ?? 0,
-      p_payment_reference: p.paymentReference ?? null,
-      p_payment_mode: p.paymentMode ?? null,
-      p_confirmation_method: p.confirmationMethod ?? 'Manual',
-      p_notes: p.notes ?? null,
-      p_scheduled_payment_id: p.scheduledPaymentId ?? null,
-    });
-    check(error);
+    const timingStatus = p.delayDays > 0 ? 'DELAYED' : (p.advanceDays > 0 ? 'ADVANCE' : 'ON_TIME');
+    let data = null;
+    let rpcError = null;
+
+    // Try full parameterized RPC with payment recording date analytics
+    try {
+      const res = await client().rpc('fn_record_payment', {
+        p_deal_id: p.dealId,
+        p_transaction_date: p.transactionDate,
+        p_amount: p.amount,
+        p_interest_amount: p.interestAmount ?? null,
+        p_principal_amount: p.principalAmount ?? null,
+        p_fee_amount: p.feeAmount ?? 0,
+        p_tax_amount: p.taxAmount ?? 0,
+        p_payment_reference: p.paymentReference ?? null,
+        p_payment_mode: p.paymentMode ?? null,
+        p_confirmation_method: p.confirmationMethod ?? 'Manual',
+        p_notes: p.notes ?? null,
+        p_scheduled_payment_id: p.scheduledPaymentId ?? null,
+        p_recording_date: p.recordingDate || new Date().toISOString().slice(0, 10),
+        p_delay_days: p.delayDays || 0,
+        p_advance_days: p.advanceDays || 0,
+      });
+      data = res.data;
+      rpcError = res.error;
+    } catch (e) {
+      rpcError = e;
+    }
+
+    // Fallback if RPC signature in current DB does not accept extra parameters
+    if (rpcError || !data) {
+      try {
+        const fallbackRes = await client().rpc('fn_record_payment', {
+          p_deal_id: p.dealId,
+          p_transaction_date: p.transactionDate,
+          p_amount: p.amount,
+          p_interest_amount: p.interestAmount ?? null,
+          p_principal_amount: p.principalAmount ?? null,
+          p_fee_amount: p.feeAmount ?? 0,
+          p_tax_amount: p.taxAmount ?? 0,
+          p_payment_reference: p.paymentReference ?? null,
+          p_payment_mode: p.paymentMode ?? null,
+          p_confirmation_method: p.confirmationMethod ?? 'Manual',
+          p_notes: p.notes ?? null,
+          p_scheduled_payment_id: p.scheduledPaymentId ?? null,
+        });
+        if (!fallbackRes.error) {
+          data = fallbackRes.data;
+          rpcError = null;
+        }
+      } catch (_) {}
+    }
+
+    if (rpcError && !data) {
+      check(rpcError);
+    }
     markLocalWrite();
+
+    // Persist extra timing fields (recording_date, delay_days, advance_days, timing_status) directly
+    if (data) {
+      try {
+        const paymentId = (typeof data === 'object' && data !== null) ? (data.id || data.payment_id) : data;
+        if (paymentId) {
+          const patch = {
+            recording_date: p.recordingDate || new Date().toISOString().slice(0, 10),
+            delay_days: p.delayDays || 0,
+            advance_days: p.advanceDays || 0,
+            timing_status: timingStatus,
+          };
+          client().from('payments').update(patch).eq('id', paymentId).then(() => {}).catch(() => {});
+        }
+      } catch (_) {}
+    }
 
     // Auto-resolve pending notifications and schedule status for this deal/installment
     try {
@@ -719,6 +776,81 @@ App.api = (function () {
   const createCalendarEvent = (row) => insertRow('calendar_events', row);
   const updateCalendarEvent = (id, patch) => updateRow('calendar_events', id, patch);
   const deleteCalendarEvent = (id) => deleteRow('calendar_events', id);
+
+  // ---- user_intelligence_cards (Custom Age, Experience, Countdown Cards for Cross-Browser Supabase Sync) ----
+  async function listUserIntelligenceCards() {
+    try {
+      const currentUid = uid();
+      if (!currentUid) return null;
+      const { data, error } = await client().from('user_intelligence_cards')
+        .select('*')
+        .eq('user_id', currentUid)
+        .order('created_at', { ascending: false });
+      if (!error && Array.isArray(data)) {
+        return data.map((r) => ({
+          id: r.id,
+          cardType: r.card_type,
+          title: r.title,
+          startDate: r.start_date,
+          endDate: r.end_date,
+          endDateMode: r.end_date_mode || 'LIVE',
+          fixedEndDate: r.fixed_end_date,
+          targetDate: r.target_date,
+          repeatsYearly: r.repeats_yearly,
+          organizations: r.organizations || [],
+          isPinned: r.is_pinned || false,
+          notes: r.notes || '',
+        }));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function saveUserIntelligenceCard(card) {
+    if (!card || !card.id) return null;
+    const currentUid = uid();
+    if (!currentUid) return card;
+    const row = {
+      id: String(card.id),
+      user_id: currentUid,
+      card_type: card.cardType,
+      title: card.title || 'Untitled Card',
+      start_date: card.startDate || null,
+      end_date: card.endDate || null,
+      end_date_mode: card.endDateMode || 'LIVE',
+      fixed_end_date: card.fixedEndDate || null,
+      target_date: card.targetDate || null,
+      repeats_yearly: !!card.repeatsYearly,
+      organizations: card.organizations || [],
+      is_pinned: !!card.isPinned,
+      notes: card.notes || null,
+      updated_at: new Date().toISOString(),
+    };
+    try {
+      const { data, error } = await client().from('user_intelligence_cards')
+        .upsert(row, { onConflict: 'id' })
+        .select()
+        .single();
+      if (!error && data) {
+        markLocalWrite();
+        return data;
+      }
+    } catch (_) {}
+    return row;
+  }
+
+  async function deleteUserIntelligenceCard(cardId) {
+    if (!cardId) return;
+    try {
+      const currentUid = uid();
+      if (!currentUid) return;
+      await client().from('user_intelligence_cards')
+        .delete()
+        .eq('id', String(cardId))
+        .eq('user_id', currentUid);
+      markLocalWrite();
+    } catch (_) {}
+  }
 
   // ---- app_settings (admin-only global toggles, e.g. Audit History) ----
   async function getAppSettings() {
@@ -1406,14 +1538,15 @@ App.api = (function () {
 
   async function fetchLiveGoldSearch(opts) {
     opts = opts || {};
-    const forceRefresh = Boolean(opts.forceRefresh);
+    const forceRefresh = Boolean(opts.forceRefresh || opts.prompt);
     const region = opts.region || 'hyderabad';
+    const prompt = typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
 
     try {
       const res = await safeApiFetch('/api/gold-live-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ forceRefresh, region }),
+        body: JSON.stringify({ forceRefresh, region, prompt }),
       });
 
       if (res.ok && res.data && res.data.prices) {
@@ -3772,6 +3905,7 @@ App.api = (function () {
     listNotifications, createNotification: (row) => insertRow('notifications', row), markNotificationRead, markAllNotificationsRead, getPreferences, upsertPreferences,
     sendPendingNotificationEmails, sendPendingWebPush,
     listCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
+    listUserIntelligenceCards, saveUserIntelligenceCard, deleteUserIntelligenceCard,
     getAppSettings, updateAppSettings,
     listDocuments, uploadDocument, getDocumentUrl, deleteDocument,
     listAuditLogs, listImports, createImport, updateImport,

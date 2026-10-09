@@ -51,43 +51,71 @@ App.dateIntelligence = (function () {
     return Math.round(msDiff / (1000 * 60 * 60 * 24));
   }
 
-  function formatTimeRemaining(days) {
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Tomorrow';
-    if (days === -1) return 'Yesterday';
-    if (days < 0) return `${Math.abs(days)} days ago`;
+  function formatDetailedUnits(days) {
+    const absDays = Math.abs(days);
+    const years = Math.floor(absDays / 365.25);
+    const remAfterYears = absDays - Math.floor(years * 365.25);
+    const months = Math.floor(remAfterYears / 30.4375);
+    const remAfterMonths = remAfterYears - Math.floor(months * 30.4375);
+    const weeks = Math.floor(remAfterMonths / 7);
+    const daysRemainder = Math.max(0, Math.round(remAfterMonths - (weeks * 7)));
+    const totalWeeks = Math.floor(absDays / 7);
+    const totalMonths = Math.floor(absDays / 30.4375);
 
-    let parts = [`${days} days remaining`];
-    if (days >= 14 && days < 60) {
-      const w = Math.floor(days / 7);
-      const rem = days % 7;
-      parts.push(`(${w}w${rem ? ` ${rem}d` : ''})`);
-    } else if (days >= 60) {
-      const m = Math.floor(days / 30);
-      const rem = days % 30;
-      parts.push(`(~${m}mo${rem ? ` ${rem}d` : ''})`);
-    }
-    return parts.join(' ');
+    const parts = [];
+    if (years > 0) parts.push(`${years} Year${years !== 1 ? 's' : ''}`);
+    parts.push(`${months} Month${months !== 1 ? 's' : ''}`);
+    parts.push(`${weeks} Week${weeks !== 1 ? 's' : ''}`);
+    parts.push(`${daysRemainder} Day${daysRemainder !== 1 ? 's' : ''}`);
+    if (totalMonths > 0) parts.push(`(${totalMonths} Months Total)`);
+
+    const badgeParts = [];
+    if (years > 0) badgeParts.push(`${years}y`);
+    badgeParts.push(`${months}m`);
+    badgeParts.push(`${weeks}w`);
+    badgeParts.push(`${daysRemainder}d`);
+    if (totalMonths > 0) badgeParts.push(`[${totalMonths} mos]`);
+
+    return {
+      years,
+      months,
+      weeks,
+      totalWeeks,
+      totalMonths,
+      days: daysRemainder,
+      totalDays: absDays,
+      badgeStr: badgeParts.join(' '),
+      fullText: parts.join(', '),
+      chipHtml: `<span style="display:inline-flex;gap:3px;align-items:center;font-size:10px;font-weight:700;flex-wrap:wrap">
+        ${years > 0 ? `<span class="badge" style="background:rgba(201,168,76,0.15);color:var(--gold);padding:1px 5px">${years}y</span>` : ''}
+        <span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);padding:1px 5px">${months}m</span>
+        ${totalMonths > 0 ? `<span class="badge" style="background:rgba(168,85,247,0.15);color:#a855f7;padding:1px 5px">${totalMonths} mos</span>` : ''}
+        <span class="badge" style="background:rgba(79,142,247,0.15);color:#4f8ef7;padding:1px 5px">${weeks}w</span>
+        <span class="badge" style="background:rgba(100,116,139,0.15);color:var(--text2);padding:1px 5px">${daysRemainder}d</span>
+      </span>`
+    };
+  }
+
+  function formatTimeRemaining(days) {
+    if (days === 0) return 'Today (Due now)';
+    if (days === 1) return 'Tomorrow (1 day left)';
+    if (days === -1) return 'Yesterday (1 day ago)';
+
+    const absDays = Math.abs(days);
+    const isPast = days < 0;
+    const prefix = isPast ? `${absDays}d ago` : `${absDays}d remaining`;
+
+    const u = formatDetailedUnits(days);
+    return `${prefix} • ${u.badgeStr}`;
   }
 
   function formatDetailedDiff(days) {
-    const absDays = Math.abs(days);
-    const years = Math.floor(absDays / 365);
-    const remAfterYears = absDays % 365;
-    const months = Math.floor(remAfterYears / 30);
-    const remainingDays = remAfterYears % 30;
-    const weeks = Math.floor(absDays / 7);
-    const weekDays = absDays % 7;
-
-    const parts = [];
-    if (years > 0) parts.push(`${years} yr${years > 1 ? 's' : ''}`);
-    if (months > 0) parts.push(`${months} mo${months > 1 ? 's' : ''}`);
-    if (remainingDays > 0 || parts.length === 0) parts.push(`${remainingDays} day${remainingDays !== 1 ? 's' : ''}`);
-
+    const u = formatDetailedUnits(days);
     return {
-      totalDays: absDays,
-      readable: parts.join(', '),
-      weeksFormat: `${weeks} week${weeks !== 1 ? 's' : ''}${weekDays ? ` and ${weekDays} day${weekDays !== 1 ? 's' : ''}` : ''}`,
+      totalDays: u.totalDays,
+      readable: u.fullText,
+      badgeStr: u.badgeStr,
+      weeksFormat: `${u.weeks} week${u.weeks !== 1 ? 's' : ''} and ${u.days} day${u.days !== 1 ? 's' : ''}`,
     };
   }
 
@@ -131,6 +159,7 @@ App.dateIntelligence = (function () {
     return {
       years: Math.max(0, y),
       months: Math.max(0, m),
+      totalMonths: Math.max(0, y) * 12 + Math.max(0, m),
       days: Math.max(0, d),
       totalDays: Math.abs(totalDays),
       totalWeeks,
@@ -176,6 +205,7 @@ App.dateIntelligence = (function () {
         durationDays: diff,
         years: Math.max(0, y),
         months: Math.max(0, m),
+        totalMonths: Math.max(0, y) * 12 + Math.max(0, m),
         days: Math.max(0, d),
       };
     });
@@ -238,9 +268,9 @@ App.dateIntelligence = (function () {
       overlaps,
       hasOverlaps: overlaps.length > 0,
       totalSummedDays,
-      sumTenure: { years: sumYears, months: sumMonths, days: sumDays },
+      sumTenure: { years: sumYears, months: sumMonths, days: sumDays, totalMonths: sumYears * 12 + sumMonths },
       netCalendarDays,
-      netTenure: { years: netYears, months: netMonths, days: netDays },
+      netTenure: { years: netYears, months: netMonths, days: netDays, totalMonths: netYears * 12 + netMonths },
     };
   }
 
@@ -276,16 +306,120 @@ App.dateIntelligence = (function () {
   }
 
   // Custom User Cards Storage (Age cards, Experience cards, Custom Countdown cards)
+  // Multi-synced across:
+  // 1. Supabase PostgreSQL `user_intelligence_cards` table (Authoritative cross-browser storage)
+  // 2. Supabase Auth user metadata (`custom_intel_cards`)
+  // 3. Profiles table preferences JSONB
+  // 4. LocalStorage
+  const DUMMY_PURGED_KEY = 'investment_os_intel_dummy_purged';
+  let cachedCustomCards = null;
+
+  function isDummyPurged() {
+    try {
+      if (localStorage.getItem(DUMMY_PURGED_KEY) === 'true') return true;
+      const user = App.auth && App.auth.getUser ? App.auth.getUser() : null;
+      if (user && user.user_metadata && user.user_metadata.dummy_purged) return true;
+      const profile = App.state && App.state.profile;
+      if (profile && profile.preferences && profile.preferences.dummy_purged) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  async function fetchSupabaseCustomCards() {
+    try {
+      // 1. Fetch from dedicated Supabase PostgreSQL table
+      if (App.api && App.api.listUserIntelligenceCards) {
+        const cloudCards = await App.api.listUserIntelligenceCards();
+        if (Array.isArray(cloudCards)) {
+          const nonSample = cloudCards.filter((c) => c && c.id && !c.id.includes('sample'));
+          if (nonSample.length > 0) {
+            cachedCustomCards = nonSample;
+            try {
+              localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(nonSample));
+              localStorage.setItem(DUMMY_PURGED_KEY, 'true');
+            } catch (_) {}
+            return nonSample;
+          }
+        }
+      }
+
+      // 2. Fetch from Supabase Auth user metadata
+      const client = App.auth && App.auth.getClient ? App.auth.getClient() : null;
+      if (client && client.auth && client.auth.getUser) {
+        const { data } = await client.auth.getUser().catch(() => ({}));
+        const authUser = data?.user;
+        if (authUser && authUser.user_metadata) {
+          if (authUser.user_metadata.dummy_purged) {
+            try { localStorage.setItem(DUMMY_PURGED_KEY, 'true'); } catch (_) {}
+          }
+          if (Array.isArray(authUser.user_metadata.custom_intel_cards)) {
+            const nonSample = authUser.user_metadata.custom_intel_cards.filter((c) => c && c.id && !c.id.includes('sample'));
+            if (nonSample.length > 0) {
+              cachedCustomCards = nonSample;
+              try {
+                localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(nonSample));
+                localStorage.setItem(DUMMY_PURGED_KEY, 'true');
+              } catch (_) {}
+              return nonSample;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[DateIntelligence] Cloud cards fetch note:', e);
+    }
+    return null;
+  }
+
   function getCustomCards() {
     try {
-      const profile = App.state && App.state.profile;
-      if (profile && profile.preferences && Array.isArray(profile.preferences.custom_intel_cards)) {
-        return profile.preferences.custom_intel_cards;
-      }
-      const raw = localStorage.getItem(CUSTOM_CARDS_KEY);
-      if (raw) return JSON.parse(raw);
+      let rawList = cachedCustomCards;
 
-      // Default initial templates if user hasn't added cards yet
+      // 1. Supabase Auth user metadata (cross-browser/cross-device store)
+      const user = App.auth && App.auth.getUser ? App.auth.getUser() : null;
+      if (!rawList && user && user.user_metadata && Array.isArray(user.user_metadata.custom_intel_cards) && user.user_metadata.custom_intel_cards.length > 0) {
+        rawList = user.user_metadata.custom_intel_cards;
+      }
+
+      // 2. Profile preferences or direct profile field
+      const profile = App.state && App.state.profile;
+      if (!rawList && profile && Array.isArray(profile.custom_intel_cards) && profile.custom_intel_cards.length > 0) {
+        rawList = profile.custom_intel_cards;
+      }
+      if (!rawList && profile && profile.preferences && Array.isArray(profile.preferences.custom_intel_cards) && profile.preferences.custom_intel_cards.length > 0) {
+        rawList = profile.preferences.custom_intel_cards;
+      }
+
+      // 3. LocalStorage
+      if (!rawList) {
+        const raw = localStorage.getItem(CUSTOM_CARDS_KEY);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) rawList = parsed;
+          } catch (_) {}
+        }
+      }
+
+      // If user has created ANY non-sample card or purged dummy data, permanently purge dummy templates!
+      if (isDummyPurged()) {
+        const sanitized = (rawList || []).filter((c) => c && c.id && !c.id.includes('sample'));
+        cachedCustomCards = sanitized;
+        return sanitized;
+      }
+
+      if (rawList && Array.isArray(rawList)) {
+        const hasRealCards = rawList.some((c) => c && c.id && !c.id.includes('sample'));
+        if (hasRealCards) {
+          try { localStorage.setItem(DUMMY_PURGED_KEY, 'true'); } catch (_) {}
+          const filtered = rawList.filter((c) => c && c.id && !c.id.includes('sample'));
+          cachedCustomCards = filtered;
+          return filtered;
+        }
+        return rawList;
+      }
+
+      // Default initial templates shown ONLY if user has never added any cards
       return [
         {
           id: 'card_age_sample',
@@ -295,6 +429,7 @@ App.dateIntelligence = (function () {
           endDateMode: 'LIVE',
           fixedEndDate: null,
           isPinned: true,
+          isSample: true,
           notes: 'Auto-updating age counter in years, months, days, and next birthday countdown',
         },
         {
@@ -302,6 +437,7 @@ App.dateIntelligence = (function () {
           cardType: 'experience',
           title: 'Total Career Experience',
           isPinned: true,
+          isSample: true,
           organizations: [
             { id: 'stint_1', company: 'HCL Technologies', role: 'Senior Software Engineer', startDate: '2023-01-16', endDate: null, isCurrent: true, notes: 'Full-stack engineering & architecture' },
             { id: 'stint_2', company: 'TCS', role: 'Systems Engineer', startDate: '2020-07-01', endDate: '2023-01-10', isCurrent: false, notes: 'Cloud infrastructure & microservices' },
@@ -315,19 +451,75 @@ App.dateIntelligence = (function () {
 
   async function saveCustomCards(cards) {
     try {
-      localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(cards));
-      if (App.state && App.state.profile && App.api && App.api.updateProfile) {
-        const prefs = Object.assign({}, App.state.profile.preferences || {}, { custom_intel_cards: cards });
-        await App.api.updateProfile(App.state.profile.id, { preferences: prefs });
-        App.state.profile.preferences = prefs;
+      // Purge sample dummy cards permanently
+      const sanitized = (cards || []).filter((c) => c && c.id && !c.id.includes('sample'));
+      cachedCustomCards = sanitized;
+
+      // 1. LocalStorage update + purge flag
+      try {
+        localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(sanitized));
+        localStorage.setItem(DUMMY_PURGED_KEY, 'true');
+      } catch (_) {}
+
+      // 2. In-memory profile & auth user sync
+      if (App.state && App.state.profile) {
+        App.state.profile.preferences = Object.assign({}, App.state.profile.preferences || {}, {
+          custom_intel_cards: sanitized,
+          dummy_purged: true,
+        });
+      }
+      const user = App.auth && App.auth.getUser ? App.auth.getUser() : null;
+      if (user && user.user_metadata) {
+        user.user_metadata.custom_intel_cards = sanitized;
+        user.user_metadata.dummy_purged = true;
+      }
+
+      // 3. Supabase dedicated PostgreSQL table sync (Authoritative cross-browser persistence)
+      if (App.api && App.api.saveUserIntelligenceCard) {
+        for (const card of sanitized) {
+          await App.api.saveUserIntelligenceCard(card).catch(() => {});
+        }
+      }
+
+      // 4. Supabase Auth user metadata update (Persists across ALL browsers and logins!)
+      const client = App.auth && App.auth.getClient ? App.auth.getClient() : null;
+      if (client && client.auth && client.auth.updateUser) {
+        try {
+          await client.auth.updateUser({
+            data: {
+              custom_intel_cards: sanitized,
+              dummy_purged: true,
+              custom_intel_cards_synced_at: new Date().toISOString(),
+            },
+          });
+        } catch (authErr) {
+          console.warn('[DateIntelligence] Cloud auth user metadata update notice:', authErr);
+        }
+      }
+
+      // 5. Supabase Profiles table update (single-argument patch object)
+      if (App.api && App.api.updateProfile) {
+        try {
+          await App.api.updateProfile({
+            preferences: Object.assign({}, App.state?.profile?.preferences || {}, {
+              custom_intel_cards: sanitized,
+              dummy_purged: true,
+            }),
+          });
+        } catch (profErr) {
+          console.warn('[DateIntelligence] Profile preferences update notice:', profErr);
+        }
       }
     } catch (e) {
-      console.warn('[DateIntelligence] Could not sync custom cards to profile:', e);
+      console.warn('[DateIntelligence] Could not sync custom cards:', e);
     }
   }
 
   async function addOrUpdateCustomCard(cardData) {
-    const cards = getCustomCards();
+    let cards = getCustomCards();
+    // Delete dummy sample data once user creates or saves their own card!
+    cards = cards.filter((c) => c && c.id && !c.id.includes('sample'));
+
     const idx = cards.findIndex((c) => c.id === cardData.id);
     if (idx >= 0) {
       cards[idx] = Object.assign({}, cards[idx], cardData, { updatedAt: new Date().toISOString() });
@@ -342,6 +534,9 @@ App.dateIntelligence = (function () {
   }
 
   async function deleteCustomCard(cardId) {
+    if (App.api && App.api.deleteUserIntelligenceCard) {
+      await App.api.deleteUserIntelligenceCard(cardId).catch(() => {});
+    }
     let cards = getCustomCards();
     const target = cards.find((c) => c.id === cardId);
     if (target && App.recycleBin && App.recycleBin.moveToTrash) {
@@ -754,6 +949,9 @@ App.dateIntelligence = (function () {
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" id="btnDateIntelMigrationSql" style="font-size:11.5px">
+              🗄️ Supabase Migration 052 SQL
+            </button>
             <button class="btn btn-outline btn-sm" id="btnToggleAllCustomCards" style="font-size:11.5px">
               ${state.allCollapsed ? '⤢ Expand All' : '⤡ Collapse All'}
             </button>
@@ -805,11 +1003,12 @@ App.dateIntelligence = (function () {
                     ${ageInfo ? `
                       <!-- Prominent Age Banner -->
                       <div style="background:var(--fill-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border)">
-                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Exact Current Age</div>
-                        <div style="font-size:18px;font-weight:700;color:var(--gold);margin-top:2px">
+                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Exact Current Age (Years, Months, Weeks, Days)</div>
+                        <div style="font-size:17px;font-weight:700;color:var(--gold);margin-top:2px">
                           ${ageInfo.years} <span style="font-size:12px;color:var(--text2)">yrs</span>,
                           ${ageInfo.months} <span style="font-size:12px;color:var(--text2)">mos</span>,
-                          ${ageInfo.days} <span style="font-size:12px;color:var(--text2)">days</span>
+                          ${Math.floor(ageInfo.days / 7)} <span style="font-size:12px;color:var(--text2)">wks</span>,
+                          ${ageInfo.days % 7} <span style="font-size:12px;color:var(--text2)">days</span>
                         </div>
                         <div style="font-size:11px;color:var(--text3);margin-top:3px">
                           Born ${App.utils.fmtDate(card.startDate)} &bull; ${card.endDateMode === 'LIVE' ? 'Calculated as of Today' : `Target: ${App.utils.fmtDate(card.fixedEndDate)}`}
@@ -817,15 +1016,19 @@ App.dateIntelligence = (function () {
                       </div>
 
                       ${!isCollapsed ? `
-                        <!-- Expanded Metrics & Birthday Alert -->
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+                        <!-- Expanded Metrics & Birthday Alert (Including Total Months) -->
+                        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:10px">
                           <div style="background:var(--fill-1);border-radius:6px;padding:8px;border:1px solid var(--border)">
-                            <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Total Days Alive</div>
-                            <div style="font-size:14px;font-weight:700;color:var(--teal)">${ageInfo.totalDays.toLocaleString('en-IN')} d</div>
+                            <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Total Months</div>
+                            <div style="font-size:14px;font-weight:700;color:var(--gold)">${ageInfo.totalMonths.toLocaleString('en-IN')} mos</div>
                           </div>
                           <div style="background:var(--fill-1);border-radius:6px;padding:8px;border:1px solid var(--border)">
                             <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Total Weeks</div>
                             <div style="font-size:14px;font-weight:700;color:var(--text)">${ageInfo.totalWeeks.toLocaleString('en-IN')} wks</div>
+                          </div>
+                          <div style="background:var(--fill-1);border-radius:6px;padding:8px;border:1px solid var(--border)">
+                            <div style="font-size:10px;color:var(--text3);text-transform:uppercase">Total Days</div>
+                            <div style="font-size:14px;font-weight:700;color:var(--teal)">${ageInfo.totalDays.toLocaleString('en-IN')} d</div>
                           </div>
                         </div>
 
@@ -870,20 +1073,22 @@ App.dateIntelligence = (function () {
                     </div>
 
                     ${expInfo ? `
-                      <!-- Total Experience Summary Banner -->
+                      <!-- Total Experience Summary Banner with Total Months -->
                       <div style="background:var(--fill-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border)">
                         <div style="display:flex;justify-content:space-between;align-items:baseline">
-                          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Net Career Duration</div>
+                          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Net Career Duration (Years, Months, Weeks, Days)</div>
                           <div style="font-size:11px;color:var(--teal);font-weight:600">${expInfo.netCalendarDays.toLocaleString('en-IN')} net days</div>
                         </div>
-                        <div style="font-size:18px;font-weight:700;color:var(--teal);margin-top:2px">
+                        <div style="font-size:17px;font-weight:700;color:var(--teal);margin-top:2px">
                           ${expInfo.netTenure.years} <span style="font-size:12px;color:var(--text2)">yrs</span>,
                           ${expInfo.netTenure.months} <span style="font-size:12px;color:var(--text2)">mos</span>,
-                          ${expInfo.netTenure.days} <span style="font-size:12px;color:var(--text2)">days</span>
+                          ${Math.floor(expInfo.netTenure.days / 7)} <span style="font-size:12px;color:var(--text2)">wks</span>,
+                          ${expInfo.netTenure.days % 7} <span style="font-size:12px;color:var(--text2)">days</span>
+                          <span style="font-size:12px;font-weight:600;color:var(--gold);margin-left:6px">(${expInfo.netTenure.totalMonths} Total Months)</span>
                         </div>
                         ${expInfo.hasOverlaps ? `
                           <div style="font-size:11px;color:var(--text3);margin-top:3px">
-                            Total cumulative stints: <b>${expInfo.sumTenure.years} yrs, ${expInfo.sumTenure.months} mos</b> (${expInfo.totalSummedDays.toLocaleString('en-IN')} d)
+                            Total cumulative stints: <b>${expInfo.sumTenure.years} yrs, ${expInfo.sumTenure.months} mos (${expInfo.sumTenure.totalMonths} mos), ${Math.floor(expInfo.sumTenure.days / 7)} wks, ${expInfo.sumTenure.days % 7} days</b> (${expInfo.totalSummedDays.toLocaleString('en-IN')} d)
                           </div>
                         ` : ''}
                       </div>
@@ -899,7 +1104,7 @@ App.dateIntelligence = (function () {
                           </div>
                         ` : ''}
 
-                        <!-- Chronological Stints Breakdown List -->
+                        <!-- Chronological Stints Breakdown List (With Total Months) -->
                         <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Chronological Organizations</div>
                         <div style="display:flex;flex-direction:column;gap:6px">
                           ${expInfo.stints.map((s, idx) => `
@@ -911,14 +1116,14 @@ App.dateIntelligence = (function () {
                                 </div>
                                 <div style="text-align:right">
                                   <span class="badge" style="background:rgba(255,255,255,0.06);font-size:10px;font-weight:700;color:var(--gold)">
-                                    ${s.years ? `${s.years}y ` : ''}${s.months}m ${s.days}d
+                                    ${s.years ? `${s.years}y ` : ''}${s.months}m [${s.totalMonths} mos] ${Math.floor(s.days / 7)}w ${s.days % 7}d
                                   </span>
                                   ${s.isCurrent ? '<div style="font-size:9.5px;color:var(--teal);margin-top:2px">● Present</div>' : ''}
                                 </div>
                               </div>
                               <div style="font-size:10.5px;color:var(--text3);margin-top:4px">
                                 ${App.utils.fmtDate(s.startDate)} &rarr; ${s.isCurrent ? 'Present (Today)' : App.utils.fmtDate(s.endDate)}
-                                &bull; ${s.durationDays} days
+                                &bull; ${s.durationDays} days (${s.totalMonths} months)
                               </div>
                             </div>
                           `).join('')}
@@ -958,16 +1163,25 @@ App.dateIntelligence = (function () {
                     </div>
 
                     <!-- Countdown Highlight -->
-                    <div style="background:var(--fill-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border)">
-                      <div>
-                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target Date</div>
-                        <div style="font-size:13px;font-weight:600;color:var(--text)">${App.utils.fmtDate(card.targetDate)}</div>
-                      </div>
-                      <div style="text-align:right">
-                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Days Left</div>
-                        <div style="font-size:16px;font-weight:700;color:${urgency.color}">
-                          ${remainingText}
+                    <div style="background:var(--fill-2);border-radius:8px;padding:10px 12px;margin-bottom:10px;border:1px solid var(--border)">
+                      <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target Date</div>
+                          <div style="font-size:13px;font-weight:600;color:var(--text)">${App.utils.fmtDate(card.targetDate)}</div>
                         </div>
+                        <div style="text-align:right">
+                          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Time Left</div>
+                          <div style="font-size:14px;font-weight:700;color:${urgency.color}">
+                            ${remainingText}
+                          </div>
+                        </div>
+                      </div>
+                      <div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px">
+                        <span style="color:var(--text3)">Units (Y/M/W/D):</span>
+                        <div>${formatDetailedUnits(days).chipHtml}</div>
+                      </div>
+                      <div style="font-size:10.5px;color:var(--text2);margin-top:3px;text-align:right">
+                        ${formatDetailedUnits(days).fullText}
                       </div>
                     </div>
 
@@ -1396,16 +1610,25 @@ App.dateIntelligence = (function () {
                   ${it.amount ? `<div style="font-size:13px;font-weight:700;color:var(--gold);margin-bottom:6px">${App.utils.fmtMoney(it.amount)}</div>` : ''}
 
                   <!-- Countdown Highlight -->
-                  <div style="background:var(--fill-2);border-radius:6px;padding:8px 10px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target Date</div>
-                      <div style="font-size:12.5px;font-weight:600;color:var(--text)">${App.utils.fmtDate(it.targetDate)}</div>
-                    </div>
-                    <div style="text-align:right">
-                      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Timeline</div>
-                      <div style="font-size:12.5px;font-weight:700;color:${urgency.color}">
-                        ${remainingText}
+                  <div style="background:var(--fill-2);border-radius:6px;padding:8px 10px;margin-bottom:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <div>
+                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target Date</div>
+                        <div style="font-size:12.5px;font-weight:600;color:var(--text)">${App.utils.fmtDate(it.targetDate)}</div>
                       </div>
+                      <div style="text-align:right">
+                        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Timeline</div>
+                        <div style="font-size:12.5px;font-weight:700;color:${urgency.color}">
+                          ${remainingText}
+                        </div>
+                      </div>
+                    </div>
+                    <div style="margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;align-items:center;font-size:10.5px">
+                      <span style="color:var(--text3)">Units (Y/M/W/D):</span>
+                      <div>${formatDetailedUnits(it.daysRemaining).chipHtml}</div>
+                    </div>
+                    <div style="font-size:10px;color:var(--text2);margin-top:2px;text-align:right">
+                      ${formatDetailedUnits(it.daysRemaining).fullText}
                     </div>
                   </div>
 
@@ -1753,6 +1976,25 @@ App.dateIntelligence = (function () {
     `;
 
     try {
+      // Sync latest custom cards from Supabase PostgreSQL table and Auth user metadata across browsers
+      try {
+        await fetchSupabaseCustomCards();
+        const client = App.auth && App.auth.getClient ? App.auth.getClient() : null;
+        if (client && client.auth && client.auth.getUser) {
+          const { data } = await client.auth.getUser();
+          const authUser = data?.user;
+          if (authUser && authUser.user_metadata && Array.isArray(authUser.user_metadata.custom_intel_cards)) {
+            const cloudCards = authUser.user_metadata.custom_intel_cards;
+            if (cloudCards.length > 0) {
+              try { localStorage.setItem(CUSTOM_CARDS_KEY, JSON.stringify(cloudCards)); } catch (_) {}
+              if (App.state && App.state.profile) {
+                App.state.profile.preferences = Object.assign({}, App.state.profile.preferences || {}, { custom_intel_cards: cloudCards });
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
       const items = await loadAllDateItems();
       const customCards = getCustomCards();
 
@@ -1793,6 +2035,15 @@ App.dateIntelligence = (function () {
             state.collapsedCardIds.clear();
           }
           updateView();
+        });
+
+        // Wire Migration 052 SQL Modal
+        container.querySelector('#btnDateIntelMigrationSql')?.addEventListener('click', () => {
+          if (App.supabaseMigrationViewer) {
+            App.supabaseMigrationViewer.openMigration052Modal();
+          } else {
+            App.utils.toast('Migration viewer module is loading...', 'info');
+          }
         });
 
         // Wire Add Custom Card Buttons

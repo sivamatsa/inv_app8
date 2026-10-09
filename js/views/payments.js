@@ -12,7 +12,8 @@ window.App = window.App || {};
   const RECURRING_INVESTMENT_TYPES = new Set(['SIP', 'Mutual Fund', 'Gold Scheme', 'Gold Savings', 'Stocks / Shares', 'ETF', 'Recurring Deposit', 'NPS', 'Pension']);
   let activeTab = 'sched';
   const RECORD_FIELDS = [
-    { key: 'transaction_date', label: 'Transaction Date', type: 'date', required: true },
+    { key: 'transaction_date', label: 'Actual Transaction Date (Value Date)', type: 'date', required: true },
+    { key: 'recording_date', label: 'Recording Payment Date (Entry Timestamp)', type: 'date', required: true },
     { key: 'amount', label: 'Amount', type: 'number', required: true },
     { key: 'interest_amount', label: 'Interest Component', type: 'number' },
     { key: 'principal_amount', label: 'Principal Component', type: 'number' },
@@ -36,6 +37,7 @@ window.App = window.App || {};
     let initialValues = {
       deal_id: presetDealId || (deals[0] ? deals[0].id : null),
       transaction_date: App.utils.todayISO(),
+      recording_date: App.utils.todayISO(),
       amount: null,
       interest_amount: null,
       principal_amount: null,
@@ -83,6 +85,14 @@ window.App = window.App || {};
         <span>Returned: <strong id="stripReturned" style="color:var(--teal,#059669)">₹0</strong></span>
         <span>Outstanding Principal: <strong id="stripBalance" style="color:var(--gold,#d97706)">₹0</strong></span>
       </div>
+      <div id="pmtTimingStrip" style="margin-bottom:12px;padding:9px 12px;background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <span>Scheduled Due Date: <strong id="stripScheduledDate">—</strong></span>
+        </div>
+        <div id="stripTimingBadge" style="font-weight:700">
+          <span style="color:var(--text3)">⚪ On-Time</span>
+        </div>
+      </div>
       <div id="pmtPrincipalBanner" style="display:${currentCategory === 'principal' ? 'flex' : 'none'};align-items:flex-start;gap:10px;padding:10px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;font-size:12px;color:#047857;margin-bottom:12px">
         <span style="font-size:18px">💰</span>
         <div>
@@ -105,7 +115,7 @@ window.App = window.App || {};
       title: isPrincipalDefault ? '💰 Record Principal Repayment' : 'Record Payment',
       small: false,
       bodyHtml: typeSelectorHtml + App.ui.renderForm([dealField], initialValues) + App.ui.renderForm(RECORD_FIELDS, initialValues) + settlementCheckboxHtml
-        + '<div class="hint" style="margin-top:10px">Recording a payment confirms actual receipt of funds in your accounts.</div>',
+        + '<div class="hint" style="margin-top:10px">Recording a payment confirms actual receipt of funds in your accounts with timing analytics.</div>',
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
@@ -133,13 +143,47 @@ window.App = window.App || {};
               }
             }
 
+            // Calculate delay days / advance days
+            const selDeal = dealsById[v1.deal_id];
+            const targetDueDate = presetSchedule ? presetSchedule.scheduled_date : (selDeal ? selDeal.maturity_date : null);
+            let delayDays = 0;
+            let advanceDays = 0;
+            const txnD = v2.transaction_date ? new Date(v2.transaction_date).setHours(0,0,0,0) : new Date().setHours(0,0,0,0);
+            
+            if (targetDueDate) {
+              const dueD = new Date(targetDueDate).setHours(0,0,0,0);
+              const diff = Math.round((txnD - dueD) / (1000 * 60 * 60 * 24));
+              if (diff > 0) delayDays = diff;
+              else if (diff < 0) advanceDays = Math.abs(diff);
+            } else if (v2.recording_date && v2.transaction_date) {
+              const recD = new Date(v2.recording_date).setHours(0,0,0,0);
+              const diff = Math.round((recD - txnD) / (1000 * 60 * 60 * 24));
+              if (diff > 0) delayDays = diff;
+              else if (diff < 0) advanceDays = Math.abs(diff);
+            }
+
+            const timingTag = delayDays > 0 ? `[Delay: ${delayDays}d]` : (advanceDays > 0 ? `[Advance: ${advanceDays}d]` : '[On-time]');
+            let enhancedNotes = (v2.notes || '').trim();
+            if (!enhancedNotes.includes('[Delay:') && !enhancedNotes.includes('[Advance:') && !enhancedNotes.includes('[On-time]')) {
+              enhancedNotes = enhancedNotes ? `${enhancedNotes} ${timingTag}` : timingTag;
+            }
+
             try {
               await App.api.recordPayment({
-                dealId: v1.deal_id, transactionDate: v2.transaction_date, amount: finalAmount,
-                interestAmount: finalInterest, principalAmount: finalPrincipal,
-                feeAmount: v2.fee_amount || 0, taxAmount: v2.tax_amount || 0,
-                paymentReference: v2.payment_reference, paymentMode: v2.payment_mode,
-                confirmationMethod: v2.confirmation_method || 'Manual', notes: v2.notes,
+                dealId: v1.deal_id,
+                transactionDate: v2.transaction_date,
+                recordingDate: v2.recording_date || App.utils.todayISO(),
+                delayDays,
+                advanceDays,
+                amount: finalAmount,
+                interestAmount: finalInterest,
+                principalAmount: finalPrincipal,
+                feeAmount: v2.fee_amount || 0,
+                taxAmount: v2.tax_amount || 0,
+                paymentReference: v2.payment_reference,
+                paymentMode: v2.payment_mode,
+                confirmationMethod: v2.confirmation_method || 'Manual',
+                notes: enhancedNotes,
                 scheduledPaymentId: presetSchedule ? presetSchedule.id : null,
               });
 
@@ -182,8 +226,49 @@ window.App = window.App || {};
       const typeButtons = App.utils.qsa('#pmtTypeSelector [data-cat]');
 
       const dateInput = App.utils.qs('#fld_transaction_date');
+      const recDateInput = App.utils.qs('#fld_recording_date');
       const matNoteEl = App.utils.qs('#pmtMaturityDateNote');
       const confirmBtn = App.utils.qs('#sharedModalActions .btn-gold, #sharedModalActions .btn-teal');
+
+      function updateTimingStrip() {
+        const dId = dealSelect ? Number(dealSelect.value) : null;
+        const deal = dealsById[dId];
+        const targetDueDate = presetSchedule ? presetSchedule.scheduled_date : (deal ? deal.maturity_date : null);
+        const stripSched = App.utils.qs('#stripScheduledDate');
+        const stripBadge = App.utils.qs('#stripTimingBadge');
+        if (stripSched) stripSched.textContent = targetDueDate ? App.utils.fmtDate(targetDueDate) : 'Ad-hoc (No schedule)';
+
+        const txnDateStr = dateInput ? dateInput.value : App.utils.todayISO();
+        const recDateStr = recDateInput ? recDateInput.value : App.utils.todayISO();
+
+        if (targetDueDate) {
+          const txnD = new Date(txnDateStr).setHours(0,0,0,0);
+          const dueD = new Date(targetDueDate).setHours(0,0,0,0);
+          const diff = Math.round((txnD - dueD) / (1000 * 60 * 60 * 24));
+          if (diff > 0) {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--red);background:rgba(217,83,79,0.14);padding:2px 8px;border-radius:4px">&#9888; ${diff} Days Delayed</span>`;
+          } else if (diff < 0) {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--teal);background:rgba(22,201,163,0.14);padding:2px 8px;border-radius:4px">&#10003; ${Math.abs(diff)} Days in Advance</span>`;
+          } else {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--teal);background:rgba(22,201,163,0.14);padding:2px 8px;border-radius:4px">&#10003; Exactly On-Time</span>`;
+          }
+        } else {
+          const txnD = new Date(txnDateStr).setHours(0,0,0,0);
+          const recD = new Date(recDateStr).setHours(0,0,0,0);
+          const diff = Math.round((recD - txnD) / (1000 * 60 * 60 * 24));
+          if (diff > 0) {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--text2);padding:2px 6px">Logged ${diff}d after bank txn</span>`;
+          } else if (diff < 0) {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--text2);padding:2px 6px">Pre-recorded ${Math.abs(diff)}d ahead</span>`;
+          } else {
+            if (stripBadge) stripBadge.innerHTML = `<span style="color:var(--teal);padding:2px 6px">Same-day recorded</span>`;
+          }
+        }
+      }
+
+      if (dateInput) dateInput.addEventListener('change', updateTimingStrip);
+      if (recDateInput) recDateInput.addEventListener('change', updateTimingStrip);
+      updateTimingStrip();
 
       function updateDealStrip() {
         const dId = dealSelect ? Number(dealSelect.value) : null;
@@ -255,6 +340,7 @@ window.App = window.App || {};
       if (dealSelect) {
         dealSelect.addEventListener('change', () => {
           updateDealStrip();
+          updateTimingStrip();
           const d = dealsById[Number(dealSelect.value)];
           if (currentCategory === 'principal' && d) {
             const bal = d.current_principal != null ? d.current_principal : d.invested_amount;
@@ -295,24 +381,6 @@ window.App = window.App || {};
     }, 50);
   }
 
-  // Local to this view, deliberately NOT App.state.filters - that object is
-  // deal-shaped (platform/investment-type/risk/ROI) and shared globally with
-  // Deals/Dashboard; a Payments-only month/year filter has no business
-  // mutating it or rendering irrelevant controls. Same `.filterbar`/
-  // `.filter-group` visual classes, own local state and own render function.
-  //
-  // Each call site creates its OWN filter-state object (never a shared
-  // module-level singleton) - Schedule and Ledger are rendered upfront
-  // together, not lazily on tab click, so a single shared object would leak
-  // one tab's filter selection into the other's displayed data the moment
-  // either tab's own draw() next ran. Two independent filter bars, two
-  // independent states, deliberately.
-  //
-  // Also deliberately no element `id`s in the markup below - since both
-  // tabs' bars exist in the DOM at once, an id-based lookup would collide
-  // (duplicate IDs, invalid HTML, and a real risk of silently querying the
-  // wrong tab's control) - every lookup here is scoped to `container` via a
-  // data attribute instead.
   function renderDateFilterBar(container, filterState, onChange) {
     const years = new Set();
     const currentYear = new Date().getFullYear();
@@ -457,7 +525,8 @@ window.App = window.App || {};
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         <div id="ledgerFilterBar" style="flex:1;min-width:260px"></div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" id="btnPaymentMigrationSql">&#128450; Supabase SQL Migration (052)</button>
           <button class="btn btn-teal btn-sm" id="btnRecordPrincipalReturn">💰 Record Principal Return</button>
           <button class="btn btn-gold btn-sm" id="adhocRecordBtn">+ Record Payment</button>
         </div>
@@ -481,7 +550,7 @@ window.App = window.App || {};
 
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
-          <thead><tr><th>Date</th><th>Deal</th><th>External Deal ID</th><th>Type</th><th>Total Received</th><th>📈 Interest</th><th>💰 Principal</th><th>Reference</th><th>Method</th><th></th><th>Actions</th></tr></thead>
+          <thead><tr><th>Actual Date</th><th>Recording Date</th><th>Deal</th><th>External Deal ID</th><th>Type</th><th>Total Received</th><th>📈 Interest</th><th>💰 Principal</th><th>Timing / Offset</th><th>Reference</th><th>Method</th><th></th><th>Actions</th></tr></thead>
           <tbody>${payments.map((p) => {
             const hasPrn = Number(p.principal_amount || 0) > 0;
             const hasInt = Number(p.interest_amount || 0) > 0;
@@ -494,21 +563,39 @@ window.App = window.App || {};
               typeBadge = '<span class="badge" style="background:rgba(124,58,237,0.12);color:#6d28d9;border:1px solid rgba(124,58,237,0.3);font-weight:600">🔄 Combined (EMI)</span>';
             }
 
+            // Extract delay or advance info
+            let timingBadge = '<span class="badge" style="background:var(--fill-2);color:var(--text2);font-size:10px">On-Time</span>';
+            if (p.delay_days > 0) {
+              timingBadge = `<span class="badge" style="background:rgba(217,83,79,0.12);color:var(--red);font-size:10px">&#9888; ${p.delay_days}d Late</span>`;
+            } else if (p.advance_days > 0) {
+              timingBadge = `<span class="badge" style="background:rgba(22,201,163,0.12);color:var(--teal);font-size:10px">&#10003; ${p.advance_days}d Early</span>`;
+            } else if (p.notes && p.notes.includes('[Delay:')) {
+              const m = p.notes.match(/\[Delay:\s*(\d+)d\]/);
+              if (m) timingBadge = `<span class="badge" style="background:rgba(217,83,79,0.12);color:var(--red);font-size:10px">&#9888; ${m[1]}d Late</span>`;
+            } else if (p.notes && p.notes.includes('[Advance:')) {
+              const m = p.notes.match(/\[Advance:\s*(\d+)d\]/);
+              if (m) timingBadge = `<span class="badge" style="background:rgba(22,201,163,0.12);color:var(--teal);font-size:10px">&#10003; ${m[1]}d Early</span>`;
+            }
+
+            const recDateStr = p.recording_date || (p.created_at ? p.created_at.slice(0, 10) : p.transaction_date);
+
             return `
             <tr style="${hasPrn ? 'border-left: 3.5px solid #10b981; background: rgba(16,185,129,0.025);' : ''} ${p.is_voided ? 'opacity:.45;' : ''}">
-              <td>${App.utils.fmtDate(p.transaction_date)}</td>
+              <td><b>${App.utils.fmtDate(p.transaction_date)}</b></td>
+              <td style="color:var(--text2)">${App.utils.fmtDate(recDateStr)}</td>
               <td>${App.utils.escapeHtml((dealsById[p.deal_id] || {}).deal_name || '—')}</td>
               <td>${App.utils.escapeHtml((dealsById[p.deal_id] || {}).external_deal_id || '—')}</td>
               <td>${typeBadge}</td>
               <td><strong>${App.utils.fmtMoney(p.amount)}</strong></td>
               <td>${hasInt ? `<span style="color:var(--gold,#d97706);font-weight:600">${App.utils.fmtMoney(p.interest_amount)}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
               <td>${hasPrn ? `<strong style="display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(16,185,129,0.14);color:#047857;border:1px solid rgba(16,185,129,0.3)">${App.utils.fmtMoney(p.principal_amount)}</strong>` : '<span style="color:var(--text3)">—</span>'}</td>
+              <td>${timingBadge}</td>
               <td>${App.utils.escapeHtml(p.payment_reference || '—')}</td>
               <td>${p.confirmation_method}</td>
               <td>${p.is_voided ? '<span class="badge st-missed">Voided</span>' : ''}</td>
               <td>${p.is_voided ? '' : `<button class="icon-btn del" data-void="${p.id}" title="Void">&#128465;</button>`}</td>
             </tr>`;
-          }).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:24px">No payments match the selected filters.</td></tr>'}</tbody>
+          }).join('') || '<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:24px">No payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
       App.utils.qsa('[data-void]', tableHost).forEach((b) => b.addEventListener('click', async () => {
         const reason = prompt('Reason for voiding this payment (kept in the audit trail; the payment is never deleted):');
@@ -528,6 +615,9 @@ window.App = window.App || {};
 
     renderDateFilterBar(filterHost, filterState, draw);
     draw();
+    App.utils.qs('#btnPaymentMigrationSql', container)?.addEventListener('click', () => {
+      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
+    });
     App.utils.qs('#adhocRecordBtn', container).addEventListener('click', () => openRecordPaymentModal(deals, null, null, 'interest'));
     const prnBtn = App.utils.qs('#btnRecordPrincipalReturn', container);
     if (prnBtn) {
@@ -687,7 +777,12 @@ window.App = window.App || {};
   async function renderPaymentsView() {
     const pane = App.utils.qs('#pane-payments');
     pane.innerHTML = `
-      <div class="section-title">Payments <div class="line"></div><small>expected schedule, actual ledger, and reconciliation</small></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <div class="section-title" style="margin:0">Payments <div class="line"></div><small>expected schedule, actual ledger, and reconciliation</small></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outline btn-sm" id="btnPaymentsHeaderMigrationSql" style="font-size:11.5px">🗄️ Supabase Migration 052 SQL</button>
+        </div>
+      </div>
       <div class="panel">
         <div class="tabbar">
           <button class="tab-btn ${activeTab === 'sched' ? 'active' : ''}" data-tab="sched">Payment Schedule</button>
@@ -698,6 +793,10 @@ window.App = window.App || {};
         <div class="tab-pane ${activeTab === 'ledger' ? 'active' : ''}" data-pane="ledger" id="ledgerTabBody"></div>
         <div class="tab-pane ${activeTab === 'recon' ? 'active' : ''}" data-pane="recon" id="reconTabBody"></div>
       </div>`;
+
+    App.utils.qs('#btnPaymentsHeaderMigrationSql', pane)?.addEventListener('click', () => {
+      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
+    });
 
     App.utils.qsa('.tab-btn', pane).forEach((btn) => btn.addEventListener('click', () => {
       activeTab = btn.dataset.tab;

@@ -488,6 +488,26 @@ window.App = window.App || {};
           <button class="btn btn-outline btn-sm" id="btnForceClearCacheSettings" style="color:var(--red,#e5484d);border-color:rgba(229,72,77,0.4)">&#128465; Force Clear PWA Cache &amp; Reload</button>
         </div>
         <div id="settingsUpdateCheckNote" style="font-size:11.5px;color:var(--text3);margin-top:8px"></div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="chart-title" style="margin:0">🗄️ Supabase Database &amp; SQL Migrations</div>
+            <div class="hint" style="margin-top:2px">Manage PostgreSQL database schema updates, date analytics, and cross-browser sync.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-gold btn-sm" id="btnSettingsOpenMigration052">🗄️ View Migration 052 SQL</button>
+            <button class="btn btn-outline btn-sm" id="btnSettingsCopyMigration052">📋 Copy Full SQL</button>
+          </div>
+        </div>
+        <div style="background:var(--fill-2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;line-height:1.5">
+          <div style="font-weight:700;color:var(--text);margin-bottom:4px">Migration 052: Payment Recording Dates &amp; Intelligence Cards</div>
+          <div style="color:var(--text2);margin-bottom:8px">
+            Adds payment recording date analytics (<code>recording_date</code>, <code>delay_days</code>, <code>advance_days</code>, <code>timing_status</code>) and the dedicated <code>user_intelligence_cards</code> table so custom cards sync seamlessly across devices.
+          </div>
+          <div style="font-size:11.5px;color:var(--text3)">
+            Run in <b>Supabase Dashboard &rarr; SQL Editor</b> to activate real-time cross-browser synchronization.
+          </div>
+        </div>
       </div>
 
       <div class="panel">
@@ -507,6 +527,21 @@ window.App = window.App || {};
     const isDemo = App.auth.isDemoMode();
     const userEmail = (profile && profile.email) || (currentUser && currentUser.email) || (isDemo ? 'demo@investor.com' : '');
     const profileValues = Object.assign({}, profile || {}, { email: userEmail });
+
+    App.utils.qs('#btnSettingsOpenMigration052', pane)?.addEventListener('click', () => {
+      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
+    });
+    App.utils.qs('#btnSettingsCopyMigration052', pane)?.addEventListener('click', async () => {
+      if (App.supabaseMigrationViewer) {
+        const sql = App.supabaseMigrationViewer.getSql();
+        try {
+          await navigator.clipboard.writeText(sql);
+          App.utils.toast('Migration 052 SQL copied to clipboard!', 'ok');
+        } catch (_) {
+          App.supabaseMigrationViewer.openMigration052Modal();
+        }
+      }
+    });
 
     App.utils.qs('#profileFormHost', pane).innerHTML = App.ui.renderForm(PROFILE_FIELDS, profileValues);
     App.utils.qs('#saveProfileBtn', pane).addEventListener('click', async () => {

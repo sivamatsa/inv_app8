@@ -273,7 +273,134 @@ window.App = window.App || {};
 
       let isFetching = false;
 
-      async function fetchAndRender(forceRefresh = false) {
+      const PREDEFINED_PROMPTS = [
+        {
+          label: '⚡ National Live (24K & 22K India)',
+          query: 'current 24k 22k gold and silver rate in India today live real-time IBJA MCX rates'
+        },
+        {
+          label: '📍 Hyderabad & AP Retail (916 Hallmark)',
+          query: 'today gold rate in Hyderabad Vijayawada Visakhapatnam 22k 24k per gram and 10g'
+        },
+        {
+          label: '🏙️ Chennai & South India Jewellery Hubs',
+          query: 'today gold price in Chennai Bengaluru Kochi 22k hallmark and 24k gold coin rate'
+        },
+        {
+          label: '🪙 Silver Live Rate (1kg Bar & 10g)',
+          query: 'live silver price in India today per kg and per 10 grams real-time market rates'
+        },
+        {
+          label: '📈 MCX Bullion Futures & Market Drivers',
+          query: 'MCX gold futures contract rate per 10g today live and why gold prices are moving in India'
+        }
+      ];
+
+      function openPromptSearchModal() {
+        const modalHtml = `
+          <div style="font-size:13px;line-height:1.6;color:var(--text2)">
+            <div style="margin-bottom:12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:10px 12px;color:var(--text)">
+              <div style="font-weight:700;color:#60a5fa;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+                <span>🔍</span>
+                <span>Google Search Bullion Intelligence Query Console</span>
+              </div>
+              <div>
+                Fetch real-time Indian gold and silver rates directly via Google Search Grounding. Choose a predefined prompt below or type your custom query (e.g., city, jeweller benchmark, or purity).
+              </div>
+            </div>
+
+            <div style="margin-bottom:14px">
+              <label style="display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text)">
+                Predefined Bullion Search Prompts:
+              </label>
+              <div style="display:flex;flex-direction:column;gap:6px" id="predefinedPromptsContainer">
+                ${PREDEFINED_PROMPTS.map((p, idx) => `
+                  <button type="button" class="btn btn-outline btn-sm prompt-preset-btn" data-query="${App.utils.escapeHtml(p.query)}" style="text-align:left;font-size:12px;padding:8px 10px;border-color:rgba(201,168,76,0.35);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)">
+                    <span style="font-weight:600;color:var(--text)">${App.utils.escapeHtml(p.label)}</span>
+                    <span style="font-size:11px;color:var(--teal)">Select ➜</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+
+            <div style="margin-bottom:12px">
+              <label style="display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text)">
+                Active Search Query / Prompt:
+              </label>
+              <textarea id="customGoldSearchInput" class="search-input" rows="3" style="width:100%;font-size:12.5px;line-height:1.4;padding:8px;border-radius:6px;resize:vertical;font-family:inherit" placeholder="e.g. today gold rate 24k 22k hyderabad vijayawada live search"></textarea>
+              <div class="hint" style="margin-top:4px">
+                Tip: Google Search grounding connects with live Indian financial bullion feeds to retrieve real-time rates and updates the entire Gold OS benchmark automatically.
+              </div>
+            </div>
+
+            <div id="promptModalStatus" style="display:none;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px"></div>
+          </div>
+        `;
+
+        App.ui.modal({
+          title: '🔍 Real-time Bullion Search Prompt Screen',
+          bodyHtml: modalHtml,
+          actions: [
+            {
+              label: 'Cancel',
+              className: 'btn-outline',
+              onClick: () => App.ui.close(),
+            },
+            {
+              label: '🔍 Search in Google & Fetch Actual Data',
+              primary: true,
+              onClick: async () => {
+                const textarea = document.getElementById('customGoldSearchInput');
+                const queryText = (textarea?.value || '').trim() || PREDEFINED_PROMPTS[0].query;
+                const statusEl = document.getElementById('promptModalStatus');
+                
+                if (statusEl) {
+                  statusEl.style.display = 'block';
+                  statusEl.style.background = 'rgba(59,130,246,0.15)';
+                  statusEl.style.color = '#60a5fa';
+                  statusEl.style.border = '1px solid rgba(59,130,246,0.3)';
+                  statusEl.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px"></span> Searching Google &amp; fetching actual real-time bullion rates…';
+                }
+
+                try {
+                  const res = await App.api.fetchLiveGoldSearch({ prompt: queryText, forceRefresh: true });
+                  App.ui.close();
+                  renderContent(res);
+                  App.utils.toast('Actual real-time gold rates fetched from Google Search!', 'ok');
+                } catch (err) {
+                  if (statusEl) {
+                    statusEl.style.background = 'rgba(235,87,87,0.15)';
+                    statusEl.style.color = '#ff7a7a';
+                    statusEl.style.border = '1px solid rgba(235,87,87,0.3)';
+                    statusEl.textContent = `Search error: ${err.message || 'Failed to fetch actual data'}`;
+                  }
+                }
+              },
+            },
+          ],
+        });
+
+        // Wire up preset clicks inside modal
+        setTimeout(() => {
+          const textarea = document.getElementById('customGoldSearchInput');
+          if (textarea) textarea.value = PREDEFINED_PROMPTS[0].query;
+
+          const buttons = document.querySelectorAll('.prompt-preset-btn');
+          buttons.forEach((b) => {
+            b.addEventListener('click', () => {
+              const q = b.getAttribute('data-query');
+              if (textarea && q) {
+                textarea.value = q;
+                textarea.focus();
+                buttons.forEach((x) => x.style.borderColor = 'rgba(201,168,76,0.35)');
+                b.style.borderColor = 'var(--gold)';
+              }
+            });
+          });
+        }, 50);
+      }
+
+      async function fetchAndRender(forceRefresh = false, prompt = '') {
         if (isFetching) return;
         isFetching = true;
 
@@ -284,7 +411,7 @@ window.App = window.App || {};
         }
 
         try {
-          const res = await App.api.fetchLiveGoldSearch({ forceRefresh });
+          const res = await App.api.fetchLiveGoldSearch({ forceRefresh, prompt });
           renderContent(res);
           if (forceRefresh) {
             App.utils.toast('Live Indian gold & silver rates refreshed from Google Search', 'ok');
@@ -293,15 +420,19 @@ window.App = window.App || {};
           console.error('Google Live Gold search error:', err);
           const cached = App.api.getStoredLiveGoldSearch();
           if (cached) {
-            renderContent(cached, 'Could not fetch live update. Showing cached daily data.');
+            renderContent(cached, 'Could not refresh live feed. Showing cached daily data.');
           } else {
             host.innerHTML = `
               <div style="padding:16px;text-align:center">
-                <div style="color:var(--red);font-weight:600;margin-bottom:8px">⚠️ Unable to fetch live gold rates via Google Search</div>
-                <div style="font-size:12px;color:var(--text2);margin-bottom:12px">${App.utils.escapeHtml(err.message || 'Network error')}</div>
-                <button class="btn btn-gold btn-sm" id="btnRetryGoogleGoldSearch">🔄 Retry Live Fetch</button>
+                <div style="color:var(--red);font-weight:600;margin-bottom:8px">⚠️ Real-time gold rates not showing properly</div>
+                <div style="font-size:12px;color:var(--text2);margin-bottom:12px">${App.utils.escapeHtml(err.message || 'Network or quota limitation')}</div>
+                <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                  <button class="btn btn-gold btn-sm" id="btnOpenPromptScreenError">⚡ Open Prompt Screen &amp; Search Google</button>
+                  <button class="btn btn-outline btn-sm" id="btnRetryGoogleGoldSearch">🔄 Retry Default Fetch</button>
+                </div>
               </div>
             `;
+            App.utils.qs('#btnOpenPromptScreenError', host)?.addEventListener('click', openPromptSearchModal);
             App.utils.qs('#btnRetryGoogleGoldSearch', host)?.addEventListener('click', () => fetchAndRender(true));
           }
         } finally {
@@ -311,34 +442,39 @@ window.App = window.App || {};
 
       function renderContent(data, bannerWarning) {
         const prices = data?.prices || {};
-        const g24k = prices.gold_24k || { per_gram: 15824, per_10g: 158240, change_amount: 120, change_pct: 0.76 };
-        const g22k = prices.gold_22k || { per_gram: 14505, per_10g: 145050, per_8g_pavan: 116040, change_amount: 110, change_pct: 0.76 };
-        const g18k = prices.gold_18k || { per_gram: 11868, per_10g: 118680, change_amount: 90, change_pct: 0.76 };
-        const silver = prices.silver || { per_kg: 185000, per_10g: 1850, per_gram: 185, change_amount: 500, change_pct: 0.27 };
+        const g24k = prices.gold_24k || { per_gram: 15071, per_10g: 150710, change_amount: 114, change_pct: 0.76 };
+        const g22k = prices.gold_22k || { per_gram: 13815, per_10g: 138150, per_8g_pavan: 110520, change_amount: 105, change_pct: 0.76 };
+        const g18k = prices.gold_18k || { per_gram: 11303, per_10g: 113030, change_amount: 86, change_pct: 0.76 };
+        const silver = prices.silver || { per_kg: 221110, per_10g: 2211, per_gram: 221.11, change_amount: 4000, change_pct: 1.84 };
         const cities = prices.cities || [];
         const sources = data?.grounding_sources || [];
         const fetchedAt = data?.fetched_at ? new Date(data.fetched_at) : new Date();
         const timeFormatted = prices.as_of_time ? prices.as_of_time : App.utils.fmtDateTime(fetchedAt.toISOString());
         const trend = prices.market_trend || 'Bullish';
+        const customPromptActive = data?.custom_prompt;
 
         const trendBadgeCls = trend === 'Bullish' ? 'st-active' : trend === 'Bearish' ? 'st-cancelled' : 'st-due';
 
         host.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
             <div>
-              <div class="chart-title" style="margin-bottom:4px;color:var(--gold);display:flex;align-items:center;gap:8px">
+              <div class="chart-title" style="margin-bottom:4px;color:var(--gold);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span>🌐</span>
                 <span>Live Google Search Bullion Intelligence (India Real-time)</span>
                 <span class="badge" style="background:rgba(59,130,246,0.18);color:#60a5fa;font-size:10.5px;border:1px solid rgba(59,130,246,0.3)">🔍 Google Search Grounding</span>
-                <span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);font-size:10.5px">⚡ Daily Auto-Sync: Active</span>
+                <span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);font-size:10.5px">⚡ Real-time Live Market Active</span>
               </div>
               <div class="hint" style="margin:0">
                 Independent real-time market search across Indian bullion centers · As of <b>${App.utils.escapeHtml(prices.as_of_date || new Date().toISOString().split('T')[0])} (${App.utils.escapeHtml(timeFormatted)})</b>
-                ${data?.cached ? '<span style="color:var(--text3);margin-left:6px">(Cached copy)</span>' : '<span style="color:var(--teal);margin-left:6px">● Live Sync</span>'}
+                ${data?.cached ? '<span style="color:var(--text3);margin-left:6px">(Cached copy)</span>' : '<span style="color:var(--teal);margin-left:6px">● Real-time Sync</span>'}
+                ${customPromptActive ? `<span class="badge" style="margin-left:8px;background:rgba(201,168,76,0.15);color:var(--gold);font-size:10px">Query: "${App.utils.escapeHtml(customPromptActive.substring(0, 32))}${customPromptActive.length > 32 ? '…' : ''}"</span>` : ''}
               </div>
             </div>
 
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" id="btnOpenGoldPromptScreen" style="font-size:12px;padding:6px 11px;border-color:rgba(59,130,246,0.5);color:#60a5fa" title="Open prompt screen with predefined prompts to search Google and fetch actual realtime rates">
+                ⚡ Search via Prompt Screen
+              </button>
               <button class="btn btn-outline btn-sm" id="btnApplyGoogleRatesToBenchmark" style="font-size:12px;padding:6px 10px;border-color:rgba(201,168,76,0.5);color:var(--gold)" title="Apply live Google search rates to system calculation benchmark">
                 ⚡ Apply to OS Benchmark
               </button>
@@ -348,7 +484,10 @@ window.App = window.App || {};
             </div>
           </div>
 
-          ${bannerWarning ? `<div style="background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.3);color:#ff7a7a;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px">${bannerWarning}</div>` : ''}
+          ${bannerWarning ? `<div style="background:rgba(235,87,87,0.12);border:1px solid rgba(235,87,87,0.3);color:#ff7a7a;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+            <span>${bannerWarning}</span>
+            <button class="btn btn-outline btn-sm" id="btnWarningPromptScreen" style="font-size:11px;padding:3px 8px;border-color:#ff7a7a;color:#ff7a7a">Open Prompt Screen</button>
+          </div>` : ''}
 
           <!-- Live Market Rates Cards (24K, 22K, 18K, Silver) -->
           <div class="grid-4" style="gap:12px;margin-bottom:14px">
@@ -506,6 +645,16 @@ window.App = window.App || {};
         // Event listener for Refresh button
         App.utils.qs('#btnRefreshGoogleGoldSearch', host)?.addEventListener('click', () => {
           fetchAndRender(true);
+        });
+
+        // Event listener for Prompt Screen button
+        App.utils.qs('#btnOpenGoldPromptScreen', host)?.addEventListener('click', () => {
+          openPromptSearchModal();
+        });
+
+        // Event listener for warning prompt button
+        App.utils.qs('#btnWarningPromptScreen', host)?.addEventListener('click', () => {
+          openPromptSearchModal();
         });
 
         // Event listener for Apply to Benchmark button

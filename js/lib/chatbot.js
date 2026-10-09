@@ -19,41 +19,50 @@ App.chatbot = (function () {
     advisor: {
       name: 'Portfolio Advisor',
       icon: '💼',
-      desc: 'Holistic wealth management, asset allocation, and compounding strategies.',
+      desc: 'Holistic wealth management, Deals, SIPs, FDs, Gold, Expenses & Net Worth.',
       systemPrompt: `You are the Lead Financial Intelligence Advisor of Personal Investment OS (PIOS).
-You assist users with high-yield investments, asset allocation, portfolio health, debt instruments, and wealth accumulation.
-Provide crisp, structured advice with bold key figures and bullet points.`
+You have full real-time access to the user's complete multi-asset portfolio: High-Yield Deals, Systematic SIPs & Recurring Investments, Bank Accounts & Fixed Deposits (FDs), Physical & Scheme Gold Vault, Expense Projects & Ledgers, and Total Net Worth / Cash Flow.
+
+Response Structure Requirements:
+1. Executive Summary: High-level overview of totals and ratios (Net Worth, Yield, Cash Runway).
+2. Granular Breakdown: Exact figures, tables, and asset comparisons based on verified numbers in context.
+3. Quick Actions: Provide 2-3 interactive action links formatted as [Action Name](#route) (e.g. [View Deals](#deals), [Check SIPs](#recurring), [Bank FDs](#accounts), [Gold Vault](#gold), [Expenses](#expenses), [Reconcile](#reconciliation), [Health Audit](#aicopilot)).`
     },
     risk: {
       name: 'Risk & Drift Auditor',
       icon: '⚖️',
-      desc: 'Sharpe/Sortino ratios, concentration limits, and rebalancing triggers.',
+      desc: 'Health audits, default risk, overdue schedules, and asset concentration.',
       systemPrompt: `You are the Quantitative Risk & Portfolio Drift Auditor for PIOS.
-Specialize in Modern Portfolio Theory, Sharpe Ratio, Sortino Ratio (downside deviation), Value at Risk (VaR), platform concentration, and rebalancing drift bands.
-Evaluate risk-adjusted return trade-offs with rigorous analytical clarity.`
+You audit the user's entire portfolio across Deals, SIPs, FDs, Gold, Expenses, and Net Worth.
+Evaluate credit risk, platform concentration, liquid runway buffers, overdue schedules, and asset class drift.
+Always highlight delinquent payments or single-asset concentration over 50%.
+Include actionable hash links: [Inspect Overdue](#payments), [Audit Deals](#deals), [Review Cash](#accounts).`
     },
     tax: {
       name: 'Tax Strategist',
       icon: '🧾',
-      desc: 'Indian income tax slabs (Budget 2024), STCG 20%, LTCG 12.5%, and Advance Tax.',
+      desc: 'Indian income tax slabs (Budget 2024), STCG 20%, LTCG 12.5%, TDS & FDs.',
       systemPrompt: `You are the Indian Tax & Capital Gains Specialist for PIOS.
-Expert in FY 2024-25 / 2025-26 New vs Old Tax Regimes, Budget 2024 revised STCG (20%), Equity LTCG (12.5% > ₹1.25L exemption), Gold LTCG (12.5%), Section 87A rebate, standard deduction (₹75k), and Advance Tax quarterly calendar (15 Jun, 15 Sep, 15 Dec, 15 Mar).`
+Expert in FY 2024-25 / 2025-26 New vs Old Tax Regimes, Budget 2024 revised STCG (20%), Equity LTCG (12.5% > ₹1.25L exemption), Gold LTCG (12.5%), Fixed Deposit interest TDS (Section 194A), Deal interest taxation under slab rates, and Advance Tax quarterly calendar.
+Reference the user's live FD interest, deal yields, and gold holdings when computing liabilities.`
     },
     yield: {
       name: 'Cash Flow & Yield',
       icon: '💰',
-      desc: 'P2P lending yields, fixed income compounding, and EMI amortizations.',
+      desc: 'Monthly cash velocity, FD maturity timing, SIP commitments & reinvestment.',
       systemPrompt: `You are the Passive Cash Flow & Yield Specialist for PIOS.
-Focus on optimizing monthly cashflow velocity, P2P high-yield lending default buffers, reinvestment compounding math, and loan amortization scheduling.`
+Cross-reference passive deal interest inflows with recurring SIP commitments and project expense burn.
+Optimize cash velocity, reinvestment compounding math, and liquid reserve runways across bank accounts and FDs.`
     }
   };
 
   const STARTER_PROMPTS = [
-    { text: 'Analyze my portfolio health & risk score', role: 'risk' },
-    { text: 'What is my current asset allocation drift?', role: 'risk' },
-    { text: 'How will Budget 2024 LTCG (12.5%) impact my returns?', role: 'tax' },
-    { text: 'Compare monthly simple interest vs compounding effect', role: 'yield' },
-    { text: 'Give me a 3-step action plan to increase my passive yield', role: 'advisor' },
+    { text: 'Give me a complete breakdown of my portfolio across all asset classes', role: 'advisor' },
+    { text: 'What is my total passive inflow vs recurring SIP commitments?', role: 'yield' },
+    { text: 'Analyze my Bank FDs vs Deals yield and maturity dates', role: 'yield' },
+    { text: 'Break down my Gold bullion and scheme allocation vs Net Worth', role: 'advisor' },
+    { text: 'Check my overdue schedules, risk score & concentration drift', role: 'risk' },
+    { text: 'Analyze expense projects burn rate and liquid cash runway', role: 'advisor' },
   ];
 
   let state = {
@@ -144,36 +153,17 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     }
   }
 
+  let lastGatheredPortfolioData = null;
+
   async function getLivePortfolioContext() {
     if (!state.attachContext) return null;
     try {
-      const [deals, metrics, schedule] = await Promise.all([
-        App.api ? App.api.listDeals({ eq: { status: 'ACTIVE' } }) : [],
-        App.api ? App.api.listDealMetrics() : [],
-        App.api ? App.api.listSchedule() : [],
-      ]);
-
-      const totalPrincipal = deals.reduce((a, d) => a + (d.current_principal || 0), 0);
-      const activeCurr = App.currency ? App.currency.getActiveCurrency() : 'INR';
-      
-      const byType = {};
-      deals.forEach((d) => {
-        const t = d.investment_type || 'Other';
-        byType[t] = (byType[t] || 0) + (d.current_principal || 0);
-      });
-
-      const overdue = schedule.filter((s) => s.status === 'OVERDUE').length;
-      const dealReturns = deals.filter((d) => d.annual_roi != null).map((d) => Number(d.annual_roi));
-      const avgROI = dealReturns.length ? (dealReturns.reduce((a, b) => a + b, 0) / dealReturns.length).toFixed(1) : '—';
-
-      return `
-- Active Display Currency: ${activeCurr}
-- Total Active Invested Capital: ₹${totalPrincipal.toLocaleString('en-IN')}
-- Active Deals Count: ${deals.length}
-- Average Annual ROI: ${avgROI}%
-- Overdue Payment Schedules: ${overdue}
-- Asset Breakdown: ${Object.entries(byType).map(([k, v]) => `${k}: ₹${v.toLocaleString('en-IN')}`).join(', ') || 'No active positions'}
-`;
+      if (window.App && window.App.portfolioIntelligence) {
+        const data = await window.App.portfolioIntelligence.gatherAllPortfolioData();
+        lastGatheredPortfolioData = data;
+        return window.App.portfolioIntelligence.buildFullPortfolioContextText(data);
+      }
+      return null;
     } catch (err) {
       console.warn('Could not collect live portfolio context:', err);
       return null;
@@ -195,21 +185,48 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     if (!text) return '';
     let html = escapeHtml(text);
 
-    // Markdown links [text](url)
-    html = html.replace(/\[([^\]]+)\]\((\#[^)]+)\)/g, '<a href="$2" class="chat-action-link" style="color:var(--gold);text-decoration:underline;cursor:pointer;font-weight:600">$1</a>');
+    // Markdown tables
+    html = html.replace(/(?:^|\n)((?:\|.+?\|\s*(?:\n|$))+)/g, (match, tableBlock) => {
+      const rows = tableBlock.trim().split('\n').map((r) => r.trim()).filter(Boolean);
+      if (rows.length < 2) return match;
+      let tableHtml = '<div style="overflow-x:auto;margin:8px 0;border-radius:6px;border:1px solid var(--border)"><table style="width:100%;border-collapse:collapse;font-size:11.5px;text-align:left;line-height:1.4">';
+      let isHeader = true;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (/^\|[-:\s|]+\|$/.test(row)) {
+          isHeader = false;
+          continue;
+        }
+        const cells = row.split('|').slice(1, -1).map((c) => c.trim());
+        const tag = isHeader ? 'th' : 'td';
+        const cellStyle = isHeader
+          ? 'padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700;color:var(--text);background:rgba(201,168,76,0.1);'
+          : 'padding:5px 8px;border-bottom:1px solid rgba(255,255,255,0.06);color:var(--text2);';
+        tableHtml += '<tr>' + cells.map((c) => `<${tag} style="${cellStyle}">${c}</${tag}>`).join('') + '</tr>';
+        if (isHeader) isHeader = false;
+      }
+      tableHtml += '</table></div>';
+      return tableHtml;
+    });
+
+    // Markdown Action pills / buttons [Action Label](#route)
+    html = html.replace(/\[([^\]]+)\]\((\#[^)]+)\)/g, '<a href="$2" class="chat-action-link" style="display:inline-flex;align-items:center;padding:3px 8px;margin:2px 3px;border-radius:4px;background:rgba(201,168,76,0.18);color:var(--gold);border:1px solid rgba(201,168,76,0.35);text-decoration:none;cursor:pointer;font-weight:600;font-size:11px;transition:all 0.15s ease">$1</a>');
     html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" class="chat-link" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline">$1</a>');
 
     // Code blocks ``` ... ```
     html = html.replace(/```([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$1</code></pre>');
     // Inline code `...`
     html = html.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
+    // Headers ### Title, ## Title
+    html = html.replace(/^### (.*$)/gim, '<strong style="display:block;margin:6px 0 2px;color:var(--gold);font-size:12.5px">$1</strong>');
+    html = html.replace(/^## (.*$)/gim, '<strong style="display:block;margin:8px 0 3px;color:var(--text);font-size:13.5px">$1</strong>');
     // Bold **text**
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     // Italic *text*
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     // Bullet lists
     html = html.replace(/^\s*[\-\*]\s+(.*)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    html = html.replace(/(<li>.*<\/li>)/s, '<ul style="margin:4px 0;padding-left:18px">$1</ul>');
     // Line breaks
     html = html.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
 
@@ -617,6 +634,30 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
     container.querySelectorAll('a[href^="#auth"], a[href^="#login"]').forEach((el) => {
       el.addEventListener('click', triggerAuthPrompt);
     });
+
+    // Action link delegation for clickable routing
+    container.querySelectorAll('.chat-action-link').forEach((link) => {
+      link.addEventListener('click', (e) => {
+        const href = link.getAttribute('href');
+        if (href && href.startsWith('#')) {
+          e.preventDefault();
+          const target = href.slice(1);
+          if (target === 'auth-prompt' || target.startsWith('auth') || target.startsWith('login')) {
+            triggerAuthPrompt(e);
+            return;
+          }
+          if (window.App && window.App.router && window.App.router.navigate) {
+            window.App.router.navigate(target);
+          } else {
+            location.hash = href;
+          }
+          if (window.innerWidth < 768) {
+            state.isOpen = false;
+            renderFloatingWidget();
+          }
+        }
+      });
+    });
   }
 
   async function handleSendMessage() {
@@ -721,14 +762,18 @@ Focus on optimizing monthly cashflow velocity, P2P high-yield lending default bu
       if (isApiKeyErr) {
         fallbackText = `⚠️ **AI Advisor Notice:** GEMINI_API_KEY is not configured.\n\n📌 **How to get & configure your free GEMINI_API_KEY:**\n1. Visit **[Google AI Studio](https://aistudio.google.com/app/apikey)** and click **Create API Key**.\n2. Open your AI Studio workspace **Settings (Gear icon) ➜ Environment Variables / Secrets**.\n3. Add \`GEMINI_API_KEY\` with your key value.`;
       } else {
-        // Institutional local financial reasoning fallback
+        // Institutional local financial reasoning fallback with complete portfolio awareness
         const lastUserMsg = state.messages.filter((m) => m.role === 'user').slice(-1)[0]?.content || '';
-        fallbackText = `🧠 **AI Financial Advisor (Analytical Summary):**\n\n`;
-        fallbackText += `I have analyzed your investment query and active portfolio parameters:\n\n`;
-        fallbackText += `• **Capital Allocation Strategy:** Maintain a diversified spread across high-yield private lending, fixed income assets, and gold reserves.\n`;
-        fallbackText += `• **Liquidity & Emergency Buffer:** Ensure at least 6 months of living expenses remain locked in liquid savings or short-term Fixed Deposits.\n`;
-        fallbackText += `• **Risk Management:** Rebalance assets where single-borrower or single-institution exposure exceeds 15% of your total net worth.\n\n`;
-        fallbackText += `*(Server status: ${err.message || 'Auto-calibrated offline mode'})*`;
+        if (window.App && window.App.portfolioIntelligence && lastGatheredPortfolioData) {
+          fallbackText = window.App.portfolioIntelligence.generateLocalDeterministicAnswer(lastUserMsg, lastGatheredPortfolioData);
+        } else {
+          fallbackText = `🧠 **AI Financial Advisor (Analytical Summary):**\n\n`;
+          fallbackText += `I have analyzed your investment query and active portfolio parameters:\n\n`;
+          fallbackText += `• **Capital Allocation Strategy:** Maintain a diversified spread across high-yield private lending, fixed income assets, and gold reserves.\n`;
+          fallbackText += `• **Liquidity & Emergency Buffer:** Ensure at least 6 months of living expenses remain locked in liquid savings or short-term Fixed Deposits.\n`;
+          fallbackText += `• **Risk Management:** Rebalance assets where single-borrower or single-institution exposure exceeds 15% of your total net worth.\n\n`;
+          fallbackText += `*(Server status: ${err.message || 'Auto-calibrated offline mode'})*`;
+        }
       }
 
       state.messages.push({

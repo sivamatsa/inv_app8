@@ -1885,6 +1885,140 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   }
 }
 
+/* ============ COMPREHENSIVE AUDIT & DOSSIER PRINT ENGINE ============ */
+@page {
+  size: landscape;
+  margin: 5mm 7mm;
+}
+
+@media print {
+  /* Hide all app chrome, sidebars, navigation and action bars */
+  #sidebar, .sidebar, #topbar, .topbar, #mobileBottomNav, .mobile-bottom-nav,
+  #topbarSearchWrap, .topbar-search-wrap, #mobileMenuBtn, #desktopSidebarToggle,
+  #notifBell, #btnLaunchArcadeGame, #floatingCopilotBtn, #aiCopilotFloat,
+  .pwa-update-banner, .no-print, .print-toolbar, .btn, button, .modal-actions,
+  #modalActions, #sharedModalActions, .modal-close-btn, .modal-header .icon-btn,
+  #recycleBinToast, #offlineGameHost {
+    display: none !important;
+  }
+
+  /* Reset body and html layout to flow cleanly across printed pages */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body::before { display: none !important; }
+
+  #appShell, .app-shell, #mainContent, .main-content, #viewContainer,
+  #modalContainer, .modal-backdrop, #sharedModalBackdrop, .modal, #sharedModal,
+  #sharedModalBody, .modal-box, #fullDossierContentHost,
+  #execReportContentHost {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .executive-report-document {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Full 100% column visibility without horizontal clipping */
+  .exec-table-wrap {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: 1px solid #cbd5e1 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .exec-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    font-size: 6.8pt !important;
+  }
+
+  .exec-table th {
+    background: #f1f5f9 !important;
+    padding: 3px 2px !important;
+    font-size: 6.3pt !important;
+    line-height: 1.15 !important;
+    border: 1px solid #94a3b8 !important;
+    word-break: break-word !important;
+  }
+
+  .exec-table td {
+    padding: 3px 2px !important;
+    font-size: 6.6pt !important;
+    line-height: 1.15 !important;
+    border: 1px solid #cbd5e1 !important;
+    word-break: break-word !important;
+  }
+
+  .exec-table-dossier-deals th,
+  .exec-table-dossier-deals td {
+    padding: 2.5px 2px !important;
+    font-size: 6.2pt !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  .exec-section {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    margin-bottom: 12px !important;
+  }
+
+  .exec-sec-title {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    font-size: 9.5pt !important;
+  }
+
+  .exec-kpi {
+    padding: 6px 8px !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+}
+
 
 
 

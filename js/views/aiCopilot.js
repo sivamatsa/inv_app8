@@ -8,11 +8,12 @@ window.App = window.App || {};
   const DAILY_LIMIT = 20;
   let thread = []; // { role: 'user'|'assistant', text } - session-only, never persisted
   const DEFAULT_PRESETS = [
-    { title: '30-Day Inflows', prompt: 'Summarize all expected cash inflows, scheduled payouts, and recurring commitments over the next 30 days.' },
+    { title: 'Full Portfolio Dossier', prompt: 'Provide a complete breakdown of my entire portfolio across Deals, SIPs, Bank FDs, Gold, Expenses, and Net Worth.' },
+    { title: '30-Day Inflows vs SIPs', prompt: 'Summarize all expected cash inflows, scheduled payouts, and recurring SIP commitments over the next 30 days.' },
+    { title: 'Bank FDs & Cash', prompt: 'Analyze my Bank Fixed Deposits, interest rates, accumulated interest, and total liquid runway.' },
     { title: 'At-Risk & Overdue', prompt: 'Which deals currently have overdue payments or lower reliability, and what is my total capital at risk?' },
-    { title: 'Yield & Performance', prompt: 'Analyze my weighted average ROI, top performing deals, and return on capital this quarter.' },
-    { title: 'Gold & Asset Allocation', prompt: 'Break down my asset allocation across Deals, Cash Accounts, and Gold holdings. Is my portfolio sufficiently diversified?' },
-    { title: 'Tax & TDS Summary', prompt: 'Summarize my gross interest earnings and tax withheld/TDS recorded across all deals and payments.' },
+    { title: 'Gold & Diversification', prompt: 'Break down my physical and scheme gold holdings vs total net worth and assess my asset diversification.' },
+    { title: 'Expense Projects Burn', prompt: 'Analyze my active expense projects, allocated budgets, spent amounts, and remaining cash runway.' },
   ];
 
   function getCustomPresets() {
@@ -31,21 +32,52 @@ window.App = window.App || {};
   }
 
   async function assembleContext() {
+    if (window.App && window.App.portfolioIntelligence) {
+      try {
+        const raw = await window.App.portfolioIntelligence.gatherAllPortfolioData();
+        return {
+          raw,
+          netWorth: raw.netWorth.netWorth,
+          totalAssets: raw.netWorth.totalAssets,
+          totalLiabilities: raw.netWorth.totalLiabilities,
+          accountsTotal: raw.accounts.totalLiquidCash,
+          dealsOutstandingTotal: raw.deals.activePrincipal,
+          goldGrams: raw.gold.totalGrams,
+          goldValue: raw.gold.totalValuation,
+          cashFlow: raw.cashFlow,
+          deals: raw.deals.active.map((d) => ({
+            dealId: d.id,
+            status: d.status,
+            investedAmount: d.invested_amount || d.principal_amount,
+            currentPrincipal: d.current_principal,
+            annualRoi: d.annual_roi,
+            payoutReliability: (raw.deals.metricsByDeal[d.id] || {}).payout_reliability,
+          })),
+          sips: raw.sips.active,
+          fds: raw.accounts.fds,
+          gold: raw.gold,
+          expenseProjects: raw.expenses.projects,
+        };
+      } catch (err) {
+        console.warn('portfolioIntelligence gather error, falling back:', err);
+      }
+    }
+
     const [netWorth, cashFlow, portfolioSummary, dealMetrics, recurringSummary, recurringConsistency, goldHoldings, expenseProjects] = await Promise.all([
-      App.netWorthCalc.computeNetWorth(),
-      App.cashFlowCalc.computeCashFlow(),
-      App.api.getPortfolioSummary(),
-      App.api.listDealMetrics(),
-      App.api.getRecurringSummary(),
-      App.api.listRecurringConsistency(),
-      App.api.listGoldSchemeHoldings(),
-      App.api.listExpenseProjects(),
+      App.netWorthCalc ? App.netWorthCalc.computeNetWorth().catch(() => ({ netWorth: 0, totalAssets: 0, liabilitiesTotal: 0, accountsTotal: 0, dealsTotal: 0, goldTotal: 0, breakdown: { holdings: [] } })) : { netWorth: 0, totalAssets: 0, liabilitiesTotal: 0, accountsTotal: 0, dealsTotal: 0, goldTotal: 0, breakdown: { holdings: [] } },
+      App.cashFlowCalc ? App.cashFlowCalc.computeCashFlow().catch(() => ({ thisMonthReceived: 0, next7Days: 0, next30Days: 0, next90Days: 0, availableCash: 0, netCashMovement: 0 })) : { thisMonthReceived: 0, next7Days: 0, next30Days: 0, next90Days: 0, availableCash: 0, netCashMovement: 0 },
+      App.api && App.api.getPortfolioSummary ? App.api.getPortfolioSummary().catch(() => ({})) : {},
+      App.api && App.api.listDealMetrics ? App.api.listDealMetrics().catch(() => []) : [],
+      App.api && App.api.getRecurringSummary ? App.api.getRecurringSummary().catch(() => ({})) : {},
+      App.api && (App.api.listRecurringConsistency || App.api.getRecurringConsistencyScore) ? (App.api.listRecurringConsistency ? App.api.listRecurringConsistency() : App.api.getRecurringConsistencyScore()).catch(() => []) : [],
+      App.api && App.api.listGoldSchemeHoldings ? App.api.listGoldSchemeHoldings().catch(() => []) : [],
+      App.api && App.api.listExpenseProjects ? App.api.listExpenseProjects().catch(() => []) : [],
     ]);
 
-    const expenseSummaries = await Promise.all(expenseProjects.map(async (p) => ({
+    const expenseSummaries = await Promise.all((expenseProjects || []).map(async (p) => ({
       project: p.name,
-      summary: await App.api.getExpenseProjectSummary(p.id),
-      categories: await App.api.listExpenseCategorySummary(p.id),
+      summary: App.api.getExpenseProjectSummary ? await App.api.getExpenseProjectSummary(p.id).catch(() => ({})) : {},
+      categories: App.api.listExpenseCategorySummary ? await App.api.listExpenseCategorySummary(p.id).catch(() => []) : [],
     })));
 
     return {
@@ -56,7 +88,7 @@ window.App = window.App || {};
       dealsOutstandingTotal: netWorth.dealsTotal,
       goldGrams: netWorth.goldGrams,
       goldValue: netWorth.goldTotal,
-      netWorthHoldings: netWorth.breakdown.holdings,
+      netWorthHoldings: (netWorth.breakdown && netWorth.breakdown.holdings) || [],
       cashFlow: {
         thisMonthReceived: cashFlow.thisMonthReceived, thisMonthExpected: cashFlow.thisMonthExpected,
         recurringConfirmedThisMonth: cashFlow.thisMonthRecurringConfirmed, recurringPendingThisMonth: cashFlow.thisMonthRecurringPending,
@@ -66,15 +98,19 @@ window.App = window.App || {};
         availableCash: cashFlow.availableCash,
       },
       portfolioSummary,
-      deals: dealMetrics.map((m) => ({ dealId: m.deal_id, status: m.status, investedAmount: m.invested_amount, currentPrincipal: m.current_principal, totalOutstanding: m.total_outstanding, realizedRoi: m.realized_roi, payoutReliability: m.payout_reliability })),
+      deals: (dealMetrics || []).map((m) => ({ dealId: m.deal_id, status: m.status, investedAmount: m.invested_amount, currentPrincipal: m.current_principal, totalOutstanding: m.total_outstanding, realizedRoi: m.realized_roi, payoutReliability: m.payout_reliability })),
       recurringSummary,
-      recurringConsistency: recurringConsistency.map((r) => ({ itemName: r.item_name, consistencyPct: r.consistency_pct, missedCount: r.missed_count, skippedCount: r.skipped_count })),
-      goldSchemeHoldings: goldHoldings.map((h) => ({ itemName: h.item_name, totalGrams: h.total_grams, totalPaid: h.total_paid, avgPurchasePrice: h.avg_purchase_price })),
+      recurringConsistency: (recurringConsistency || []).map((r) => ({ itemName: r.item_name, consistencyPct: r.consistency_pct, missedCount: r.missed_count, skippedCount: r.skipped_count })),
+      goldSchemeHoldings: (goldHoldings || []).map((h) => ({ itemName: h.item_name, totalGrams: h.total_grams, totalPaid: h.total_paid, avgPurchasePrice: h.avg_purchase_price })),
       expenseProjects: expenseSummaries,
     };
   }
 
   function computeHealthAudit(context) {
+    if (context && context.raw && window.App && window.App.portfolioIntelligence) {
+      return window.App.portfolioIntelligence.computeComprehensiveAudit(context.raw);
+    }
+
     const totalAssets = context.totalAssets || 1;
     const dealsTotal = context.dealsOutstandingTotal || 0;
     const accountsTotal = context.accountsTotal || 0;
@@ -134,10 +170,15 @@ window.App = window.App || {};
 
   function bubble(role, text, providerDisplayName) {
     const mine = role === 'user';
-    return `<div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};margin-bottom:10px">
-      <div style="max-width:80%;padding:11px 15px;border-radius:10px;font-size:13px;line-height:1.5;background:${mine ? 'rgba(201,168,76,0.15)' : 'rgba(76,155,232,0.14)'};border:1px solid var(--border2)">
-        <div style="white-space:pre-wrap">${App.utils.escapeHtml(text)}</div>
-        ${!mine && providerDisplayName ? `<div style="margin-top:6px;font-size:10.5px;color:var(--text3)">via ${App.utils.escapeHtml(providerDisplayName)}</div>` : ''}
+    const formatted = mine
+      ? App.utils.escapeHtml(text)
+      : (window.App && window.App.chatbot && window.App.chatbot.formatMarkdown
+          ? window.App.chatbot.formatMarkdown(text)
+          : App.utils.escapeHtml(text));
+    return `<div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};margin-bottom:12px">
+      <div style="max-width:85%;padding:12px 16px;border-radius:10px;font-size:13px;line-height:1.55;background:${mine ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.03)'};border:1px solid ${mine ? 'rgba(201,168,76,0.3)' : 'var(--border)'};box-shadow:0 2px 8px rgba(0,0,0,0.15)">
+        <div>${formatted}</div>
+        ${!mine && providerDisplayName ? `<div style="margin-top:8px;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:var(--teal)"></span> via ${App.utils.escapeHtml(providerDisplayName)}</div>` : ''}
       </div>
     </div>`;
   }
@@ -312,7 +353,7 @@ window.App = window.App || {};
     // Executive Briefing Generator
     App.utils.qs('#btnGenBriefing', pane).addEventListener('click', async () => {
       const input = App.utils.qs('#acQuestionInput', pane);
-      input.value = 'Generate an executive bulleted portfolio briefing summarizing: 1) Total Net Worth & liquid cash, 2) Expected 30-day cash inflows, 3) High-yield or maturing deals, and 4) Recommended immediate action items.';
+      input.value = 'Generate an executive bulleted portfolio briefing covering my entire holdings: 1) Total Net Worth & liquid cash runway, 2) High-yield Deals & expected inflows, 3) Bank FDs & interest rates, 4) Systematic SIPs, 5) Gold bullion & schemes, and 6) Recommended immediate action items.';
       ask();
     });
 
@@ -322,6 +363,22 @@ window.App = window.App || {};
         ? thread.map((m) => bubble(m.role, m.text, m.providerDisplayName)).join('')
         : '<div class="empty-note">Ask a question below or pick a Quick Preset above to get an instant AI analysis of your real numbers.</div>';
       host.scrollTop = host.scrollHeight;
+
+      // Enable clickable action links routing inside thread
+      host.querySelectorAll('.chat-action-link').forEach((link) => {
+        link.addEventListener('click', (e) => {
+          const href = link.getAttribute('href');
+          if (href && href.startsWith('#')) {
+            e.preventDefault();
+            const target = href.slice(1);
+            if (window.App && window.App.router && window.App.router.navigate) {
+              window.App.router.navigate(target);
+            } else {
+              location.hash = href;
+            }
+          }
+        });
+      });
     }
     drawThread();
 
@@ -355,58 +412,82 @@ window.App = window.App || {};
       App.utils.qs('#acLimitNote', pane).innerHTML = '';
       try {
         const context = await assembleContext();
-        const res = await App.api.askCopilot(question, context);
-        thread.push({ role: 'assistant', text: res.answer, providerDisplayName: res.providerDisplayName });
+        const rawData = context.raw;
+        const formattedContext = (rawData && window.App && window.App.portfolioIntelligence)
+          ? window.App.portfolioIntelligence.buildFullPortfolioContextText(rawData)
+          : JSON.stringify(context, null, 2);
+
+        // Prioritize direct server-side /api/chat with full multi-asset context
+        try {
+          const chatRes = await App.api.safeApiFetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: question }],
+              model: 'gemini-3.8-flash',
+              systemInstruction: `You are the Lead Financial Intelligence Advisor of Personal Investment OS (PIOS).
+You have full real-time access to the user's complete multi-asset portfolio: High-Yield Deals, Systematic SIPs & Recurring Investments, Bank Accounts & Fixed Deposits (FDs), Physical & Scheme Gold Vault, Expense Projects & Ledgers, and Total Net Worth / Cash Flow.
+
+Response Structure Requirements:
+1. Executive Summary: High-level overview of totals and ratios (Net Worth, Yield, Cash Runway).
+2. Granular Breakdown: Exact figures, tables, and asset comparisons based on verified numbers in context.
+3. Quick Actions: Provide 2-3 interactive action links formatted as [Action Name](#route) (e.g. [View Deals](#deals), [Check SIPs](#recurring), [Bank FDs](#accounts), [Gold Vault](#gold), [Expenses](#expenses), [Reconcile](#reconciliation), [Health Audit](#aicopilot)).`,
+              portfolioContext: formattedContext,
+            }),
+          });
+          if (chatRes.ok && chatRes.data?.reply) {
+            thread.push({ role: 'assistant', text: chatRes.data.reply, providerDisplayName: `Gemini (${chatRes.data.model || '3.8 Flash'})` });
+            drawThread();
+            App.utils.qs('#acQuota', pane).textContent = 'Connected via Server-Side Gemini Intelligence.';
+            return;
+          }
+        } catch (chatErr) {
+          console.warn('Direct server chat attempt notice:', chatErr);
+        }
+
+        // Try App.api.askCopilot if configured
+        if (App.api.askCopilot) {
+          try {
+            const res = await App.api.askCopilot(question, context);
+            if (res && res.answer) {
+              thread.push({ role: 'assistant', text: res.answer, providerDisplayName: res.providerDisplayName || 'AI Advisor' });
+              drawThread();
+              App.utils.qs('#acQuota', pane).textContent = `Daily quota: ${res.requestsUsed} of ${res.dailyLimit} used today.`;
+              return;
+            }
+          } catch (copilotErr) {
+            console.warn('Copilot RPC fallback:', copilotErr);
+          }
+        }
+
+        // Institutional local deterministic engine fallback with complete portfolio awareness
+        if (rawData && window.App && window.App.portfolioIntelligence) {
+          const localAnswer = window.App.portfolioIntelligence.generateLocalDeterministicAnswer(question, rawData);
+          thread.push({ role: 'assistant', text: localAnswer, providerDisplayName: 'Local Analytical Intelligence Engine' });
+          drawThread();
+          App.utils.qs('#acQuota', pane).textContent = 'Generated via Local Deterministic Portfolio Engine.';
+          return;
+        }
+
+        // Basic snapshot fallback
+        const audit = computeHealthAudit(context);
+        let fallbackAnswer = `**Executive Portfolio Snapshot (Local Computation Engine)**\n\n`;
+        fallbackAnswer += `• **Net Worth:** ${App.utils.fmtMoney(context.netWorth)} (Assets: ${App.utils.fmtMoney(context.totalAssets)}, Liabilities: ${App.utils.fmtMoney(context.totalLiabilities)})\n`;
+        fallbackAnswer += `• **Available Cash:** ${App.utils.fmtMoney(context.cashFlow.availableCash)}\n`;
+        fallbackAnswer += `• **Next 30 Days Inflow:** ${App.utils.fmtMoney(context.cashFlow.next30Days)} (Next 7 Days: ${App.utils.fmtMoney(context.cashFlow.next7Days)})\n`;
+        fallbackAnswer += `• **Health Score:** ${audit.totalScore}/100 (${audit.rating})\n\n`;
+        fallbackAnswer += `*Tip: You can also use the floating AI Advisor widget on the bottom right for multi-turn conversational analysis.*`;
+
+        thread.push({ role: 'assistant', text: fallbackAnswer, providerDisplayName: 'Local Analytical Engine' });
         drawThread();
-        App.utils.qs('#acQuota', pane).textContent = `Daily quota: ${res.requestsUsed} of ${res.dailyLimit} used today.`;
       } catch (e) {
         thread.pop(); drawThread();
         if (e.requestsUsed != null) {
           App.utils.qs('#acLimitNote', pane).innerHTML = `<div class="hint" style="color:var(--red);margin-top:8px">${App.utils.escapeHtml(e.message)}</div>`;
         } else {
           const errMsg = e.message || String(e);
-          const isFetchError = errMsg.includes('Failed to send a request') || errMsg.includes('FunctionsFetchError') || errMsg.includes('Failed to fetch') || errMsg.includes('Function not found') || errMsg.includes('404');
-          if (isFetchError) {
-            // Attempt direct server-side /api/chat call via Gemini
-            try {
-              const context = await assembleContext();
-              const formattedContext = JSON.stringify(context, null, 2);
-              const chatRes = await App.api.safeApiFetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  messages: [{ role: 'user', content: question }],
-                  model: 'gemini-3.8-flash',
-                  systemInstruction: 'You are the AI Portfolio Copilot for Personal Investment OS. Analyze user portfolio data and questions with institutional precision and clarity.',
-                  portfolioContext: formattedContext,
-                }),
-              });
-              if (chatRes.ok && chatRes.data?.reply) {
-                thread.push({ role: 'assistant', text: chatRes.data.reply, providerDisplayName: `Gemini (${chatRes.data.model || 'Flash'})` });
-                drawThread();
-                App.utils.qs('#acQuota', pane).textContent = 'Connected via Server-Side Gemini API.';
-                return;
-              }
-            } catch (chatErr) {
-              console.warn('Fallback to local computation:', chatErr);
-            }
-
-            // Local client-side analytical engine fallback
-            const context = await assembleContext();
-            const audit = computeHealthAudit(context);
-            let fallbackAnswer = `**Executive Portfolio Snapshot (Local Computation Engine)**\n\n`;
-            fallbackAnswer += `• **Net Worth:** ${App.utils.fmtMoney(context.netWorth)} (Assets: ${App.utils.fmtMoney(context.totalAssets)}, Liabilities: ${App.utils.fmtMoney(context.totalLiabilities)})\n`;
-            fallbackAnswer += `• **Available Cash:** ${App.utils.fmtMoney(context.cashFlow.availableCash)}\n`;
-            fallbackAnswer += `• **Next 30 Days Inflow:** ${App.utils.fmtMoney(context.cashFlow.next30Days)} (Next 7 Days: ${App.utils.fmtMoney(context.cashFlow.next7Days)})\n`;
-            fallbackAnswer += `• **Health Score:** ${audit.totalScore}/100 (${audit.rating})\n\n`;
-            fallbackAnswer += `*Tip: You can also use the floating AI Advisor widget on the bottom right for multi-turn conversational analysis.*`;
-
-            thread.push({ role: 'assistant', text: fallbackAnswer, providerDisplayName: 'Local Analytical Engine' });
-            drawThread();
-          } else {
-            App.utils.qs('#acLimitNote', pane).innerHTML = `<div class="hint" style="color:var(--red);margin-top:8px">${App.utils.escapeHtml(errMsg)}</div>`;
-            App.utils.toast('Could not reach Copilot: ' + errMsg, 'err');
-          }
+          App.utils.qs('#acLimitNote', pane).innerHTML = `<div class="hint" style="color:var(--red);margin-top:8px">${App.utils.escapeHtml(errMsg)}</div>`;
+          App.utils.toast('Could not reach Copilot: ' + errMsg, 'err');
         }
       } finally {
         btn.disabled = false; btn.textContent = 'Ask';

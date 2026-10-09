@@ -51,14 +51,31 @@
       </div>
       <div id="signInForm">
         <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signInEmail" placeholder="your.name@example.com" autocomplete="username"></div>
-        <div class="field" style="margin-bottom:14px"><label>Password</label><input type="password" id="signInPassword" placeholder="••••••••" autocomplete="current-password"></div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Password</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input type="password" id="signInPassword" placeholder="••••••••" autocomplete="current-password" style="width:100%;padding-right:38px">
+            <button type="button" id="toggleSignInPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
+          </div>
+        </div>
+        <div id="lastSignInWrap" style="display:none;justify-content:flex-end;margin-bottom:6px">
+          <button type="button" id="btnLastSignIn" class="btn btn-outline btn-xs" style="font-size:11px;padding:3px 8px;border-color:var(--gold);color:var(--gold);display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Auto-fill credentials and sign in with last account">
+            <span>⚡ Last Sign In:</span> <strong id="lastSignInUserLabel" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">user</strong>
+          </button>
+        </div>
         <button class="btn btn-gold" id="signInBtn" style="width:100%;justify-content:center;padding:10px">Sign In</button>
         <div class="auth-error" id="signInError"></div>
       </div>
       <div id="signUpForm" style="display:none">
         <div class="field" style="margin-bottom:10px"><label>Full Name</label><input type="text" id="signUpName" placeholder="Your Name" autocomplete="name"></div>
         <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signUpEmail" placeholder="your.name@example.com" autocomplete="username"></div>
-        <div class="field" style="margin-bottom:14px"><label>Password (min 6 characters)</label><input type="password" id="signUpPassword" placeholder="••••••••" autocomplete="new-password"></div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Password (min 6 characters)</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input type="password" id="signUpPassword" placeholder="••••••••" autocomplete="new-password" style="width:100%;padding-right:38px">
+            <button type="button" id="toggleSignUpPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
+          </div>
+        </div>
         <button class="btn btn-gold" id="signUpBtn" style="width:100%;justify-content:center;padding:10px">Create Account</button>
         <div class="auth-error" id="signUpError"></div>
       </div>
@@ -202,10 +219,12 @@
 <script src="js/views/netWorth.js"></script>
 <script src="js/views/cashFlow.js"></script>
 <script src="js/views/reconciliation.js"></script>
+<script src="js/lib/portfolioIntelligence.js"></script>
 <script src="js/views/automationCenter.js"></script>
 <script src="js/views/aiCopilot.js"></script>
 <script src="js/views/contacts.js"></script>
 <script src="js/views/chat.js"></script>
+<script src="js/lib/supabaseMigrationViewer.js"></script>
 <script src="js/views/payments.js"></script>
 <script src="js/views/dateIntelligence.js"></script>
 <script src="js/views/calendar.js"></script>

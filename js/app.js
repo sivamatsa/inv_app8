@@ -590,6 +590,9 @@ function wireAuthScreen() {
       const res = await App.auth.signIn(email, password);
       const user = (res && res.user) || (res && res.data && res.data.user) || App.auth.getUser() || { email, id: email };
       if (res && (res.user || res.data || App.auth.getUser())) {
+        try {
+          localStorage.setItem('ios_last_auth_cred', JSON.stringify({ email, password, timestamp: Date.now() }));
+        } catch (_) {}
         if (App.security) {
           if (App.security.markUnlocked) App.security.markUnlocked();
           if (App.security.saveLastRegisteredUser) App.security.saveLastRegisteredUser(user);
@@ -707,6 +710,49 @@ function wireAuthScreen() {
   });
 
   App.utils.qs('#needHelpLink')?.addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
+
+  // Password visibility toggle for Sign In & Sign Up
+  function bindPasswordToggle(toggleBtnId, inputId) {
+    const btn = App.utils.qs(toggleBtnId);
+    const input = App.utils.qs(inputId);
+    if (!btn || !input) return;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isPass = input.type === 'password';
+      input.type = isPass ? 'text' : 'password';
+      btn.textContent = isPass ? '🙈' : '👁️';
+      btn.title = isPass ? 'Hide password' : 'Show password';
+    });
+  }
+  bindPasswordToggle('#toggleSignInPassword', '#signInPassword');
+  bindPasswordToggle('#toggleSignUpPassword', '#signUpPassword');
+
+  // Check and display Last Sign In button
+  function checkAndDisplayLastSignIn() {
+    try {
+      const raw = localStorage.getItem('ios_last_auth_cred');
+      if (!raw) return;
+      const cred = JSON.parse(raw);
+      if (cred && cred.email) {
+        const wrap = App.utils.qs('#lastSignInWrap');
+        const userLabel = App.utils.qs('#lastSignInUserLabel');
+        const btn = App.utils.qs('#btnLastSignIn');
+        if (wrap && userLabel && btn) {
+          wrap.style.display = 'flex';
+          userLabel.textContent = cred.email;
+          btn.onclick = (e) => {
+            e.preventDefault();
+            const emailInput = App.utils.qs('#signInEmail');
+            const passInput = App.utils.qs('#signInPassword');
+            if (emailInput) emailInput.value = cred.email;
+            if (passInput) passInput.value = cred.password || '';
+            handleSignIn();
+          };
+        }
+      }
+    } catch (_) {}
+  }
+  checkAndDisplayLastSignIn();
 
   const handleGlobalSignOut = async (e) => {
     if (e) {
