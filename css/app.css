@@ -2019,7 +2019,68 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
   }
 }
 
+/* ==========================================================================
+   PRIVACY MODE (Sensory Value Blurring)
+   When active, blurs sensitive monetary figures across the app.
+   Hovering or clicking/tapping temporarily unblurs the value.
+   ========================================================================== */
+.privacy-mode-active .privacy-sensitive,
+.privacy-mode-active .kpi-value,
+.privacy-mode-active .exec-kpi-val,
+.privacy-mode-active .stat-line .v,
+.privacy-mode-active [data-money],
+.privacy-mode-active .blurred-privacy {
+  filter: blur(6px) !important;
+  opacity: 0.82;
+  transition: filter 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease;
+  user-select: none;
+  cursor: pointer;
+}
 
+.privacy-mode-active .privacy-sensitive:hover,
+.privacy-mode-active .privacy-sensitive:focus,
+.privacy-mode-active .privacy-sensitive:active,
+.privacy-mode-active .privacy-sensitive.revealed,
+.privacy-mode-active .kpi-value:hover,
+.privacy-mode-active .kpi-value:focus,
+.privacy-mode-active .kpi-value:active,
+.privacy-mode-active .exec-kpi-val:hover,
+.privacy-mode-active .exec-kpi-val:focus,
+.privacy-mode-active .exec-kpi-val:active,
+.privacy-mode-active .stat-line .v:hover,
+.privacy-mode-active .stat-line .v:focus,
+.privacy-mode-active .stat-line .v:active,
+.privacy-mode-active [data-money]:hover,
+.privacy-mode-active [data-money]:focus,
+.privacy-mode-active [data-money]:active,
+.privacy-mode-active .blurred-privacy:hover,
+.privacy-mode-active .blurred-privacy:focus,
+.privacy-mode-active .blurred-privacy:active {
+  filter: none !important;
+  opacity: 1 !important;
+  user-select: auto;
+}
 
+/* Ensure mobile date pickers trigger native picker calendar seamlessly on tap */
+input[type="date"] {
+  min-height: 38px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  position: relative;
+  touch-action: manipulation;
+  cursor: pointer;
+}
 
-
+input[type="date"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  color: transparent;
+  background: transparent;
+  cursor: pointer;
+}

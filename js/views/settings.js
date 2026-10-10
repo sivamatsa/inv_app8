@@ -158,6 +158,23 @@ window.App = window.App || {};
           <div id="privacyFormHost"></div>
           <div class="modal-actions" style="justify-content:flex-start"><button class="btn btn-gold btn-sm" id="savePrivacyBtn">Save Privacy Settings</button></div>
           <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+              <div>
+                <div class="chart-title" style="margin-bottom:4px;font-size:13.5px;display:flex;align-items:center;gap:6px">
+                  <span>🔒 Privacy Mode</span>
+                  <span id="privacyModeStatusBadge" class="badge" style="font-size:10px;padding:2px 6px">Disabled</span>
+                </div>
+                <div class="hint" style="margin-bottom:0;max-width:560px">
+                  When active, blurs all sensitive monetary and financial values across the portfolio (deals, cash flow, net worth, ledger amounts). Hovering over or clicking any blurred figure temporarily reveals it.
+                </div>
+              </div>
+              <label style="position:relative;display:inline-flex;align-items:center;cursor:pointer;user-select:none;gap:8px">
+                <input type="checkbox" id="privacyModeSettingToggle" class="inp-privacy-mode-toggle" style="width:18px;height:18px;accent-color:var(--gold);cursor:pointer">
+                <span style="font-size:12.5px;font-weight:600;color:var(--text)">Enable Privacy Mode</span>
+              </label>
+            </div>
+          </div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
             <div class="chart-title" style="margin-bottom:6px;font-size:13px">Sign-in Activity Logging</div>
             <div class="hint" style="margin-bottom:8px">Whether approximate location/device is logged with your sign-ins (admin-visible only). Declining still logs that a sign-in happened, never IP/location/device.</div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer">
@@ -488,27 +505,7 @@ window.App = window.App || {};
           <button class="btn btn-outline btn-sm" id="btnForceClearCacheSettings" style="color:var(--red,#e5484d);border-color:rgba(229,72,77,0.4)">&#128465; Force Clear PWA Cache &amp; Reload</button>
         </div>
         <div id="settingsUpdateCheckNote" style="font-size:11.5px;color:var(--text3);margin-top:8px"></div>
-      <div class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-          <div>
-            <div class="chart-title" style="margin:0">🗄️ Supabase Database &amp; SQL Migrations</div>
-            <div class="hint" style="margin-top:2px">Manage PostgreSQL database schema updates, date analytics, and cross-browser sync.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-gold btn-sm" id="btnSettingsOpenMigration052">🗄️ View Migration 052 SQL</button>
-            <button class="btn btn-outline btn-sm" id="btnSettingsCopyMigration052">📋 Copy Full SQL</button>
-          </div>
-        </div>
-        <div style="background:var(--fill-2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;line-height:1.5">
-          <div style="font-weight:700;color:var(--text);margin-bottom:4px">Migration 052: Payment Recording Dates &amp; Intelligence Cards</div>
-          <div style="color:var(--text2);margin-bottom:8px">
-            Adds payment recording date analytics (<code>recording_date</code>, <code>delay_days</code>, <code>advance_days</code>, <code>timing_status</code>) and the dedicated <code>user_intelligence_cards</code> table so custom cards sync seamlessly across devices.
-          </div>
-          <div style="font-size:11.5px;color:var(--text3)">
-            Run in <b>Supabase Dashboard &rarr; SQL Editor</b> to activate real-time cross-browser synchronization.
-          </div>
-        </div>
-      </div>
+
 
       <div class="panel">
         <div class="chart-title" style="margin-bottom:6px;color:var(--red,#e5484d)">Danger Zone</div>
@@ -527,21 +524,6 @@ window.App = window.App || {};
     const isDemo = App.auth.isDemoMode();
     const userEmail = (profile && profile.email) || (currentUser && currentUser.email) || (isDemo ? 'demo@investor.com' : '');
     const profileValues = Object.assign({}, profile || {}, { email: userEmail });
-
-    App.utils.qs('#btnSettingsOpenMigration052', pane)?.addEventListener('click', () => {
-      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
-    });
-    App.utils.qs('#btnSettingsCopyMigration052', pane)?.addEventListener('click', async () => {
-      if (App.supabaseMigrationViewer) {
-        const sql = App.supabaseMigrationViewer.getSql();
-        try {
-          await navigator.clipboard.writeText(sql);
-          App.utils.toast('Migration 052 SQL copied to clipboard!', 'ok');
-        } catch (_) {
-          App.supabaseMigrationViewer.openMigration052Modal();
-        }
-      }
-    });
 
     App.utils.qs('#profileFormHost', pane).innerHTML = App.ui.renderForm(PROFILE_FIELDS, profileValues);
     App.utils.qs('#saveProfileBtn', pane).addEventListener('click', async () => {
@@ -779,6 +761,33 @@ window.App = window.App || {};
       try { await App.api.upsertPrivacySettings(values); App.utils.toast('Privacy settings saved'); }
       catch (e) { App.utils.toast('Could not save privacy settings: ' + (e.message || e), 'err'); }
     });
+
+    // Privacy Mode Toggle wiring
+    const privacyModeToggle = App.utils.qs('#privacyModeSettingToggle', pane);
+    const privacyModeBadge = App.utils.qs('#privacyModeStatusBadge', pane);
+    function updatePrivacyModeBadge(active) {
+      if (!privacyModeBadge) return;
+      if (active) {
+        privacyModeBadge.textContent = 'Active (Blurs Amounts)';
+        privacyModeBadge.className = 'badge st-active';
+        privacyModeBadge.style.background = 'rgba(201,168,76,0.18)';
+        privacyModeBadge.style.color = 'var(--gold)';
+      } else {
+        privacyModeBadge.textContent = 'Disabled';
+        privacyModeBadge.className = 'badge';
+        privacyModeBadge.style.background = 'rgba(100,116,139,0.12)';
+        privacyModeBadge.style.color = '#64748b';
+      }
+    }
+    if (privacyModeToggle && App.privacyMode) {
+      privacyModeToggle.checked = App.privacyMode.isEnabled();
+      updatePrivacyModeBadge(privacyModeToggle.checked);
+      privacyModeToggle.addEventListener('change', (e) => {
+        App.privacyMode.set(e.target.checked);
+        updatePrivacyModeBadge(e.target.checked);
+        App.utils.toast(e.target.checked ? '🔒 Privacy Mode enabled: sensitive amounts blurred.' : '🔓 Privacy Mode disabled: amounts visible.', 'ok');
+      });
+    }
 
     const prefs = await App.api.getPreferences();
     App.utils.qs('#offsetsInput', pane).value = (prefs && prefs.reminder_offset_days ? prefs.reminder_offset_days : [-7, -3, -1, 0, 1, 3, 7, 30]).join(', ');

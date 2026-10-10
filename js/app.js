@@ -797,6 +797,7 @@ function wireAuthScreen() {
 
 document.addEventListener('DOMContentLoaded', () => {
   App.theme.init();
+  if (App.privacyMode) App.privacyMode.init();
   wireAuthScreen();
   App.utils.qs('#notifBell').addEventListener('click', openNotificationPanel);
   App.utils.qs('#btnExitSharedPortfolio')?.addEventListener('click', () => {

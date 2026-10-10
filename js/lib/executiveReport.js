@@ -97,11 +97,11 @@ App.executiveReport = (function () {
     const totalGoldInvested = (goldPurchases || []).reduce((s, g) => s + (Number(g.total_amount) || 0), 0) +
       (goldSchemeHoldings || []).reduce((s, g) => s + (Number(g.total_amount_paid) || 0), 0);
 
-    const totalProjectsBudget = (expenseProjects || []).reduce((s, p) => s + (Number(p.budget_amount) || 0), 0);
+    const totalProjectsBudget = (expenseProjects || []).reduce((s, p) => s + (Number(p.budget_total ?? p.budget_amount) || 0), 0);
     const totalExpensesSpent = (expenseTransactions || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
     const totalRecurringMonthly = (recurringItems || []).reduce((s, r) => {
-      const amt = Number(r.amount) || 0;
+      const amt = Number(r.expected_amount ?? r.amount) || 0;
       const freq = (r.frequency || '').toLowerCase();
       if (freq === 'weekly') return s + (amt * 52 / 12);
       if (freq === 'quarterly') return s + (amt / 3);
@@ -536,7 +536,7 @@ App.executiveReport = (function () {
               </thead>
               <tbody>
                 ${sortedRecurring.length > 0 ? sortedRecurring.map((r) => {
-                  const amt = Number(r.amount) || 0;
+                  const amt = Number(r.expected_amount ?? r.current_amount ?? r.amount) || 0;
                   const isActive = (r.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
                   const occurrences = occurrencesByRecurring[r.id] || [];
                   const confirmedOccs = occurrences.filter((o) => o.status === 'Paid' || o.status === 'Confirmed' || (o.due_date && new Date(o.due_date) <= new Date()));
@@ -544,20 +544,22 @@ App.executiveReport = (function () {
                   const totalInvestedToDate = r.total_invested != null ? Math.max(Number(r.total_invested), totalPaid) : totalPaid;
 
                   // Expected total calculation
-                  let totalExpected = r.target_amount || r.total_expected_amount || 0;
+                  let totalExpected = r.total_expected_amount || r.target_amount || r.expected_return || 0;
                   if (!totalExpected && r.start_date && r.end_date) {
                     const dur = computeMonthsAndInstallments(r.start_date, r.end_date, r.frequency);
                     totalExpected = amt * (dur.installments || dur.months || 1);
+                  } else if (!totalExpected && (r.number_of_occurrences || r.total_occurrences)) {
+                    totalExpected = amt * Number(r.number_of_occurrences || r.total_occurrences || 1);
                   }
 
                   return `
                     <tr style="${isActive ? 'background:rgba(22,201,163,0.02)' : 'opacity:0.8'}">
-                      <td><b>${App.utils.escapeHtml(r.title || r.name || r.item_name || 'SIP Plan')}</b></td>
+                      <td><b>${App.utils.escapeHtml(r.item_name || r.title || r.name || 'SIP Plan')}</b></td>
                       <td style="text-align:right"><b>${App.utils.fmtMoney(amt)}</b></td>
                       <td>${App.utils.escapeHtml(r.frequency || 'Monthly')}</td>
                       <td>${r.start_date ? (App.utils.fmtDate ? App.utils.fmtDate(r.start_date) : r.start_date) : (r.first_due_date ? App.utils.fmtDate(r.first_due_date) : '—')}</td>
                       <td>${r.end_date ? (App.utils.fmtDate ? App.utils.fmtDate(r.end_date) : r.end_date) : 'Ongoing (No End Date)'}</td>
-                      <td style="text-align:right">${totalExpected > 0 ? App.utils.fmtMoney(totalExpected) : `Ongoing (${App.utils.fmtMoney(amt * 12)}/yr)`}</td>
+                      <td style="text-align:right">${totalExpected > 0 ? App.utils.fmtMoney(totalExpected) : (amt > 0 ? `Ongoing (${App.utils.fmtMoney(amt * 12)}/yr)` : '—')}</td>
                       <td style="text-align:right;color:var(--teal);font-weight:600">${App.utils.fmtMoney(totalInvestedToDate)}</td>
                       <td>${r.next_due_date ? (App.utils.fmtDate ? App.utils.fmtDate(r.next_due_date) : r.next_due_date) : 'Active'}</td>
                       <td style="text-align:center"><span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:${isActive ? 'rgba(22,201,163,0.12)' : 'rgba(100,116,139,0.12)'};color:${isActive ? 'var(--teal)' : '#64748b'}">${(r.status || 'ACTIVE').toUpperCase()}</span></td>
@@ -573,18 +575,23 @@ App.executiveReport = (function () {
         <div class="exec-section">
           <div class="exec-sec-title">3. Expense Projects &amp; Expenditure Ledger (${expenseProjects.length} Projects &bull; With Full Transaction Detail)</div>
           ${expenseProjects.length > 0 ? expenseProjects.map((p) => {
-            const budget = Number(p.budget_amount) || 0;
-            const spent = Number(p.total_spent) || Number(p.spent_amount) || 0;
+            const budget = Number(p.budget_total ?? p.budget_amount) || 0;
+            const txns = txnsByProject[p.id] || [];
+            const debits = txns.filter((t) => (t.transaction_type || 'Debit').toLowerCase() !== 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            const credits = txns.filter((t) => (t.transaction_type || '').toLowerCase() === 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            const netTxnSpent = debits - credits;
+            const spent = (p.total_spent != null && Number(p.total_spent) > 0)
+              ? Number(p.total_spent)
+              : ((p.spent_amount != null && Number(p.spent_amount) > 0) ? Number(p.spent_amount) : Math.max(0, netTxnSpent));
             const variance = budget - spent;
             const isOver = variance < 0;
-            const txns = txnsByProject[p.id] || [];
 
             return `
               <div class="exec-project-box" style="margin-bottom:12px;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#fcfcfd">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
                   <div>
-                    <strong style="font-size:13px;color:var(--text)">${App.utils.escapeHtml(p.project_name || p.name || 'Expense Project')}</strong>
-                    <span style="font-size:11px;color:var(--text3);margin-left:6px">(${App.utils.escapeHtml(p.category || 'General')})</span>
+                    <strong style="font-size:13px;color:var(--text)">${App.utils.escapeHtml(p.name || p.project_name || 'Expense Project')}</strong>
+                    <span style="font-size:11px;color:var(--text3);margin-left:6px">(${App.utils.escapeHtml(p.project_type || p.category || 'General')})</span>
                   </div>
                   <div style="display:flex;gap:14px;font-size:11.5px">
                     <span>Allocated Budget: <b>${App.utils.fmtMoney(budget)}</b></span>

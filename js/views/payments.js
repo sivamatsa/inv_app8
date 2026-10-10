@@ -526,7 +526,6 @@ window.App = window.App || {};
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         <div id="ledgerFilterBar" style="flex:1;min-width:260px"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-outline btn-sm" id="btnPaymentMigrationSql">&#128450; Supabase SQL Migration (052)</button>
           <button class="btn btn-teal btn-sm" id="btnRecordPrincipalReturn">💰 Record Principal Return</button>
           <button class="btn btn-gold btn-sm" id="adhocRecordBtn">+ Record Payment</button>
         </div>
@@ -615,9 +614,6 @@ window.App = window.App || {};
 
     renderDateFilterBar(filterHost, filterState, draw);
     draw();
-    App.utils.qs('#btnPaymentMigrationSql', container)?.addEventListener('click', () => {
-      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
-    });
     App.utils.qs('#adhocRecordBtn', container).addEventListener('click', () => openRecordPaymentModal(deals, null, null, 'interest'));
     const prnBtn = App.utils.qs('#btnRecordPrincipalReturn', container);
     if (prnBtn) {
@@ -779,9 +775,6 @@ window.App = window.App || {};
     pane.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
         <div class="section-title" style="margin:0">Payments <div class="line"></div><small>expected schedule, actual ledger, and reconciliation</small></div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-outline btn-sm" id="btnPaymentsHeaderMigrationSql" style="font-size:11.5px">🗄️ Supabase Migration 052 SQL</button>
-        </div>
       </div>
       <div class="panel">
         <div class="tabbar">
@@ -793,10 +786,6 @@ window.App = window.App || {};
         <div class="tab-pane ${activeTab === 'ledger' ? 'active' : ''}" data-pane="ledger" id="ledgerTabBody"></div>
         <div class="tab-pane ${activeTab === 'recon' ? 'active' : ''}" data-pane="recon" id="reconTabBody"></div>
       </div>`;
-
-    App.utils.qs('#btnPaymentsHeaderMigrationSql', pane)?.addEventListener('click', () => {
-      if (App.supabaseMigrationViewer) App.supabaseMigrationViewer.openMigration052Modal();
-    });
 
     App.utils.qsa('.tab-btn', pane).forEach((btn) => btn.addEventListener('click', () => {
       activeTab = btn.dataset.tab;

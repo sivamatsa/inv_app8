@@ -144,7 +144,7 @@ App.portfolioIntelligence = (function () {
       const totalGoldValuation = physicalGoldValuation + ((goldSchemeHoldings || []).length ? (netWorth.goldTotal || schemeGoldPaid) : 0);
 
       // Expense Projects
-      const totalProjectsBudget = (expenseProjects || []).reduce((s, p) => s + (Number(p.budget_amount) || 0), 0);
+      const totalProjectsBudget = (expenseProjects || []).reduce((s, p) => s + (Number(p.budget_total ?? p.budget_amount) || 0), 0);
       const totalExpensesSpent = (expenseTransactions || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
       const totalProjectsBalance = totalProjectsBudget - totalExpensesSpent;
 
@@ -159,7 +159,7 @@ App.portfolioIntelligence = (function () {
       // Systematic Recurring / SIPs
       const activeSips = (recurringItems || []).filter((r) => (r.status || 'ACTIVE').toUpperCase() === 'ACTIVE');
       const totalSipsMonthly = (recurringItems || []).reduce((s, r) => {
-        const amt = Number(r.amount) || 0;
+        const amt = Number(r.expected_amount ?? r.current_amount ?? r.amount) || 0;
         const freq = (r.frequency || 'MONTHLY').toUpperCase();
         if (freq === 'WEEKLY') return s + (amt * 52 / 12);
         if (freq === 'QUARTERLY') return s + (amt / 3);
@@ -363,9 +363,12 @@ App.portfolioIntelligence = (function () {
       lines.push('• Project Breakdown:');
       data.expenses.projects.forEach((p, idx) => {
         const pName = p.name || p.title || `Project #${idx + 1}`;
-        const budget = fmt(p.budget_amount || 0);
+        const budget = fmt(p.budget_total ?? p.budget_amount ?? 0);
         const txns = data.expenses.txnsByProject[p.id] || [];
-        const spent = fmt(txns.reduce((s, t) => s + (Number(t.amount) || 0), 0));
+        const debits = txns.filter((t) => (t.transaction_type || 'Debit').toLowerCase() !== 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const credits = txns.filter((t) => (t.transaction_type || '').toLowerCase() === 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const netSpent = debits - credits;
+        const spent = fmt((p.total_spent != null && Number(p.total_spent) > 0) ? Number(p.total_spent) : Math.max(0, netSpent));
         lines.push(`  ${idx + 1}. [${pName}] (Budget: ${budget}, Spent: ${spent}, Status: ${p.status || 'Active'})`);
       });
     }
@@ -527,9 +530,13 @@ App.portfolioIntelligence = (function () {
       summary = `Total allocated project budget: **${fmt(data.expenses.totalBudget)}**. Total spent: **${fmt(data.expenses.totalSpent)}**. Remaining balance: **${fmt(data.expenses.totalBalance)}**.`;
       details = `\n| Project | Budget | Spent | Remaining Balance | Status |\n|---|---|---|---|---|\n`;
       data.expenses.projects.forEach((p) => {
+        const budget = Number(p.budget_total ?? p.budget_amount) || 0;
         const txns = data.expenses.txnsByProject[p.id] || [];
-        const spent = txns.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-        details += `| ${p.name || 'Project'} | ${fmt(p.budget_amount)} | ${fmt(spent)} | ${fmt(Number(p.budget_amount || 0) - spent)} | ${p.status || 'Active'} |\n`;
+        const debits = txns.filter((t) => (t.transaction_type || 'Debit').toLowerCase() !== 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const credits = txns.filter((t) => (t.transaction_type || '').toLowerCase() === 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const netSpent = debits - credits;
+        const spent = (p.total_spent != null && Number(p.total_spent) > 0) ? Number(p.total_spent) : Math.max(0, netSpent);
+        details += `| ${p.name || 'Project'} | ${fmt(budget)} | ${fmt(spent)} | ${fmt(budget - spent)} | ${p.status || 'Active'} |\n`;
       });
       quickActions = `\n⚡ **Quick Actions:** [Manage Expense Projects](#expenses) • [Record Expense Transaction](#expenses)`;
     } else {

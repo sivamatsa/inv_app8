@@ -949,9 +949,6 @@ App.dateIntelligence = (function () {
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-outline btn-sm" id="btnDateIntelMigrationSql" style="font-size:11.5px">
-              🗄️ Supabase Migration 052 SQL
-            </button>
             <button class="btn btn-outline btn-sm" id="btnToggleAllCustomCards" style="font-size:11.5px">
               ${state.allCollapsed ? '⤢ Expand All' : '⤡ Collapse All'}
             </button>
@@ -1361,14 +1358,33 @@ App.dateIntelligence = (function () {
 
             rowEl.querySelector('.inp-stint-company')?.addEventListener('input', (e) => { stint.company = e.target.value; });
             rowEl.querySelector('.inp-stint-role')?.addEventListener('input', (e) => { stint.role = e.target.value; });
-            rowEl.querySelector('.inp-stint-start')?.addEventListener('change', (e) => { stint.startDate = e.target.value; });
-            rowEl.querySelector('.inp-stint-end')?.addEventListener('change', (e) => { stint.endDate = e.target.value; });
+            const startInp = rowEl.querySelector('.inp-stint-start');
+            const endInp = rowEl.querySelector('.inp-stint-end');
+            const syncStart = (e) => { stint.startDate = e.target.value; };
+            const syncEnd = (e) => { stint.endDate = e.target.value; };
+            startInp?.addEventListener('input', syncStart);
+            startInp?.addEventListener('change', syncStart);
+            endInp?.addEventListener('input', syncEnd);
+            endInp?.addEventListener('change', syncEnd);
+
+            // Mobile-friendly tap handler to trigger native calendar picker
+            [startInp, endInp].forEach((inp) => {
+              if (!inp) return;
+              inp.addEventListener('click', () => {
+                if (typeof inp.showPicker === 'function') {
+                  try { inp.showPicker(); } catch (_) {}
+                }
+              });
+            });
+
             rowEl.querySelector('.chk-stint-current')?.addEventListener('change', (e) => {
               stint.isCurrent = e.target.checked;
-              const endInp = rowEl.querySelector('.inp-stint-end');
               if (endInp) {
                 endInp.disabled = stint.isCurrent;
-                if (stint.isCurrent) endInp.value = '';
+                if (stint.isCurrent) {
+                  endInp.value = '';
+                  stint.endDate = '';
+                }
               }
             });
             rowEl.querySelector('[data-remove-stint]')?.addEventListener('click', () => {
@@ -1377,6 +1393,18 @@ App.dateIntelligence = (function () {
             });
           });
         }
+
+        // Mobile date picker click enhancements for Age and Countdown dates
+        ['#inpAgeStartDate', '#inpAgeFixedEndDate', '#inpCdTargetDate'].forEach((sel) => {
+          const inp = modalBody.querySelector(sel);
+          if (inp) {
+            inp.addEventListener('click', () => {
+              if (typeof inp.showPicker === 'function') {
+                try { inp.showPicker(); } catch (_) {}
+              }
+            });
+          }
+        });
 
         // Wire Type Buttons
         modalBody.querySelectorAll('[data-card-type-sel]').forEach((btn) => {
@@ -2035,15 +2063,6 @@ App.dateIntelligence = (function () {
             state.collapsedCardIds.clear();
           }
           updateView();
-        });
-
-        // Wire Migration 052 SQL Modal
-        container.querySelector('#btnDateIntelMigrationSql')?.addEventListener('click', () => {
-          if (App.supabaseMigrationViewer) {
-            App.supabaseMigrationViewer.openMigration052Modal();
-          } else {
-            App.utils.toast('Migration viewer module is loading...', 'info');
-          }
         });
 
         // Wire Add Custom Card Buttons
