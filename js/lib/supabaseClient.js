@@ -503,7 +503,7 @@ App.auth = (function () {
   }
 
   return {
-    isConfigured, hasCustomConfig, saveConfig, clearConfig, getConfig, init, getClient, getUser, onChange,
+    isConfigured, hasCustomConfig, saveConfig, clearConfig, getConfig, init, getClient, getUser, getSession: () => currentSession, onChange,
     signUp, signIn, signOut, isDemoMode, isBackupMode, enterDemoMode, exitDemoMode, requestPasswordReset, updatePassword,
     restoreQuickAuthSession,
   };

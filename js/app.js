@@ -6,6 +6,9 @@ const NAV_STRUCTURE = [
   { group: 'Overview', items: [
     { key: 'dashboard', label: 'Dashboard', icon: '&#9670;' },
   ] },
+  { group: 'Vault & Portals', items: [
+    { key: 'vault', label: 'Website Vault', icon: '&#128272;' },
+  ] },
   { group: 'Financial Engine', items: [
     { key: 'deals', label: 'Deals', icon: '&#128188;' },
     { key: 'payments', label: 'Payments', icon: '&#128179;' },

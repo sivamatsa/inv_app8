@@ -95,6 +95,10 @@ App.api = (function () {
     // a leak - it's just so a plain listAutomationRules() call never needs
     // its own explicit eq filter, consistent with every other table here.
     'automation_rules',
+    // Website & Account Vault (053_website_and_account_vault.sql) -
+    // Strict per-user credential directory and account management
+    'website_entries', 'website_accounts', 'website_groups',
+    'website_entry_groups', 'website_vault_settings', 'website_vault_audit',
   ]);
 
   async function selectAll(table, opts) {
@@ -112,8 +116,15 @@ App.api = (function () {
     if (eq) Object.entries(eq).forEach(([k, v]) => { q = q.eq(k, v); });
     if (opts.in) Object.entries(opts.in).forEach(([k, v]) => { q = q.in(k, v); });
     if (opts.gte) Object.entries(opts.gte).forEach(([k, v]) => { q = q.gte(k, v); });
-    if (opts.lte) Object.entries(opts.lte).forEach(([k, v]) => { q = q.lte(k, v); });
-    if (opts.order) q = q.order(opts.order.column, { ascending: opts.order.ascending !== false });
+    if (opts.order) {
+      if (typeof opts.order === 'string') {
+        const isDesc = opts.order.toLowerCase().endsWith('.desc') || opts.order.toUpperCase().endsWith(' DESC');
+        const col = opts.order.replace(/\.(desc|asc)$/i, '').replace(/\s+(DESC|ASC)$/i, '').trim();
+        q = q.order(col, { ascending: !isDesc });
+      } else if (opts.order && opts.order.column) {
+        q = q.order(opts.order.column, { ascending: opts.order.ascending !== false });
+      }
+    }
     if (opts.limit) q = q.limit(opts.limit);
     const { data, error } = await q;
     check(error);
@@ -4352,6 +4363,344 @@ App.api = (function () {
       }
       const res = await safeApiFetch('/api/bot/dispatch-alerts', { method: 'POST' });
       return res.ok && res.data ? res.data : { success: false, error: res.error };
+    },
+
+    // ========================================================================
+    // WEBSITE & ACCOUNT VAULT (053_website_and_account_vault.sql)
+    // ========================================================================
+    listWebsites: async function (opts) {
+      opts = opts || {};
+      try {
+        let entries = await selectAll('website_entries', opts);
+        if (App.auth.isDemoMode()) {
+          entries = (App.demo && App.demo.getDb && App.demo.getDb().website_entries) || entries || [];
+        }
+        // Fetch accounts and groups to attach
+        const [allAccounts, allEntryGroups] = await Promise.all([
+          selectAll('website_accounts').catch(() => []),
+          selectAll('website_entry_groups').catch(() => []),
+        ]);
+
+        const accountsByWebsite = {};
+        (allAccounts || []).forEach((acc) => {
+          if (!accountsByWebsite[acc.website_id]) accountsByWebsite[acc.website_id] = [];
+          accountsByWebsite[acc.website_id].push(acc);
+        });
+
+        const groupsByWebsite = {};
+        (allEntryGroups || []).forEach((eg) => {
+          if (!groupsByWebsite[eg.website_id]) groupsByWebsite[eg.website_id] = [];
+          groupsByWebsite[eg.website_id].push(eg.group_id);
+        });
+
+        return (entries || []).map((site) => {
+          const accounts = accountsByWebsite[site.id] || [];
+          // Sort accounts: default first, then name
+          accounts.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
+          return Object.assign({}, site, {
+            accounts: accounts,
+            account_count: accounts.length,
+            group_ids: groupsByWebsite[site.id] || [],
+          });
+        });
+      } catch (err) {
+        console.error('[API] listWebsites failed:', err);
+        throw err;
+      }
+    },
+
+    getWebsite: async function (id) {
+      const c = client();
+      const { data, error } = await c.from('website_entries').select('*').eq('id', id).single();
+      check(error);
+      const accounts = await selectAll('website_accounts', { eq: { website_id: id } });
+      const entryGroups = await selectAll('website_entry_groups', { eq: { website_id: id } });
+      return Object.assign({}, data, {
+        accounts: accounts || [],
+        account_count: (accounts || []).length,
+        group_ids: (entryGroups || []).map((eg) => eg.group_id),
+      });
+    },
+
+    createWebsite: async function (siteData) {
+      const c = client();
+      const currentUserId = uid();
+      const cleanData = Object.assign({}, siteData, {
+        user_id: currentUserId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      delete cleanData.accounts;
+      delete cleanData.account_count;
+      delete cleanData.group_ids;
+
+      const { data, error } = await c.from('website_entries').insert(cleanData).select().single();
+      check(error);
+      markLocalWrite();
+
+      // Log non-secret audit
+      this.logVaultAudit('WEBSITE_CREATED', 'website', data.id, data.name, {
+        category: data.primary_category,
+        url: data.url,
+      }).catch(() => {});
+
+      return data;
+    },
+
+    updateWebsite: async function (id, siteData) {
+      const c = client();
+      const cleanData = Object.assign({}, siteData, {
+        updated_at: new Date().toISOString(),
+      });
+      delete cleanData.id;
+      delete cleanData.user_id;
+      delete cleanData.accounts;
+      delete cleanData.account_count;
+      delete cleanData.group_ids;
+
+      const { data, error } = await c.from('website_entries').update(cleanData).eq('id', id).select().single();
+      check(error);
+      markLocalWrite();
+
+      this.logVaultAudit('WEBSITE_UPDATED', 'website', id, data ? data.name : 'Website', {
+        category: cleanData.primary_category,
+      }).catch(() => {});
+
+      return data;
+    },
+
+    deleteWebsite: async function (id) {
+      const c = client();
+      const { error } = await c.from('website_entries').delete().eq('id', id);
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit('WEBSITE_DELETED', 'website', id, 'Deleted Website', {}).catch(() => {});
+      return true;
+    },
+
+    archiveWebsite: async function (id, isArchived) {
+      const c = client();
+      const { data, error } = await c
+        .from('website_entries')
+        .update({ is_archived: isArchived, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit(isArchived ? 'WEBSITE_ARCHIVED' : 'WEBSITE_RESTORED', 'website', id, data.name, {}).catch(() => {});
+      return data;
+    },
+
+    // Accounts under a website
+    listWebsiteAccounts: async function (websiteId) {
+      const opts = websiteId ? { eq: { website_id: websiteId } } : {};
+      return selectAll('website_accounts', opts);
+    },
+
+    createWebsiteAccount: async function (accData) {
+      const c = client();
+      const currentUserId = uid();
+      // If setting default, unset existing defaults for this website
+      if (accData.is_default && accData.website_id) {
+        await c.from('website_accounts').update({ is_default: false }).eq('website_id', accData.website_id);
+      }
+      const cleanData = Object.assign({}, accData, {
+        user_id: currentUserId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      const { data, error } = await c.from('website_accounts').insert(cleanData).select().single();
+      check(error);
+      markLocalWrite();
+
+      this.logVaultAudit('ACCOUNT_CREATED', 'account', data.id, data.display_name, {
+        website_id: data.website_id,
+        login_method: data.login_method,
+      }).catch(() => {});
+
+      return data;
+    },
+
+    updateWebsiteAccount: async function (id, accData) {
+      const c = client();
+      if (accData.is_default && accData.website_id) {
+        await c.from('website_accounts').update({ is_default: false }).eq('website_id', accData.website_id);
+      }
+      const cleanData = Object.assign({}, accData, {
+        updated_at: new Date().toISOString(),
+      });
+      delete cleanData.id;
+      delete cleanData.user_id;
+
+      const { data, error } = await c.from('website_accounts').update(cleanData).eq('id', id).select().single();
+      check(error);
+      markLocalWrite();
+
+      this.logVaultAudit('ACCOUNT_UPDATED', 'account', id, data ? data.display_name : 'Account', {
+        website_id: data ? data.website_id : accData.website_id,
+      }).catch(() => {});
+
+      return data;
+    },
+
+    deleteWebsiteAccount: async function (id) {
+      const c = client();
+      const { error } = await c.from('website_accounts').delete().eq('id', id);
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit('ACCOUNT_DELETED', 'account', id, 'Deleted Account', {}).catch(() => {});
+      return true;
+    },
+
+    // Groups & Categories
+    listWebsiteGroups: async function () {
+      let groups = await selectAll('website_groups', { order: { column: 'display_order', ascending: true } });
+      // If user has no groups initialized in DB, seed with DEFAULT_CATEGORIES
+      if (!groups || groups.length === 0) {
+        const defaults = (App.vaultCrypto && App.vaultCrypto.DEFAULT_CATEGORIES) || [];
+        const currentUserId = uid();
+        const createdDefaults = [];
+        for (const cat of defaults) {
+          try {
+            const { data } = await client().from('website_groups').insert({
+              user_id: currentUserId,
+              name: cat.name,
+              slug: cat.slug,
+              icon: cat.icon,
+              color: cat.color,
+              display_order: cat.display_order,
+              is_default: true,
+              is_pinned: false,
+              is_archived: false,
+            }).select().single();
+            if (data) createdDefaults.push(data);
+          } catch (_) {}
+        }
+        if (createdDefaults.length > 0) return createdDefaults;
+      }
+      return groups || [];
+    },
+
+    createWebsiteGroup: async function (grpData) {
+      const c = client();
+      const cleanData = Object.assign({}, grpData, {
+        user_id: uid(),
+        slug: grpData.slug || (grpData.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      const { data, error } = await c.from('website_groups').insert(cleanData).select().single();
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit('GROUP_CREATED', 'group', data.id, data.name, {}).catch(() => {});
+      return data;
+    },
+
+    updateWebsiteGroup: async function (id, grpData) {
+      const c = client();
+      const cleanData = Object.assign({}, grpData, {
+        updated_at: new Date().toISOString(),
+      });
+      delete cleanData.id;
+      delete cleanData.user_id;
+      const { data, error } = await c.from('website_groups').update(cleanData).eq('id', id).select().single();
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit('GROUP_UPDATED', 'group', id, data ? data.name : 'Group', {}).catch(() => {});
+      return data;
+    },
+
+    deleteWebsiteGroup: async function (id) {
+      const c = client();
+      const { error } = await c.from('website_groups').delete().eq('id', id);
+      check(error);
+      markLocalWrite();
+      this.logVaultAudit('GROUP_DELETED', 'group', id, 'Deleted Group', {}).catch(() => {});
+      return true;
+    },
+
+    setWebsiteGroups: async function (websiteId, groupIds) {
+      const c = client();
+      const currentUserId = uid();
+      // Remove current entry group mappings for this website
+      await c.from('website_entry_groups').delete().eq('website_id', websiteId);
+      if (groupIds && groupIds.length) {
+        const rows = groupIds.map((gid) => ({
+          website_id: websiteId,
+          group_id: gid,
+          user_id: currentUserId,
+        }));
+        await c.from('website_entry_groups').insert(rows);
+      }
+      markLocalWrite();
+      return true;
+    },
+
+    // Vault User Settings
+    getVaultSettings: async function () {
+      try {
+        const c = client();
+        const currentUserId = uid();
+        const { data } = await c.from('website_vault_settings').select('*').eq('user_id', currentUserId).maybeSingle();
+        if (data) return data;
+      } catch (_) {}
+      return {
+        auto_lock_minutes: 15,
+        mask_passwords_by_default: true,
+        require_click_to_reveal: true,
+        open_and_copy_behavior: 'BOTH',
+        default_sort: 'name',
+        default_view: 'card',
+        password_review_interval_days: 90,
+        security_disclosure_acknowledged: true,
+      };
+    },
+
+    saveVaultSettings: async function (settings) {
+      const c = client();
+      const currentUserId = uid();
+      const payload = Object.assign({}, settings, {
+        user_id: currentUserId,
+        updated_at: new Date().toISOString(),
+      });
+      const { data, error } = await c.from('website_vault_settings').upsert(payload).select().single();
+      check(error);
+      markLocalWrite();
+      return data;
+    },
+
+    // Strict Non-Secret Vault Audit Log
+    listVaultAudit: async function (limit) {
+      return selectAll('website_vault_audit', { limit: limit || 100, order: { column: 'created_at', ascending: false } });
+    },
+
+    logVaultAudit: async function (eventType, entityType, entityId, entityName, rawDetails) {
+      try {
+        const c = client();
+        const currentUserId = uid();
+        // Strict redaction: NEVER allow passwords, secrets, notes, or keys into audit log
+        const safeDetails = Object.assign({}, rawDetails || {});
+        delete safeDetails.password;
+        delete safeDetails.encrypted_password;
+        delete safeDetails.password_plain;
+        delete safeDetails.account_notes;
+        delete safeDetails.encrypted_notes;
+        delete safeDetails.key;
+        delete safeDetails.secret;
+
+        await c.from('website_vault_audit').insert({
+          user_id: currentUserId,
+          event_type: eventType,
+          entity_type: entityType,
+          entity_id: entityId,
+          entity_name: entityName,
+          details: safeDetails,
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('[Audit] Vault audit log skipped:', err);
+      }
     },
   };
 
