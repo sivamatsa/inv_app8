@@ -381,6 +381,195 @@ window.App = window.App || {};
     }, 50);
   }
 
+  // Bulk Payment Recording Modal for multi-selected installments (Schedule and Missed Payments)
+  function openBulkRecordPaymentModal(selectedSchedules, dealsById, onSuccess) {
+    if (!selectedSchedules || !selectedSchedules.length) {
+      App.utils.toast('No installments selected for bulk recording.', 'err');
+      return;
+    }
+
+    const totalAmt = selectedSchedules.reduce((acc, s) => acc + Number(s.expected_total || 0), 0);
+    const totalInt = selectedSchedules.reduce((acc, s) => acc + Number(s.expected_interest || 0), 0);
+    const totalPrn = selectedSchedules.reduce((acc, s) => acc + Number(s.expected_principal || 0), 0);
+    const todayStr = App.utils.todayISO();
+
+    const rowsPreviewHtml = selectedSchedules.map((s, idx) => {
+      const deal = dealsById[s.deal_id] || {};
+      const hasPrn = Number(s.expected_principal || 0) > 0;
+      return `
+        <tr style="font-size:12px">
+          <td><span style="font-family:monospace">${App.utils.fmtDate(s.scheduled_date)}</span></td>
+          <td><strong>${App.utils.escapeHtml(deal.deal_name || '—')}</strong></td>
+          <td style="text-align:right;color:var(--gold);font-family:monospace">${Number(s.expected_interest || 0) > 0 ? App.utils.fmtMoney(s.expected_interest) : '—'}</td>
+          <td style="text-align:right;color:#059669;font-family:monospace">${hasPrn ? App.utils.fmtMoney(s.expected_principal) : '—'}</td>
+          <td style="text-align:right;font-weight:700;font-family:monospace">${App.utils.fmtMoney(s.expected_total)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const formHtml = `
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase">Installments Selected</div>
+            <div style="font-size:20px;font-weight:700;color:var(--text)">${selectedSchedules.length} Items</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;text-align:right">Total Bulk Amount</div>
+            <div style="font-size:20px;font-weight:700;color:var(--gold);font-family:monospace;text-align:right">${App.utils.fmtMoney(totalAmt)}</div>
+            <div style="font-size:11px;color:var(--text3);text-align:right">Int: ${App.utils.fmtMoney(totalInt)} · Prn: ${App.utils.fmtMoney(totalPrn)}</div>
+          </div>
+        </div>
+
+        <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border2);border-radius:6px">
+          <table class="data" style="margin:0;font-size:12px">
+            <thead>
+              <tr style="background:var(--fill-2)">
+                <th>Due Date</th>
+                <th>Deal</th>
+                <th style="text-align:right">Expected Interest</th>
+                <th style="text-align:right">Expected Principal</th>
+                <th style="text-align:right">Total</th>
+              </tr>
+            </thead>
+            <tbody>${rowsPreviewHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="grid-2" style="gap:10px">
+          <div class="form-group">
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Actual Payment Date (Value Date)</label>
+            <input type="date" id="bulkTxnDate" class="search-input" value="${todayStr}" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Recording Entry Date</label>
+            <input type="date" id="bulkRecDate" class="search-input" value="${todayStr}" style="width:100%">
+          </div>
+        </div>
+
+        <div class="grid-2" style="gap:10px">
+          <div class="form-group">
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Payment Mode</label>
+            <input type="text" id="bulkPmtMode" class="search-input" placeholder="Bank Transfer / UPI / NEFT" value="Bank Transfer" style="width:100%">
+          </div>
+          <div class="form-group">
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Confirmation Method</label>
+            <select id="bulkMethod" class="search-input" style="width:100%">
+              <option value="Manual" selected>Manual</option>
+              <option value="Bank Statement">Bank Statement</option>
+              <option value="Excel Import">Excel Import</option>
+              <option value="CSV Import">CSV Import</option>
+              <option value="Automatic Reconciliation">Automatic Reconciliation</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Shared Payment Reference / UTR (Optional)</label>
+          <input type="text" id="bulkRef" class="search-input" placeholder="e.g. BULK-PAY-${new Date().getFullYear()}" style="width:100%">
+        </div>
+
+        <div class="form-group">
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text2)">Notes / Batch Summary</label>
+          <textarea id="bulkNotes" class="search-input" rows="2" style="width:100%" placeholder="Bulk settlement recorded across ${selectedSchedules.length} installments..."></textarea>
+        </div>
+
+        <div style="font-size:11px;color:var(--text3);line-height:1.4">
+          ℹ️ Each installment will be recorded as a confirmed payment with its exact interest and principal allocations, updating schedules, deal balances, and notifications.
+        </div>
+      </div>
+    `;
+
+    App.ui.open({
+      title: `⚡ Bulk Record ${selectedSchedules.length} Payments`,
+      small: false,
+      bodyHtml: formHtml,
+      actions: [
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+        {
+          label: `Confirm Bulk Recording (${App.utils.fmtMoney(totalAmt)})`,
+          className: 'btn-gold',
+          onClick: async () => {
+            const txnDate = App.utils.qs('#bulkTxnDate')?.value || todayStr;
+            const recDate = App.utils.qs('#bulkRecDate')?.value || todayStr;
+            const pmtMode = App.utils.qs('#bulkPmtMode')?.value || 'Bank Transfer';
+            const method = App.utils.qs('#bulkMethod')?.value || 'Manual';
+            const baseRef = App.utils.qs('#bulkRef')?.value || '';
+            const userNotes = App.utils.qs('#bulkNotes')?.value || '';
+
+            const confirmBtn = App.utils.qs('#sharedModalActions .btn-gold');
+            if (confirmBtn) {
+              confirmBtn.disabled = true;
+              confirmBtn.textContent = 'Processing Bulk Payments...';
+            }
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < selectedSchedules.length; i++) {
+              const s = selectedSchedules[i];
+              const interest = Number(s.expected_interest || 0);
+              const principal = Number(s.expected_principal || 0);
+              const amount = Number(s.expected_total || (interest + principal));
+
+              // Calculate delay/advance relative to this installment's scheduled date
+              let delayDays = 0;
+              let advanceDays = 0;
+              if (s.scheduled_date && txnDate) {
+                const txnD = new Date(txnDate).setHours(0, 0, 0, 0);
+                const dueD = new Date(s.scheduled_date).setHours(0, 0, 0, 0);
+                const diff = Math.round((txnD - dueD) / (1000 * 60 * 60 * 24));
+                if (diff > 0) delayDays = diff;
+                else if (diff < 0) advanceDays = Math.abs(diff);
+              }
+
+              const timingTag = delayDays > 0 ? `[Delay: ${delayDays}d]` : (advanceDays > 0 ? `[Advance: ${advanceDays}d]` : '[On-time]');
+              const itemRef = baseRef ? `${baseRef}-${s.id}` : (s.id ? `SCHED-${s.id}` : null);
+              const combinedNotes = [userNotes.trim(), timingTag, `[Bulk Batch: ${selectedSchedules.length} items]`].filter(Boolean).join(' ');
+
+              try {
+                await App.api.recordPayment({
+                  dealId: s.deal_id,
+                  transactionDate: txnDate,
+                  recordingDate: recDate,
+                  delayDays,
+                  advanceDays,
+                  amount,
+                  interestAmount: interest,
+                  principalAmount: principal,
+                  feeAmount: 0,
+                  taxAmount: 0,
+                  paymentReference: itemRef,
+                  paymentMode: pmtMode,
+                  confirmationMethod: method,
+                  notes: combinedNotes,
+                  scheduledPaymentId: s.id,
+                });
+                successCount++;
+              } catch (err) {
+                console.warn(`Bulk payment failed for schedule #${s.id}:`, err);
+                failCount++;
+              }
+            }
+
+            App.ui.close();
+            if (failCount === 0) {
+              App.utils.toast(`Successfully recorded all ${successCount} payments in bulk!`, 'ok');
+            } else {
+              App.utils.toast(`Recorded ${successCount} payments (${failCount} skipped/duplicate).`, 'ok');
+            }
+
+            if (typeof onSuccess === 'function') {
+              await onSuccess();
+            } else {
+              App.router.refreshCurrent();
+            }
+          },
+        },
+      ],
+    });
+  }
+
   function renderDateFilterBar(container, filterState, onChange) {
     const years = new Set();
     const currentYear = new Date().getFullYear();
@@ -425,21 +614,53 @@ window.App = window.App || {};
     }
     allSchedule.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
     let schedQuickChip = 'all';
+    const selectedSchedIds = new Set();
+
     container.innerHTML = `
-      <div class="filter-chips-wrap" id="schedQuickChips" style="margin-top:6px">
-        <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Quick Filter:</span>
-        <button class="quick-chip active" data-sched-chip="all">All Pending</button>
-        <button class="quick-chip" data-sched-chip="overdue">&#9888; Overdue</button>
-        <button class="quick-chip" data-sched-chip="due_today">&#128308; Due Today</button>
-        <button class="quick-chip" data-sched-chip="this_month">&#128197; Due This Month</button>
-        <button class="quick-chip" data-sched-chip="interest_only">&#128176; Interest Component</button>
-        <button class="quick-chip" data-sched-chip="principal">&#128181; Principal Repayment</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px">
+        <div class="filter-chips-wrap" id="schedQuickChips" style="margin:0">
+          <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Quick Filter:</span>
+          <button class="quick-chip active" data-sched-chip="all">All Pending</button>
+          <button class="quick-chip" data-sched-chip="overdue">&#9888; Overdue</button>
+          <button class="quick-chip" data-sched-chip="due_today">&#128308; Due Today</button>
+          <button class="quick-chip" data-sched-chip="this_month">&#128197; Due This Month</button>
+          <button class="quick-chip" data-sched-chip="interest_only">&#128176; Interest Component</button>
+          <button class="quick-chip" data-sched-chip="principal">&#128181; Principal Repayment</button>
+        </div>
+        <div id="schedBulkActionsBar" style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-sm btn-gold" id="btnSchedBulkRecord" style="display:none">
+            ⚡ Record Selected (<span id="schedSelectedCount">0</span>)
+          </button>
+        </div>
       </div>
       <div id="scheduleFilterBar"></div>
       <div id="scheduleTableHost"></div>`;
     const filterHost = App.utils.qs('#scheduleFilterBar', container);
     const tableHost = App.utils.qs('#scheduleTableHost', container);
+    const btnBulkRecord = App.utils.qs('#btnSchedBulkRecord', container);
+    const selectedCountEl = App.utils.qs('#schedSelectedCount', container);
     const filterState = { month: '', year: '' };
+
+    function updateBulkBar(visibleSchedule) {
+      const count = selectedSchedIds.size;
+      if (selectedCountEl) selectedCountEl.textContent = count;
+      if (btnBulkRecord) {
+        btnBulkRecord.style.display = count > 0 ? 'inline-flex' : 'none';
+        if (count > 0) {
+          const selectedItems = visibleSchedule.filter((s) => selectedSchedIds.has(s.id));
+          const totalAmt = selectedItems.reduce((acc, s) => acc + Number(s.expected_total || 0), 0);
+          btnBulkRecord.innerHTML = `⚡ Record Selected (${count}) · <span style="font-family:monospace;font-weight:700">${App.utils.fmtMoney(totalAmt)}</span>`;
+        }
+      }
+      const selectAllCb = App.utils.qs('#schedSelectAll', tableHost);
+      if (selectAllCb) {
+        const visibleIds = visibleSchedule.map((s) => s.id);
+        const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selectedSchedIds.has(id));
+        const someChecked = visibleIds.some((id) => selectedSchedIds.has(id));
+        selectAllCb.checked = allChecked;
+        selectAllCb.indeterminate = !allChecked && someChecked;
+      }
+    }
 
     function draw() {
       const currentYearMonth = new Date().toISOString().slice(0, 7);
@@ -459,11 +680,29 @@ window.App = window.App || {};
 
       tableHost.innerHTML = `
         <div class="table-scroll"><table class="data">
-          <thead><tr><th>Scheduled Date</th><th>Deal</th><th>External Deal ID</th><th>📈 Expected Interest</th><th>💰 Expected Principal</th><th>Expected Total</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center">
+                <input type="checkbox" id="schedSelectAll" style="cursor:pointer;width:15px;height:15px;accent-color:var(--gold)" title="Select all visible installments">
+              </th>
+              <th>Scheduled Date</th>
+              <th>Deal</th>
+              <th>External Deal ID</th>
+              <th>📈 Expected Interest</th>
+              <th>💰 Expected Principal</th>
+              <th>Expected Total</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
           <tbody>${schedule.map((s) => {
             const hasPrn = Number(s.expected_principal || 0) > 0;
+            const isChecked = selectedSchedIds.has(s.id);
             return `
-            <tr style="${hasPrn ? 'border-left: 3.5px solid #10b981; background: rgba(16,185,129,0.025);' : ''}">
+            <tr style="${hasPrn ? 'border-left: 3.5px solid #10b981; background: rgba(16,185,129,0.025);' : ''}${isChecked ? 'background:rgba(217,119,6,0.06);' : ''}">
+              <td style="text-align:center">
+                <input type="checkbox" class="sched-row-cb" data-sched-id="${s.id}" ${isChecked ? 'checked' : ''} style="cursor:pointer;width:15px;height:15px;accent-color:var(--gold)">
+              </td>
               <td>${App.utils.fmtDate(s.scheduled_date)}</td>
               <td>${App.utils.escapeHtml((dealsById[s.deal_id] || {}).deal_name || '—')}</td>
               <td>${App.utils.escapeHtml((dealsById[s.deal_id] || {}).external_deal_id || '—')}</td>
@@ -479,9 +718,34 @@ window.App = window.App || {};
                 `}
               </td>
             </tr>`;
-          }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No pending payments match the selected filters.</td></tr>'}</tbody>
+          }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">No pending payments match the selected filters.</td></tr>'}</tbody>
         </table></div>`;
 
+      // Select All checkbox listener
+      const selectAllCb = App.utils.qs('#schedSelectAll', tableHost);
+      if (selectAllCb) {
+        selectAllCb.addEventListener('change', () => {
+          schedule.forEach((s) => {
+            if (selectAllCb.checked) selectedSchedIds.add(s.id);
+            else selectedSchedIds.delete(s.id);
+          });
+          draw();
+        });
+      }
+
+      // Individual row checkboxes
+      App.utils.qsa('.sched-row-cb', tableHost).forEach((cb) => {
+        cb.addEventListener('change', () => {
+          const id = Number(cb.dataset.schedId);
+          if (cb.checked) selectedSchedIds.add(id);
+          else selectedSchedIds.delete(id);
+          updateBulkBar(schedule);
+          // Highlight row
+          cb.closest('tr')?.classList.toggle('row-selected', cb.checked);
+        });
+      });
+
+      // Individual row action buttons (preserved)
       App.utils.qsa('[data-record]', tableHost).forEach((b) => b.addEventListener('click', () => {
         const s = allSchedule.find((x) => x.id === Number(b.dataset.record));
         openRecordPaymentModal(deals, s.deal_id, s, 'interest');
@@ -491,6 +755,23 @@ window.App = window.App || {};
         const s = allSchedule.find((x) => x.id === Number(b.dataset.recordPrincipal));
         openRecordPaymentModal(deals, s.deal_id, s, 'principal');
       }));
+
+      updateBulkBar(schedule);
+    }
+
+    // Bulk Record button click handler
+    if (btnBulkRecord) {
+      btnBulkRecord.addEventListener('click', () => {
+        const selectedList = allSchedule.filter((s) => selectedSchedIds.has(s.id));
+        if (!selectedList.length) {
+          App.utils.toast('Select at least one installment to record payment.', 'err');
+          return;
+        }
+        openBulkRecordPaymentModal(selectedList, dealsById, async () => {
+          selectedSchedIds.clear();
+          App.router.refreshCurrent();
+        });
+      });
     }
 
     App.utils.qsa('[data-sched-chip]', container).forEach((btn) => {
@@ -979,6 +1260,7 @@ window.App = window.App || {};
     let missedQuickChip = 'all';
     let filterDealId = '';
     let searchQuery = '';
+    const selectedMissedIds = new Set();
 
     const totalMissedAmount = missedItems.reduce((acc, s) => acc + Number(s.expected_total || 0), 0);
     const totalInterestMissed = missedItems.reduce((acc, s) => acc + Number(s.expected_interest || 0), 0);
@@ -1012,7 +1294,7 @@ window.App = window.App || {};
           </div>
         </div>
 
-        <!-- Filter Chips and Controls -->
+        <!-- Filter Chips and Controls with Bulk Action Button -->
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
           <div class="filter-chips-wrap" id="missedQuickChips" style="margin:0">
             <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Filter:</span>
@@ -1023,6 +1305,9 @@ window.App = window.App || {};
             <button class="quick-chip" data-missed-chip="interest_only">📈 Interest Only</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-gold" id="btnMissedBulkRecord" style="display:none">
+              ⚡ Record Selected (<span id="missedSelectedCount">0</span>)
+            </button>
             <select class="search-input" id="missedDealSelect" style="font-size:12px;padding:5px 8px;min-width:180px">
               <option value="">— Filter by Deal (All) —</option>
               ${deals.map((d) => `<option value="${d.id}">${App.utils.escapeHtml(d.deal_name)}</option>`).join('')}
@@ -1037,6 +1322,29 @@ window.App = window.App || {};
     `;
 
     const tableHost = App.utils.qs('#missedTableHost', container);
+    const btnMissedBulkRecord = App.utils.qs('#btnMissedBulkRecord', container);
+    const missedSelectedCountEl = App.utils.qs('#missedSelectedCount', container);
+
+    function updateMissedBulkBar(filtered) {
+      const count = selectedMissedIds.size;
+      if (missedSelectedCountEl) missedSelectedCountEl.textContent = count;
+      if (btnMissedBulkRecord) {
+        btnMissedBulkRecord.style.display = count > 0 ? 'inline-flex' : 'none';
+        if (count > 0) {
+          const selectedItems = filtered.filter((s) => selectedMissedIds.has(s.id));
+          const totalAmt = selectedItems.reduce((acc, s) => acc + Number(s.expected_total || 0), 0);
+          btnMissedBulkRecord.innerHTML = `⚡ Record Selected (${count}) · <span style="font-family:monospace;font-weight:700">${App.utils.fmtMoney(totalAmt)}</span>`;
+        }
+      }
+      const selectAllCb = App.utils.qs('#missedSelectAll', tableHost);
+      if (selectAllCb) {
+        const visibleIds = filtered.map((s) => s.id);
+        const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selectedMissedIds.has(id));
+        const someChecked = visibleIds.some((id) => selectedMissedIds.has(id));
+        selectAllCb.checked = allChecked;
+        selectAllCb.indeterminate = !allChecked && someChecked;
+      }
+    }
 
     function draw() {
       let filtered = [...missedItems];
@@ -1073,6 +1381,9 @@ window.App = window.App || {};
         <div class="table-scroll"><table class="data">
           <thead>
             <tr>
+              <th style="width:36px;text-align:center">
+                <input type="checkbox" id="missedSelectAll" style="cursor:pointer;width:15px;height:15px;accent-color:var(--gold)" title="Select all visible missed installments">
+              </th>
               <th>Due Date &amp; Delay</th>
               <th>Deal</th>
               <th>External ID</th>
@@ -1089,9 +1400,13 @@ window.App = window.App || {};
               const days = getDaysOverdue(s.scheduled_date);
               const hasPrn = Number(s.expected_principal || 0) > 0;
               const isCrit = days >= 30;
+              const isChecked = selectedMissedIds.has(s.id);
 
               return `
-                <tr style="${isCrit ? 'background:rgba(239,68,68,0.035);' : ''}">
+                <tr style="${isCrit ? 'background:rgba(239,68,68,0.035);' : ''}${isChecked ? 'background:rgba(217,119,6,0.06);' : ''}">
+                  <td style="text-align:center">
+                    <input type="checkbox" class="missed-row-cb" data-missed-id="${s.id}" ${isChecked ? 'checked' : ''} style="cursor:pointer;width:15px;height:15px;accent-color:var(--gold)">
+                  </td>
                   <td>
                     <div style="font-family:monospace;font-weight:600">${App.utils.fmtDate(s.scheduled_date)}</div>
                     <div style="font-size:11px;color:${isCrit ? 'var(--red)' : 'var(--gold)'};font-weight:600">
@@ -1134,7 +1449,7 @@ window.App = window.App || {};
               `;
             }).join('') || `
               <tr>
-                <td colspan="8" style="text-align:center;color:var(--text3);padding:32px">
+                <td colspan="9" style="text-align:center;color:var(--text3);padding:32px">
                   <div style="font-size:24px;margin-bottom:6px">🎉</div>
                   <div style="font-weight:600;color:var(--text)">No missed or overdue payments found</div>
                   <div style="font-size:12px;margin-top:2px">All scheduled installments across your active deals are up-to-date!</div>
@@ -1145,7 +1460,30 @@ window.App = window.App || {};
         </table></div>
       `;
 
-      // Wire action buttons
+      // Select All checkbox listener
+      const selectAllCb = App.utils.qs('#missedSelectAll', tableHost);
+      if (selectAllCb) {
+        selectAllCb.addEventListener('change', () => {
+          filtered.forEach((s) => {
+            if (selectAllCb.checked) selectedMissedIds.add(s.id);
+            else selectedMissedIds.delete(s.id);
+          });
+          draw();
+        });
+      }
+
+      // Individual row checkboxes
+      App.utils.qsa('.missed-row-cb', tableHost).forEach((cb) => {
+        cb.addEventListener('change', () => {
+          const id = Number(cb.dataset.missedId);
+          if (cb.checked) selectedMissedIds.add(id);
+          else selectedMissedIds.delete(id);
+          updateMissedBulkBar(filtered);
+          cb.closest('tr')?.classList.toggle('row-selected', cb.checked);
+        });
+      });
+
+      // Wire action buttons (preserved)
       App.utils.qsa('[data-record-missed]', tableHost).forEach((btn) => {
         btn.addEventListener('click', () => {
           const sId = Number(btn.dataset.recordMissed);
@@ -1177,6 +1515,23 @@ window.App = window.App || {};
           openWaiveMissedModal(deal, s, async () => {
             await renderMissedPaymentsTab(container, deals);
           });
+        });
+      });
+
+      updateMissedBulkBar(filtered);
+    }
+
+    // Bulk Record button click handler
+    if (btnMissedBulkRecord) {
+      btnMissedBulkRecord.addEventListener('click', () => {
+        const selectedList = missedItems.filter((s) => selectedMissedIds.has(s.id));
+        if (!selectedList.length) {
+          App.utils.toast('Select at least one missed installment to record payment.', 'err');
+          return;
+        }
+        openBulkRecordPaymentModal(selectedList, dealsById, async () => {
+          selectedMissedIds.clear();
+          await renderMissedPaymentsTab(container, deals);
         });
       });
     }

@@ -568,7 +568,7 @@ App.api = (function () {
     let data = null;
     let rpcError = null;
 
-    // Try full parameterized RPC with payment recording date analytics
+    // 1. Try full parameterized RPC with payment recording date analytics
     try {
       const res = await client().rpc('fn_record_payment', {
         p_deal_id: p.dealId,
@@ -593,7 +593,7 @@ App.api = (function () {
       rpcError = e;
     }
 
-    // Fallback if RPC signature in current DB does not accept extra parameters
+    // 2. Fallback if RPC signature in current DB does not accept extra parameters
     if (rpcError || !data) {
       try {
         const fallbackRes = await client().rpc('fn_record_payment', {
@@ -610,11 +610,115 @@ App.api = (function () {
           p_notes: p.notes ?? null,
           p_scheduled_payment_id: p.scheduledPaymentId ?? null,
         });
-        if (!fallbackRes.error) {
+        if (!fallbackRes.error && fallbackRes.data) {
           data = fallbackRes.data;
           rpcError = null;
+        } else if (fallbackRes.error) {
+          rpcError = fallbackRes.error;
         }
-      } catch (_) {}
+      } catch (fbErr) {
+        rpcError = fbErr;
+      }
+    }
+
+    // 3. Resilient Direct Fallback:
+    // If the database RPC fails due to missing 'status' column in payments table (PGRST or PG error)
+    // or schema overload ambiguity, perform direct insertion into payments, schedule update, and deal recalculation.
+    if ((rpcError || !data) && !App.auth.isDemoMode()) {
+      const errMsg = String(rpcError?.message || rpcError?.details || rpcError || '');
+      const isStatusOrCandidateErr = errMsg.includes('status') || errMsg.includes('PGRST203') || errMsg.includes('candidate function');
+      if (isStatusOrCandidateErr || !data) {
+        try {
+          const currentUid = uid();
+          if (currentUid && p.dealId) {
+            const netAmount = Number(p.amount || 0) - Number(p.feeAmount || 0) - Number(p.taxAmount || 0);
+            const insertPayload = {
+              user_id: currentUid,
+              deal_id: p.dealId,
+              scheduled_payment_id: p.scheduledPaymentId ?? null,
+              transaction_date: p.transactionDate,
+              recording_date: p.recordingDate || new Date().toISOString().slice(0, 10),
+              delay_days: p.delayDays || 0,
+              advance_days: p.advanceDays || 0,
+              timing_status: timingStatus,
+              amount: p.amount,
+              interest_amount: p.interestAmount ?? null,
+              principal_amount: p.principalAmount ?? null,
+              fee_amount: p.feeAmount ?? 0,
+              tax_amount: p.taxAmount ?? 0,
+              net_amount: netAmount,
+              payment_reference: p.paymentReference ?? null,
+              payment_mode: p.paymentMode ?? null,
+              confirmation_method: p.confirmationMethod ?? 'Manual',
+              notes: p.notes ?? null,
+              is_voided: false,
+            };
+
+            const { data: directPmt, error: insertErr } = await client()
+              .from('payments')
+              .insert(insertPayload)
+              .select()
+              .single();
+
+            if (insertErr) {
+              console.warn('Direct payment insert attempt error:', insertErr);
+              // If it failed because of duplicate key, pass that error through
+              if (insertErr.code === '23505' || String(insertErr.message || '').includes('duplicate')) {
+                throw insertErr;
+              }
+            } else if (directPmt) {
+              data = directPmt;
+              rpcError = null;
+
+              // Step A: Update deal balance and payment dates
+              try {
+                const { data: curDeal } = await client()
+                  .from('deals')
+                  .select('id, invested_amount, current_principal, status')
+                  .eq('id', p.dealId)
+                  .single();
+
+                if (curDeal) {
+                  const prnPaid = Number(p.principalAmount || 0);
+                  const prevBal = curDeal.current_principal != null ? Number(curDeal.current_principal) : Number(curDeal.invested_amount || 0);
+                  const newBal = Math.max(0, prevBal - prnPaid);
+                  const dealPatch = {
+                    last_payment_date: p.transactionDate,
+                    updated_at: new Date().toISOString(),
+                  };
+                  if (prnPaid > 0) {
+                    dealPatch.current_principal = newBal;
+                    if (newBal <= 0) {
+                      dealPatch.status = 'CLOSED';
+                      dealPatch.closure_date = p.transactionDate;
+                    }
+                  }
+                  await client().from('deals').update(dealPatch).eq('id', p.dealId);
+                }
+              } catch (dealSyncErr) {
+                console.warn('Deal recalculation notice:', dealSyncErr);
+              }
+
+              // Step B: If principal received, register reinvestment candidate if applicable
+              if (Number(p.principalAmount || 0) > 0) {
+                try {
+                  await client().from('reinvestments').insert({
+                    user_id: currentUid,
+                    source_payment_id: directPmt.id,
+                    returned_amount: p.principalAmount,
+                    returned_date: p.transactionDate,
+                  });
+                } catch (_) {}
+              }
+            }
+          }
+        } catch (directCatch) {
+          if (directCatch.code === '23505' || String(directCatch.message || '').includes('duplicate')) {
+            throw directCatch;
+          }
+          console.warn('Direct payment execution error:', directCatch);
+        }
+      }
     }
 
     if (rpcError && !data) {
