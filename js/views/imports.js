@@ -1491,7 +1491,7 @@ window.App = window.App || {};
     function handleFile(file) {
       wizardState.fileName = file.name;
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
           const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: true });
           const recurringHistorySheetName = wb.SheetNames.find((n) => /recurring.*histor/i.test(n));
@@ -1516,25 +1516,54 @@ window.App = window.App || {};
 
           // Check if this file is a Website Directory CSV or sheet
           let isVaultFile = !!websiteVaultSheetName;
+          let vaultTargetSheet = websiteVaultSheetName;
           if (!isVaultFile && wb.SheetNames.length === 1) {
             const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', header: 1 });
             const headers = (firstSheetRows[0] || []).map(h => String(h).toLowerCase());
-            if (headers.some(h => h.includes('website') || h.includes('url') || h.includes('domain')) && headers.some(h => h.includes('password') || h.includes('login') || h.includes('username'))) {
+            const hasWebHeader = headers.some(h => h.includes('website') || h.includes('url') || h.includes('domain') || h.includes('portal') || h.includes('site name'));
+            const hasCredOrGroupHeader = headers.some(h => h.includes('password') || h.includes('login') || h.includes('username') || h.includes('account') || h.includes('category') || h.includes('secret'));
+            const hasDealHeader = headers.some(h => h.includes('deal') || h.includes('invested') || h.includes('roi') || h.includes('principal'));
+            if (hasWebHeader && (hasCredOrGroupHeader || !hasDealHeader)) {
               isVaultFile = true;
+              vaultTargetSheet = wb.SheetNames[0];
             }
           }
 
           if (isVaultFile) {
-            const vaultSheet = wb.Sheets[websiteVaultSheetName || wb.SheetNames[0]];
+            const vaultSheet = wb.Sheets[vaultTargetSheet || websiteVaultSheetName || wb.SheetNames[0]];
             const vaultRows = XLSX.utils.sheet_to_json(vaultSheet, { defval: '' });
             if (vaultRows.length > 0) {
-              App.utils.toast(`Detected Website & Account Directory (${vaultRows.length} entries). Opening Website Vault Import Center...`, 'ok');
-              App.router.navigate('vault');
+              App.utils.toast(`Importing ${vaultRows.length} website & account directory records...`, 'info');
+              let importResult = null;
+              if (App.websiteVault && typeof App.websiteVault.importWebsiteDirectoryRows === 'function') {
+                importResult = await App.websiteVault.importWebsiteDirectoryRows(vaultRows, file.name);
+              }
+              await drawHistory();
+
+              wizardState.summaryHtml = `
+                <div class="grid-4">
+                  <div class="kpi c-blue"><div class="kpi-label">Total Processed</div><div class="kpi-value">${vaultRows.length}</div></div>
+                  <div class="kpi c-teal"><div class="kpi-label">Websites Ingested</div><div class="kpi-value">${importResult ? importResult.importedWebsites : vaultRows.length}</div></div>
+                  <div class="kpi c-gold"><div class="kpi-label">Accounts Attached</div><div class="kpi-value">${importResult ? importResult.importedAccounts : 0}</div></div>
+                  <div class="kpi c-red"><div class="kpi-label">Errors</div><div class="kpi-value">${importResult ? importResult.failedCount : 0}</div></div>
+                </div>
+                <div class="hint" style="margin-top:12px">
+                  ✅ Successfully imported into <strong>Website &amp; Account Vault</strong> and saved audit record into <strong>Import History</strong> table below!
+                </div>
+                <div style="margin-top:14px;display:flex;gap:10px">
+                  <button class="btn btn-teal" id="btnGoToVaultAfterImport">🔐 Open Website Vault</button>
+                  <button class="btn btn-outline" id="btnImportAnotherAfterVault">📥 Import Another File</button>
+                </div>`;
+              wizardState.step = 4;
+              drawStep();
               setTimeout(() => {
-                if (App.websiteVault && typeof App.websiteVault.openImportExportModal === 'function') {
-                  App.websiteVault.openImportExportModal();
-                }
-              }, 200);
+                const hostEl = App.utils.qs('#importStepBody', pane);
+                App.utils.qs('#btnGoToVaultAfterImport', hostEl)?.addEventListener('click', () => App.router.navigate('vault'));
+                App.utils.qs('#btnImportAnotherAfterVault', hostEl)?.addEventListener('click', () => {
+                  wizardState.step = 1;
+                  drawStep();
+                });
+              }, 100);
               return;
             }
           }

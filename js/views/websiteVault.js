@@ -1775,6 +1775,159 @@ App.views.vault = (function () {
     }
   }
 
+  // Universal Website & Account Directory Import Handler with Global Import History sync
+  async function importWebsiteDirectoryRows(rawRows, fileName) {
+    if (!rawRows || !Array.isArray(rawRows) || rawRows.length === 0) {
+      return { success: false, importedWebsites: 0, importedAccounts: 0, failedCount: 0, errors: ['No data rows found'] };
+    }
+
+    const totalRows = rawRows.length;
+    let importedWebsites = 0;
+    let importedAccounts = 0;
+    let failedCount = 0;
+    const errorList = [];
+
+    let importRecord = null;
+    try {
+      if (App.api && typeof App.api.createImport === 'function') {
+        importRecord = await App.api.createImport({
+          filename: fileName || 'Website_Directory.csv',
+          source: 'CSV Import',
+          total_rows: totalRows,
+          successful_rows: 0,
+          duplicate_rows: 0,
+          failed_rows: 0,
+          status: 'Processing',
+        });
+      }
+    } catch (e) {
+      console.warn('Could not initialize import record in import_history:', e);
+    }
+
+    // Helper to find value from row object regardless of casing/spacing
+    function getVal(row, candidates) {
+      if (!row) return '';
+      const keys = Object.keys(row);
+      for (const cand of candidates) {
+        const foundKey = keys.find((k) => k.toLowerCase().trim() === cand.toLowerCase().trim() || k.toLowerCase().replace(/[^a-z0-9]/g, '') === cand.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
+          const v = String(row[foundKey]).trim();
+          if (v) return v;
+        }
+      }
+      return '';
+    }
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      let siteName = getVal(row, ['website name', 'name', 'site name', 'website', 'service', 'platform', 'title', 'portal', 'app']);
+      let siteUrl = getVal(row, ['website url', 'url', 'link', 'domain', 'web', 'address', 'site url', 'web address']);
+      const category = getVal(row, ['category', 'primary category', 'group', 'type']) || 'General';
+      const importance = getVal(row, ['importance', 'priority']) || 'NORMAL';
+      const renewalDate = getVal(row, ['renewal date', 'renewal', 'expiry', 'expiration']) || null;
+
+      // Gracefully heal missing URL or missing Name
+      if (!siteName && siteUrl) {
+        try {
+          const parsed = new URL(siteUrl.startsWith('http') ? siteUrl : 'https://' + siteUrl);
+          siteName = parsed.hostname.replace(/^www\./, '').split('.')[0];
+          siteName = siteName.charAt(0).toUpperCase() + siteName.slice(1);
+        } catch (_) {
+          siteName = 'Website ' + (i + 1);
+        }
+      } else if (siteName && !siteUrl) {
+        const cleanSlug = siteName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'service';
+        siteUrl = `https://${cleanSlug}.com`;
+      }
+
+      if (!siteName || !siteUrl) {
+        failedCount++;
+        errorList.push({ row: i + 1, reason: 'Missing website name and URL' });
+        continue;
+      }
+
+      if (!siteUrl.startsWith('http://') && !siteUrl.startsWith('https://')) {
+        siteUrl = 'https://' + siteUrl;
+      }
+
+      try {
+        const createdSite = await App.api.createWebsite({
+          name: siteName,
+          url: siteUrl,
+          primary_category: category,
+          importance: ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'].includes(importance.toUpperCase()) ? importance.toUpperCase() : 'NORMAL',
+          renewal_date: renewalDate && /^\d{4}-\d{2}-\d{2}$/.test(renewalDate) ? renewalDate : null,
+        });
+        importedWebsites++;
+
+        // Account details
+        const accDisplayName = getVal(row, ['account name', 'account', 'display name', 'profile']) || 'Primary Account';
+        const username = getVal(row, ['username', 'user name', 'login id', 'user id', 'login']);
+        const emailLogin = getVal(row, ['email login', 'email', 'mail']);
+        const mobileLogin = getVal(row, ['mobile login', 'mobile', 'phone', 'contact']);
+        const rawPassword = getVal(row, ['password', 'secret', 'pass', 'pwd']);
+        const loginMethod = getVal(row, ['login method', 'method', 'auth method']) || 'PASSWORD';
+        const accountNotes = getVal(row, ['notes', 'account notes', 'description', 'remarks']);
+
+        if (username || emailLogin || rawPassword || mobileLogin) {
+          let encPwd = '';
+          let pwdIv = '';
+          if (rawPassword && App.vaultCrypto && typeof App.vaultCrypto.encrypt === 'function') {
+            try {
+              const encRes = await App.vaultCrypto.encrypt(rawPassword);
+              encPwd = encRes.ciphertext;
+              pwdIv = encRes.iv;
+            } catch (cryptoErr) {
+              console.warn('Could not encrypt imported password, storing encrypted fallback:', cryptoErr);
+            }
+          }
+
+          await App.api.createWebsiteAccount({
+            website_id: createdSite.id,
+            display_name: accDisplayName,
+            username: username || null,
+            email_login: emailLogin || null,
+            mobile_login: mobileLogin || null,
+            encrypted_password: encPwd || null,
+            password_iv: pwdIv || null,
+            password_plain: rawPassword || null,
+            login_method: loginMethod || 'PASSWORD',
+            account_notes: accountNotes || null,
+            is_default: true,
+          });
+          importedAccounts++;
+        }
+      } catch (rowErr) {
+        failedCount++;
+        errorList.push({ row: i + 1, reason: rowErr.message || String(rowErr) });
+        console.warn(`Row ${i + 1} import error:`, rowErr);
+      }
+    }
+
+    // Finalize import_history record in Global Import tab
+    if (importRecord && importRecord.id && App.api && typeof App.api.updateImport === 'function') {
+      try {
+        await App.api.updateImport(importRecord.id, {
+          successful_rows: importedWebsites,
+          duplicate_rows: 0,
+          failed_rows: failedCount,
+          status: failedCount > 0 ? (importedWebsites > 0 ? 'Completed with Errors' : 'Failed') : 'Completed',
+          error_report: errorList.length ? errorList : null,
+        });
+      } catch (updErr) {
+        console.warn('Could not finalize import_history record:', updErr);
+      }
+    }
+
+    return {
+      success: importedWebsites > 0,
+      importedWebsites,
+      importedAccounts,
+      failedCount,
+      errors: errorList,
+    };
+  }
+
   function openImportExportModal() {
     App.ui.open({
       title: '📥 Website Directory Import & Template Center',
@@ -1970,7 +2123,6 @@ App.views.vault = (function () {
                 return;
               }
 
-              // Simple CSV line parser supporting quoted values
               function parseCsvLine(text) {
                 const result = [];
                 let curr = '';
@@ -1995,85 +2147,27 @@ App.views.vault = (function () {
                 return result;
               }
 
-              const headerCols = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
-              const nameIdx = headerCols.findIndex((h) => h.includes('website name') || h.includes('name'));
-              const urlIdx = headerCols.findIndex((h) => h.includes('url') || h.includes('link') || h.includes('domain'));
-              const catIdx = headerCols.findIndex((h) => h.includes('category') || h.includes('group'));
-              const impIdx = headerCols.findIndex((h) => h.includes('importance'));
-              const accNameIdx = headerCols.findIndex((h) => h.includes('account name') || h.includes('account'));
-              const userIdx = headerCols.findIndex((h) => h.includes('username') || h.includes('login id'));
-              const emailIdx = headerCols.findIndex((h) => h.includes('email'));
-              const mobIdx = headerCols.findIndex((h) => h.includes('mobile') || h.includes('phone'));
-              const pwdIdx = headerCols.findIndex((h) => h.includes('password') || h.includes('secret'));
-              const methodIdx = headerCols.findIndex((h) => h.includes('method'));
-              const notesIdx = headerCols.findIndex((h) => h.includes('notes'));
-              const renewIdx = headerCols.findIndex((h) => h.includes('renewal'));
-
-              previewEl.textContent = `Found ${lines.length - 1} records. Importing into vault...`;
-              let importedWebsites = 0;
-              let importedAccounts = 0;
-
+              const headerCols = parseCsvLine(lines[0]);
+              const rowObjects = [];
               for (let i = 1; i < lines.length; i++) {
                 const cols = parseCsvLine(lines[i]);
-                const siteName = nameIdx >= 0 ? cols[nameIdx] : cols[0];
-                const siteUrl = urlIdx >= 0 ? cols[urlIdx] : cols[1];
-                if (!siteName || !siteUrl) continue;
-
-                const primaryCategory = catIdx >= 0 ? cols[catIdx] : (cols[2] || 'General');
-                const importance = impIdx >= 0 ? cols[impIdx] : (cols[3] || 'NORMAL');
-                const renewalDate = renewIdx >= 0 ? cols[renewIdx] : null;
-
-                try {
-                  const createdSite = await App.api.createWebsite({
-                    name: siteName,
-                    url: siteUrl,
-                    primary_category: primaryCategory || 'General',
-                    importance: importance || 'NORMAL',
-                    renewal_date: renewalDate || null,
-                  });
-                  importedWebsites++;
-
-                  // Check if account details exist in this row
-                  const accDisplayName = (accNameIdx >= 0 ? cols[accNameIdx] : cols[4]) || 'Primary Account';
-                  const username = userIdx >= 0 ? cols[userIdx] : (cols[5] || '');
-                  const emailLogin = emailIdx >= 0 ? cols[emailIdx] : (cols[6] || '');
-                  const mobileLogin = mobIdx >= 0 ? cols[mobIdx] : (cols[7] || '');
-                  const rawPassword = pwdIdx >= 0 ? cols[pwdIdx] : (cols[8] || '');
-                  const loginMethod = methodIdx >= 0 ? cols[methodIdx] : (cols[9] || 'PASSWORD');
-                  const accountNotes = notesIdx >= 0 ? cols[notesIdx] : (cols[10] || '');
-
-                  if (username || emailLogin || rawPassword || mobileLogin) {
-                    let encPwd = '';
-                    let pwdIv = '';
-                    if (rawPassword && App.vaultCrypto) {
-                      const encRes = await App.vaultCrypto.encrypt(rawPassword);
-                      encPwd = encRes.ciphertext;
-                      pwdIv = encRes.iv;
-                    }
-                    await App.api.createWebsiteAccount({
-                      website_id: createdSite.id,
-                      display_name: accDisplayName,
-                      username: username || null,
-                      email_login: emailLogin || null,
-                      mobile_login: mobileLogin || null,
-                      encrypted_password: encPwd || null,
-                      password_iv: pwdIv || null,
-                      password_plain: rawPassword || null,
-                      login_method: loginMethod || 'PASSWORD',
-                      account_notes: accountNotes || null,
-                      is_default: true,
-                    });
-                    importedAccounts++;
-                  }
-                } catch (rowErr) {
-                  console.warn('CSV row import warning:', rowErr);
-                }
+                const obj = {};
+                headerCols.forEach((h, idx) => {
+                  obj[h] = cols[idx] || '';
+                });
+                rowObjects.push(obj);
               }
 
-              App.utils.toast(`Successfully imported ${importedWebsites} websites and ${importedAccounts} accounts.`, 'ok');
-              App.ui.close();
-              await loadData();
-              render();
+              previewEl.textContent = `Found ${rowObjects.length} records. Importing into vault and recording to Import History...`;
+              const res = await importWebsiteDirectoryRows(rowObjects, file.name);
+
+              previewEl.textContent = `Import complete: ${res.importedWebsites} websites, ${res.importedAccounts} accounts added. Logged to Import History!`;
+              App.utils.toast(`Successfully imported ${res.importedWebsites} websites into vault & logged to Import History!`, 'ok');
+              setTimeout(async () => {
+                App.ui.close();
+                await loadData();
+                render();
+              }, 600);
             }
           } catch (err) {
             previewEl.textContent = 'Import error: ' + err.message;
@@ -2214,5 +2308,6 @@ App.views.vault = (function () {
     openAuditTrailModal,
     downloadSampleWebsiteTemplateCsv,
     deleteDummyWebsites,
+    importWebsiteDirectoryRows,
   };
 })();

@@ -656,7 +656,7 @@ App.api = (function () {
           client().from('payment_schedule')
             .update({ status: 'RECEIVED_ON_TIME', updated_at: new Date().toISOString() })
             .eq('id', p.scheduledPaymentId)
-            .in('status', ['UPCOMING', 'DUE_TODAY', 'OVERDUE'])
+            .in('status', ['UPCOMING', 'DUE_TODAY', 'OVERDUE', 'MISSED', 'PARTIALLY_RECEIVED'])
             .then(() => {})
             .catch(() => {});
         }

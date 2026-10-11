@@ -294,7 +294,7 @@ table.data tbody td{padding:9px 12px;color:var(--text);white-space:nowrap}
 .badge.st-overdue,.badge.st-missed,.badge.st-defaulted,.badge.st-written_off{background:rgba(255,107,107,0.15);color:var(--red)}
 .badge.st-due_today,.badge.st-partially_received,.badge.st-due,.badge.st-partially_paid,.badge.st-paused{background:rgba(201,168,76,0.15);color:var(--gold)}
 .badge.st-confirmed,.badge.st-paid,.badge.st-invested,.badge.st-completed{background:rgba(22,201,163,0.15);color:var(--teal)}
-.badge.st-skipped,.badge.st-cancelled,.badge.st-not_applicable,.badge.st-expired{background:rgba(120,130,160,0.15);color:var(--text2)}
+.badge.st-skipped,.badge.st-cancelled,.badge.st-waived,.badge.st-not_applicable,.badge.st-expired{background:rgba(120,130,160,0.15);color:var(--text2)}
 .badge.st-in_progress{background:rgba(76,155,232,0.15);color:var(--blue)}
 .badge.st-failed{background:rgba(255,107,107,0.15);color:var(--red)}
 .row-actions{display:flex;gap:6px}

@@ -770,21 +770,456 @@ window.App = window.App || {};
     }));
   }
 
+  // =========================================================================
+  // Missed Payments Management Tab (Record, Reschedule, Waive)
+  // =========================================================================
+
+  function openRescheduleMissedModal(deal, scheduleItem, onComplete) {
+    const today = App.utils.todayISO();
+    const defaultNewDate = App.utils.shiftDate(scheduleItem.scheduled_date || today, 30, 'days');
+
+    App.ui.open({
+      title: '📅 Reschedule Missed Installment',
+      bodyHtml: `
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="panel" style="background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;padding:12px;font-size:12.5px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="color:var(--text3)">Deal:</span>
+              <strong style="color:var(--text)">${App.utils.escapeHtml(deal ? deal.deal_name : 'Deal #' + scheduleItem.deal_id)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="color:var(--text3)">Current Due Date:</span>
+              <span style="font-family:monospace;color:var(--red);font-weight:600">${App.utils.fmtDate(scheduleItem.scheduled_date)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="color:var(--text3)">Expected Amount:</span>
+              <strong style="color:var(--gold)">${App.utils.fmtMoney(scheduleItem.expected_total)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text3)">
+              <span>Breakdown:</span>
+              <span>Interest: ${App.utils.fmtMoney(scheduleItem.expected_interest || 0)} · Principal: ${App.utils.fmtMoney(scheduleItem.expected_principal || 0)}</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label style="font-size:12px;font-weight:600;color:var(--text)">New Target Due Date *</label>
+            <input type="date" id="reschedNewDate" class="search-input" value="${defaultNewDate}" style="width:100%;box-sizing:border-box">
+            <div class="hint" style="font-size:11px;margin-top:4px">Select the revised date on which the borrower or platform is expected to pay.</div>
+          </div>
+
+          <div class="field">
+            <label style="font-size:12px;font-weight:600;color:var(--text)">Rescheduling Reason</label>
+            <select id="reschedReason" class="search-input" style="width:100%;box-sizing:border-box">
+              <option value="Borrower Requested Grace Period">Borrower Requested Grace Period</option>
+              <option value="Platform Processing / Settlement Delay">Platform Processing / Settlement Delay</option>
+              <option value="Mutual Restructuring Agreement">Mutual Restructuring Agreement</option>
+              <option value="Banking / Clearing Holiday">Banking / Clearing Holiday</option>
+              <option value="Other">Other Operational Reason</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label style="font-size:12px;font-weight:600;color:var(--text)">Audit Note / Context (Optional)</label>
+            <textarea id="reschedNotes" rows="2" class="search-input" style="width:100%;box-sizing:border-box;font-size:12px" placeholder="e.g. Borrower confirmed RTGS initiation scheduled for next week."></textarea>
+          </div>
+        </div>
+      `,
+      actions: [
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+        {
+          label: 'Confirm Reschedule',
+          className: 'btn-teal',
+          onClick: async () => {
+            const newDate = App.utils.qs('#reschedNewDate')?.value;
+            const reason = App.utils.qs('#reschedReason')?.value || 'Rescheduled';
+            const notes = App.utils.qs('#reschedNotes')?.value?.trim() || '';
+            if (!newDate) {
+              App.utils.toast('Please select a valid new due date.', 'err');
+              return;
+            }
+
+            try {
+              const fullNote = `[Rescheduled on ${App.utils.todayISO()} from ${scheduleItem.scheduled_date}: ${reason}] ${notes}`.trim();
+              await App.api.updateScheduleRow(scheduleItem.id, {
+                scheduled_date: newDate,
+                status: 'UPCOMING',
+                updated_at: new Date().toISOString(),
+              });
+
+              // Log audit record
+              try {
+                await App.api.insertRow('audit_logs', {
+                  action: 'PAYMENT_SCHEDULE_RESCHEDULED',
+                  entity_type: 'payment_schedule',
+                  entity_id: String(scheduleItem.id),
+                  deal_id: scheduleItem.deal_id,
+                  notes: fullNote,
+                });
+              } catch (_) {}
+
+              App.utils.toast(`Installment rescheduled to ${App.utils.fmtDate(newDate)}.`, 'ok');
+              App.ui.close();
+              if (typeof onComplete === 'function') onComplete();
+            } catch (err) {
+              App.utils.toast('Could not reschedule installment: ' + (err.message || err), 'err');
+            }
+          },
+        },
+      ],
+    });
+  }
+
+  function openWaiveMissedModal(deal, scheduleItem, onComplete) {
+    App.ui.open({
+      title: '🚫 Waive Payment Installment',
+      bodyHtml: `
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="padding:12px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:12.5px;color:var(--text)">
+            <div style="font-weight:700;color:var(--red);margin-bottom:4px">⚠️ Important Action Confirmation</div>
+            <div>Are you sure you want to waive this payment installment of <strong style="color:var(--gold)">${App.utils.fmtMoney(scheduleItem.expected_total)}</strong> for deal <strong>${App.utils.escapeHtml(deal ? deal.deal_name : 'Deal #' + scheduleItem.deal_id)}</strong>?</div>
+            <div style="font-size:11.5px;color:var(--text2);margin-top:6px">Marking as <strong>WAIVED</strong> closes this schedule entry and excludes it from overdue delinquency metrics across the portfolio.</div>
+          </div>
+
+          <div class="field">
+            <label style="font-size:12px;font-weight:600;color:var(--text)">Waiver Category *</label>
+            <select id="waiveCategory" class="search-input" style="width:100%;box-sizing:border-box">
+              <option value="Penalty / Overdue Surcharge Waived">Penalty / Overdue Surcharge Waived</option>
+              <option value="Settled Separately / Off-Platform">Settled Separately / Off-Platform</option>
+              <option value="Concession / Compromise Settlement">Concession / Compromise Settlement</option>
+              <option value="Uncollectible / Bad Debt Write-Off">Uncollectible / Bad Debt Write-Off</option>
+              <option value="Other Waiver">Other Waiver</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label style="font-size:12px;font-weight:600;color:var(--text)">Waiver Justification / Documentation Notes</label>
+            <textarea id="waiveNotes" rows="2" class="search-input" style="width:100%;box-sizing:border-box;font-size:12px" placeholder="e.g. Borrower paid principal directly via escrow; interest penalty waived per agreement."></textarea>
+          </div>
+        </div>
+      `,
+      actions: [
+        { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
+        {
+          label: 'Confirm Waiver',
+          className: 'btn-outline',
+          style: 'color:var(--red);border-color:var(--red)',
+          onClick: async () => {
+            const cat = App.utils.qs('#waiveCategory')?.value || 'Waived';
+            const notes = App.utils.qs('#waiveNotes')?.value?.trim() || '';
+            const fullNote = `[Waived on ${App.utils.todayISO()}: ${cat}] ${notes}`.trim();
+
+            try {
+              await App.api.updateScheduleRow(scheduleItem.id, {
+                status: 'WAIVED',
+                updated_at: new Date().toISOString(),
+              });
+
+              try {
+                await App.api.insertRow('audit_logs', {
+                  action: 'PAYMENT_SCHEDULE_WAIVED',
+                  entity_type: 'payment_schedule',
+                  entity_id: String(scheduleItem.id),
+                  deal_id: scheduleItem.deal_id,
+                  notes: fullNote,
+                });
+              } catch (_) {}
+
+              App.utils.toast('Payment installment successfully marked as WAIVED.', 'ok');
+              App.ui.close();
+              if (typeof onComplete === 'function') onComplete();
+            } catch (err) {
+              App.utils.toast('Could not waive installment: ' + (err.message || err), 'err');
+            }
+          },
+        },
+      ],
+    });
+  }
+
+  async function renderMissedPaymentsTab(container, deals) {
+    const dealsById = {};
+    (deals || []).forEach((d) => { dealsById[d.id] = d; });
+
+    let allSchedule = [];
+    try {
+      allSchedule = (await App.api.listSchedule()) || [];
+    } catch (e) {
+      console.warn('Could not fetch schedule for missed payments:', e);
+      allSchedule = [];
+    }
+
+    const todayISO = App.utils.todayISO();
+    const todayDate = new Date().setHours(0, 0, 0, 0);
+
+    function getDaysOverdue(dateStr) {
+      if (!dateStr) return 0;
+      const schedD = new Date(dateStr).setHours(0, 0, 0, 0);
+      const diff = Math.round((todayDate - schedD) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? diff : 0;
+    }
+
+    const missedItems = allSchedule.filter((s) => {
+      if (['RECEIVED', 'RECEIVED_ON_TIME', 'RECEIVED_LATE', 'RECEIVED_EARLY', 'WAIVED', 'CANCELLED'].includes(s.status)) {
+        return false;
+      }
+      if (s.status === 'MISSED' || s.status === 'OVERDUE') return true;
+      if (s.scheduled_date && s.scheduled_date < todayISO) return true;
+      return false;
+    });
+
+    missedItems.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
+
+    // Update tab bar counter badge
+    const badge = document.querySelector('#missedTabBadge');
+    if (badge) {
+      badge.textContent = missedItems.length;
+      badge.style.display = missedItems.length > 0 ? 'inline-block' : 'none';
+    }
+
+    let missedQuickChip = 'all';
+    let filterDealId = '';
+    let searchQuery = '';
+
+    const totalMissedAmount = missedItems.reduce((acc, s) => acc + Number(s.expected_total || 0), 0);
+    const totalInterestMissed = missedItems.reduce((acc, s) => acc + Number(s.expected_interest || 0), 0);
+    const totalPrincipalMissed = missedItems.reduce((acc, s) => acc + Number(s.expected_principal || 0), 0);
+    const impactedDeals = new Set(missedItems.map((s) => s.deal_id)).size;
+    const criticalCount = missedItems.filter((s) => getDaysOverdue(s.scheduled_date) >= 30).length;
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:14px;margin-top:6px">
+        <!-- Top KPI Cards -->
+        <div class="grid-4" style="gap:10px">
+          <div class="kpi c-red" style="padding:12px 14px">
+            <div class="kpi-label">Total Overdue / Missed</div>
+            <div class="kpi-value font-mono" style="font-size:22px;color:var(--red)">${App.utils.fmtMoney(totalMissedAmount)}</div>
+            <div class="hint" style="margin-top:2px;font-size:11px">Int: ${App.utils.fmtMoney(totalInterestMissed)} · Prn: ${App.utils.fmtMoney(totalPrincipalMissed)}</div>
+          </div>
+          <div class="kpi c-gold" style="padding:12px 14px">
+            <div class="kpi-label">Missed Installments</div>
+            <div class="kpi-value font-mono" style="font-size:22px;color:var(--gold)">${missedItems.length}</div>
+            <div class="hint" style="margin-top:2px;font-size:11px">Unresolved payment dates</div>
+          </div>
+          <div class="kpi c-blue" style="padding:12px 14px">
+            <div class="kpi-label">Delinquent Deals</div>
+            <div class="kpi-value font-mono" style="font-size:22px">${impactedDeals}</div>
+            <div class="hint" style="margin-top:2px;font-size:11px">Deals awaiting settlement</div>
+          </div>
+          <div class="kpi c-red" style="padding:12px 14px">
+            <div class="kpi-label">Critical (&gt; 30 Days Overdue)</div>
+            <div class="kpi-value font-mono" style="font-size:22px;color:var(--red)">${criticalCount}</div>
+            <div class="hint" style="margin-top:2px;font-size:11px">High priority delinquency</div>
+          </div>
+        </div>
+
+        <!-- Filter Chips and Controls -->
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div class="filter-chips-wrap" id="missedQuickChips" style="margin:0">
+            <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-right:4px">Filter:</span>
+            <button class="quick-chip active" data-missed-chip="all">All Missed (${missedItems.length})</button>
+            <button class="quick-chip" data-missed-chip="critical">🚨 Critical &gt;30d (${criticalCount})</button>
+            <button class="quick-chip" data-missed-chip="recent">⚠️ Recent &lt;30d</button>
+            <button class="quick-chip" data-missed-chip="principal">💰 Principal Due</button>
+            <button class="quick-chip" data-missed-chip="interest_only">📈 Interest Only</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select class="search-input" id="missedDealSelect" style="font-size:12px;padding:5px 8px;min-width:180px">
+              <option value="">— Filter by Deal (All) —</option>
+              ${deals.map((d) => `<option value="${d.id}">${App.utils.escapeHtml(d.deal_name)}</option>`).join('')}
+            </select>
+            <input type="text" id="missedSearchInput" class="search-input" placeholder="Search deal, ID, borrower..." style="font-size:12px;padding:5px 8px;width:180px">
+          </div>
+        </div>
+
+        <!-- Data Table Container -->
+        <div id="missedTableHost"></div>
+      </div>
+    `;
+
+    const tableHost = App.utils.qs('#missedTableHost', container);
+
+    function draw() {
+      let filtered = [...missedItems];
+
+      // Quick chips
+      if (missedQuickChip === 'critical') {
+        filtered = filtered.filter((s) => getDaysOverdue(s.scheduled_date) >= 30);
+      } else if (missedQuickChip === 'recent') {
+        filtered = filtered.filter((s) => getDaysOverdue(s.scheduled_date) < 30);
+      } else if (missedQuickChip === 'principal') {
+        filtered = filtered.filter((s) => Number(s.expected_principal || 0) > 0);
+      } else if (missedQuickChip === 'interest_only') {
+        filtered = filtered.filter((s) => Number(s.expected_interest || 0) > 0 && !Number(s.expected_principal || 0));
+      }
+
+      // Deal filter
+      if (filterDealId) {
+        filtered = filtered.filter((s) => String(s.deal_id) === String(filterDealId));
+      }
+
+      // Search text
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase().trim();
+        filtered = filtered.filter((s) => {
+          const deal = dealsById[s.deal_id] || {};
+          const name = (deal.deal_name || '').toLowerCase();
+          const extId = (deal.external_deal_id || '').toLowerCase();
+          const borrower = (deal.borrower_name || '').toLowerCase();
+          return name.includes(q) || extId.includes(q) || borrower.includes(q);
+        });
+      }
+
+      tableHost.innerHTML = `
+        <div class="table-scroll"><table class="data">
+          <thead>
+            <tr>
+              <th>Due Date &amp; Delay</th>
+              <th>Deal</th>
+              <th>External ID</th>
+              <th style="text-align:right">Expected Interest</th>
+              <th style="text-align:right">Expected Principal</th>
+              <th style="text-align:right">Total Overdue</th>
+              <th>Status</th>
+              <th style="text-align:center">Action Buttons</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map((s) => {
+              const deal = dealsById[s.deal_id] || {};
+              const days = getDaysOverdue(s.scheduled_date);
+              const hasPrn = Number(s.expected_principal || 0) > 0;
+              const isCrit = days >= 30;
+
+              return `
+                <tr style="${isCrit ? 'background:rgba(239,68,68,0.035);' : ''}">
+                  <td>
+                    <div style="font-family:monospace;font-weight:600">${App.utils.fmtDate(s.scheduled_date)}</div>
+                    <div style="font-size:11px;color:${isCrit ? 'var(--red)' : 'var(--gold)'};font-weight:600">
+                      ⚠️ ${days > 0 ? `${days} days overdue` : 'Missed'}
+                    </div>
+                  </td>
+                  <td>
+                    <div style="font-weight:600;color:var(--text)">${App.utils.escapeHtml(deal.deal_name || '—')}</div>
+                    ${deal.platform_name ? `<div style="font-size:11px;color:var(--text3)">${App.utils.escapeHtml(deal.platform_name)}</div>` : ''}
+                  </td>
+                  <td>
+                    <span style="font-family:monospace;font-size:11px;color:var(--text2)">${App.utils.escapeHtml(deal.external_deal_id || '—')}</span>
+                  </td>
+                  <td style="text-align:right">
+                    <span class="font-mono" style="color:var(--gold);font-weight:600">${Number(s.expected_interest || 0) > 0 ? App.utils.fmtMoney(s.expected_interest) : '—'}</span>
+                  </td>
+                  <td style="text-align:right">
+                    ${hasPrn ? `<span class="font-mono" style="color:#059669;font-weight:700;background:rgba(16,185,129,0.1);padding:2px 6px;border-radius:4px">${App.utils.fmtMoney(s.expected_principal)}</span>` : '<span style="color:var(--text3)">—</span>'}
+                  </td>
+                  <td style="text-align:right">
+                    <strong class="font-mono" style="color:var(--red);font-size:13px">${App.utils.fmtMoney(s.expected_total)}</strong>
+                  </td>
+                  <td>
+                    <span class="badge ${App.utils.statusBadgeClass(s.status || 'MISSED')}">${s.status || 'MISSED'}</span>
+                  </td>
+                  <td style="text-align:center">
+                    <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+                      <button class="btn btn-sm btn-gold" data-record-missed="${s.id}" title="Record payment received for this missed installment">
+                        💰 Record Payment
+                      </button>
+                      <button class="btn btn-sm btn-teal" data-reschedule-missed="${s.id}" title="Reschedule target payment date">
+                        📅 Reschedule
+                      </button>
+                      <button class="btn btn-sm btn-outline" data-waive-missed="${s.id}" style="color:var(--red);border-color:rgba(239,68,68,0.4)" title="Waive payment installment">
+                        🚫 Waive
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join('') || `
+              <tr>
+                <td colspan="8" style="text-align:center;color:var(--text3);padding:32px">
+                  <div style="font-size:24px;margin-bottom:6px">🎉</div>
+                  <div style="font-weight:600;color:var(--text)">No missed or overdue payments found</div>
+                  <div style="font-size:12px;margin-top:2px">All scheduled installments across your active deals are up-to-date!</div>
+                </td>
+              </tr>
+            `}
+          </tbody>
+        </table></div>
+      `;
+
+      // Wire action buttons
+      App.utils.qsa('[data-record-missed]', tableHost).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const sId = Number(btn.dataset.recordMissed);
+          const s = allSchedule.find((x) => x.id === sId);
+          if (!s) return;
+          const defaultCat = (Number(s.expected_principal || 0) > 0 && !Number(s.expected_interest || 0)) ? 'principal' : (Number(s.expected_interest || 0) > 0 && Number(s.expected_principal || 0) > 0 ? 'combined' : 'interest');
+          openRecordPaymentModal(deals, s.deal_id, s, defaultCat);
+        });
+      });
+
+      App.utils.qsa('[data-reschedule-missed]', tableHost).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const sId = Number(btn.dataset.rescheduleMissed);
+          const s = allSchedule.find((x) => x.id === sId);
+          if (!s) return;
+          const deal = dealsById[s.deal_id];
+          openRescheduleMissedModal(deal, s, async () => {
+            await renderMissedPaymentsTab(container, deals);
+          });
+        });
+      });
+
+      App.utils.qsa('[data-waive-missed]', tableHost).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const sId = Number(btn.dataset.waiveMissed);
+          const s = allSchedule.find((x) => x.id === sId);
+          if (!s) return;
+          const deal = dealsById[s.deal_id];
+          openWaiveMissedModal(deal, s, async () => {
+            await renderMissedPaymentsTab(container, deals);
+          });
+        });
+      });
+    }
+
+    // Attach filter listeners
+    App.utils.qsa('[data-missed-chip]', container).forEach((chipBtn) => {
+      chipBtn.addEventListener('click', () => {
+        missedQuickChip = chipBtn.dataset.missedChip;
+        App.utils.qsa('[data-missed-chip]', container).forEach((b) => b.classList.toggle('active', b === chipBtn));
+        draw();
+      });
+    });
+
+    App.utils.qs('#missedDealSelect', container)?.addEventListener('change', (e) => {
+      filterDealId = e.target.value;
+      draw();
+    });
+
+    App.utils.qs('#missedSearchInput', container)?.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      draw();
+    });
+
+    draw();
+  }
+
   async function renderPaymentsView() {
     const pane = App.utils.qs('#pane-payments');
     pane.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-        <div class="section-title" style="margin:0">Payments <div class="line"></div><small>expected schedule, actual ledger, and reconciliation</small></div>
+        <div class="section-title" style="margin:0">Payments <div class="line"></div><small>expected schedule, actual ledger, reconciliation, and missed payments</small></div>
       </div>
       <div class="panel">
         <div class="tabbar">
           <button class="tab-btn ${activeTab === 'sched' ? 'active' : ''}" data-tab="sched">Payment Schedule</button>
           <button class="tab-btn ${activeTab === 'ledger' ? 'active' : ''}" data-tab="ledger">Receipt Ledger</button>
           <button class="tab-btn ${activeTab === 'recon' ? 'active' : ''}" data-tab="recon">Bank Reconciliation</button>
+          <button class="tab-btn ${activeTab === 'missed' ? 'active' : ''}" data-tab="missed">⚠️ Missed Payments <span id="missedTabBadge" class="badge st-missed" style="margin-left:6px;font-size:11px;font-weight:700">0</span></button>
         </div>
         <div class="tab-pane ${activeTab === 'sched' ? 'active' : ''}" data-pane="sched" id="scheduleTabBody"></div>
         <div class="tab-pane ${activeTab === 'ledger' ? 'active' : ''}" data-pane="ledger" id="ledgerTabBody"></div>
         <div class="tab-pane ${activeTab === 'recon' ? 'active' : ''}" data-pane="recon" id="reconTabBody"></div>
+        <div class="tab-pane ${activeTab === 'missed' ? 'active' : ''}" data-pane="missed" id="missedTabBody"></div>
       </div>`;
 
     App.utils.qsa('.tab-btn', pane).forEach((btn) => btn.addEventListener('click', () => {
@@ -803,11 +1238,13 @@ window.App = window.App || {};
     await renderScheduleTab(App.utils.qs('#scheduleTabBody', pane), deals);
     await renderLedgerTab(App.utils.qs('#ledgerTabBody', pane), deals);
     await renderReconciliationTab(App.utils.qs('#reconTabBody', pane), deals);
+    await renderMissedPaymentsTab(App.utils.qs('#missedTabBody', pane), deals);
   }
 
   App.router.register('payments', renderPaymentsView);
   App.paymentsView = {
     openRecordPaymentModal,
     openReconciliationTab() { activeTab = 'recon'; App.router.navigate('payments'); },
+    openMissedPaymentsTab() { activeTab = 'missed'; App.router.navigate('payments'); },
   };
 })();
