@@ -2134,22 +2134,102 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-weight: 600;
 }
 
+/* Website & Account Vault Responsive & Mobile Optimizations */
+.vault-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.vault-main-content {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.vault-table-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-x pan-y !important;
+  position: relative;
+  border-radius: var(--radius);
+  box-sizing: border-box;
+}
+
+.vault-compact-table {
+  min-width: 720px;
+  width: 100%;
+  table-layout: auto;
+}
+
+.vault-toolbar {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.vault-cards-grid {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 @media (max-width: 860px) {
   .vault-body-layout {
     flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
   }
   .vault-nav-sidebar {
     width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 10px !important;
   }
   .vault-category-list {
     display: flex !important;
     flex-direction: row !important;
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 6px !important;
     max-height: none !important;
+    padding-bottom: 6px !important;
   }
   .vault-category-list .vault-nav-item {
-    padding: 6px 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    padding: 6px 12px !important;
     font-size: 12px !important;
+    border-radius: 6px !important;
+  }
+  .vault-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 10px !important;
+  }
+  .vault-toolbar > div {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+  }
+  .vault-view-toggle-wrap {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .vault-view-toggle-wrap button {
+    flex: 1;
+    justify-content: center;
+  }
+  .vault-mobile-scroll-hint {
+    display: flex !important;
   }
 }
+
 

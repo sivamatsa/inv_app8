@@ -54,13 +54,14 @@ App.views.vault = (function () {
   async function loadData() {
     state.loading = true;
     try {
-      const [websites, groups, settings] = await Promise.all([
+      const [websitesRes, groupsRes, settingsRes] = await Promise.allSettled([
         App.api.listWebsites(),
         App.api.listWebsiteGroups(),
         App.api.getVaultSettings(),
       ]);
-      state.websites = websites || [];
-      state.groups = groups || [];
+      state.websites = (websitesRes.status === 'fulfilled' && websitesRes.value) ? websitesRes.value : [];
+      state.groups = (groupsRes.status === 'fulfilled' && groupsRes.value) ? groupsRes.value : [];
+      const settings = (settingsRes.status === 'fulfilled' && settingsRes.value) ? settingsRes.value : null;
       if (settings) {
         state.settings = Object.assign(state.settings, settings);
         if (state.settings.default_view) state.viewMode = state.settings.default_view;
@@ -211,20 +212,25 @@ App.views.vault = (function () {
             ${state.selectedNav === 'overview' ? renderOverviewMetrics() : ''}
 
             <!-- Filter, Search, and Display Controls Toolbar -->
-            <div class="vault-toolbar" style="background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-              <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:240px">
+            <div class="vault-toolbar" style="background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+              <div style="display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:220px">
                 <div style="position:relative;flex:1">
-                  <input type="text" id="vaultSearchInput" class="form-input" placeholder="Search websites, domains, accounts, usernames, tags..." value="${App.utils.escapeHtml(state.searchQuery)}" style="width:100%;padding-left:32px;font-size:13px">
+                  <input type="text" id="vaultSearchInput" class="form-input" placeholder="Search websites, domains, accounts, usernames, tags..." value="${App.utils.escapeHtml(state.searchQuery)}" style="width:100%;padding-left:32px;font-size:13px;height:38px">
                   <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;opacity:0.6">🔍</span>
                 </div>
-                ${state.searchQuery ? `<button id="btnClearSearch" class="btn btn-outline btn-xs">Clear</button>` : ''}
+                ${state.searchQuery ? `<button id="btnClearSearch" class="btn btn-outline btn-xs" style="height:38px;padding:0 10px">Clear</button>` : ''}
               </div>
 
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <!-- Import Directory Button with Sample Template -->
+                <button id="btnImportWebsitesToolbar" class="btn btn-outline btn-sm" style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;height:38px;padding:0 12px;border-color:var(--gold);color:var(--gold)" title="Import websites directory from CSV/Excel or sample template">
+                  📥 Import Directory
+                </button>
+
                 <!-- Sort Dropdown -->
                 <div style="display:flex;align-items:center;gap:6px">
-                  <span style="font-size:12px;color:var(--text3)">Sort:</span>
-                  <select id="vaultSortSelect" class="form-input" style="font-size:12px;padding:4px 8px;width:auto">
+                  <span style="font-size:12px;color:var(--text3);white-space:nowrap">Sort:</span>
+                  <select id="vaultSortSelect" class="form-input" style="font-size:12px;padding:4px 8px;width:auto;height:38px">
                     <option value="name" ${state.sortBy === 'name' ? 'selected' : ''}>Name (A-Z)</option>
                     <option value="recent_used" ${state.sortBy === 'recent_used' ? 'selected' : ''}>Recently Used</option>
                     <option value="recent_added" ${state.sortBy === 'recent_added' ? 'selected' : ''}>Recently Added</option>
@@ -233,12 +239,12 @@ App.views.vault = (function () {
                   </select>
                 </div>
 
-                <!-- View Mode Toggle -->
-                <div style="display:flex;background:var(--bg2);border-radius:6px;border:1px solid var(--border2);overflow:hidden">
-                  <button id="btnViewCards" class="icon-btn ${state.viewMode === 'card' ? 'active-view-btn' : ''}" style="padding:4px 10px;font-size:13px;border-radius:0" title="Card View">
+                <!-- Dual View Mode Toggle: Cards vs Table -->
+                <div class="vault-view-toggle-wrap" style="display:inline-flex;background:var(--bg2);border-radius:8px;border:1px solid var(--border2);overflow:hidden;padding:2px;gap:2px">
+                  <button id="btnViewCards" class="vault-mode-btn ${state.viewMode === 'card' ? 'active' : ''}" style="padding:6px 12px;font-size:12.5px;border-radius:6px;border:none;cursor:pointer;display:flex;align-items:center;gap:5px;font-weight:${state.viewMode === 'card' ? '700' : '500'};background:${state.viewMode === 'card' ? 'var(--gold)' : 'transparent'};color:${state.viewMode === 'card' ? '#111' : 'var(--text2)'};height:34px;touch-action:manipulation" title="Cards View">
                     🗂️ Cards
                   </button>
-                  <button id="btnViewTable" class="icon-btn ${state.viewMode === 'table' ? 'active-view-btn' : ''}" style="padding:4px 10px;font-size:13px;border-radius:0" title="Compact Table View">
+                  <button id="btnViewTable" class="vault-mode-btn ${state.viewMode === 'table' ? 'active' : ''}" style="padding:6px 12px;font-size:12.5px;border-radius:6px;border:none;cursor:pointer;display:flex;align-items:center;gap:5px;font-weight:${state.viewMode === 'table' ? '700' : '500'};background:${state.viewMode === 'table' ? 'var(--gold)' : 'transparent'};color:${state.viewMode === 'table' ? '#111' : 'var(--text2)'};height:34px;touch-action:manipulation" title="Compact Table View">
                     ☰ Table
                   </button>
                 </div>
@@ -499,7 +505,7 @@ App.views.vault = (function () {
   // Render Card Grid
   function renderCardGrid(list) {
     return `
-      <div class="vault-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px">
+      <div class="vault-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:16px">
         ${list.map((site) => renderSingleCard(site)).join('')}
       </div>
     `;
@@ -659,11 +665,15 @@ App.views.vault = (function () {
   // Render Compact Table View
   function renderCompactTable(list) {
     return `
-      <div class="panel" style="overflow-x:auto;padding:0;background:var(--card);border:1px solid var(--border2);border-radius:var(--radius)">
-        <table class="table" style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <div class="vault-table-container" style="width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0;background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);touch-action:pan-x pan-y">
+        <div class="vault-mobile-scroll-hint" style="display:none;align-items:center;gap:6px;font-size:11.5px;color:var(--gold);background:rgba(201,168,76,0.1);padding:8px 12px;border-bottom:1px solid var(--border2)">
+          <span>👉</span>
+          <span>Swipe horizontally to view all columns, credentials &amp; actions</span>
+        </div>
+        <table class="table vault-compact-table" style="min-width:760px;width:100%;border-collapse:collapse;font-size:12.5px">
           <thead>
-            <tr style="border-bottom:1px solid var(--border2);color:var(--text3);text-transform:uppercase;font-size:11px">
-              <th style="padding:10px 14px;text-align:left">Website / Service</th>
+            <tr style="border-bottom:1px solid var(--border2);color:var(--text3);text-transform:uppercase;font-size:11px;background:var(--bg2)">
+              <th style="padding:10px 14px;text-align:left;white-space:nowrap">Website / Service</th>
               <th style="padding:10px 14px;text-align:left">Category</th>
               <th style="padding:10px 14px;text-align:left">Accounts</th>
               <th style="padding:10px 14px;text-align:left">Active Login ID</th>
@@ -840,6 +850,7 @@ App.views.vault = (function () {
     pane.querySelector('#btnEmptyAddWebsite')?.addEventListener('click', () => openAddEditWebsiteModal(null));
     pane.querySelector('#btnPasswordGenTop')?.addEventListener('click', () => openPasswordGeneratorModal());
     pane.querySelector('#btnImportExportTop')?.addEventListener('click', () => openImportExportModal());
+    pane.querySelector('#btnImportWebsitesToolbar')?.addEventListener('click', () => openImportExportModal());
     pane.querySelector('#btnVaultAuditTop')?.addEventListener('click', () => openAuditTrailModal());
     pane.querySelector('#btnVaultSettingsTop')?.addEventListener('click', () => openVaultSettingsModal());
     pane.querySelector('#btnManageGroups')?.addEventListener('click', () => openManageGroupsModal());
@@ -1705,39 +1716,128 @@ App.views.vault = (function () {
   // UTILITIES: Import & Export Modal (Section 19)
   // ==========================================================================
 
+  // Download Sample Template with rich dummy data
+  function downloadSampleWebsiteTemplateCsv() {
+    const csvHeader = 'Website Name,Website URL,Category,Importance,Account Name,Username,Email Login,Mobile Login,Password,Login Method,Notes,Renewal Date\n';
+    const sampleRows = [
+      '"HDFC NetBanking","https://netbanking.hdfcbank.com","Banking & Finance","CRITICAL","Personal Savings Account","hdfc_investor_99","user.investor@example.com","+919876543210","HdfcPass#2026","PASSWORD_2FA","Primary bank savings account","2027-12-31"',
+      '"Zerodha Kite","https://kite.zerodha.com","Trading & Demat","HIGH","Equity Trading Demat","ZR9842","trader.equity@example.com","+919876543210","KiteAlpha#9842","PASSWORD_2FA","Primary stock brokerage account",""',
+      '"Google Workspace","https://workspace.google.com","Cloud & Productivity","NORMAL","Admin Superuser","admin@mybusiness.com","admin@mybusiness.com","","Workspace#2026","SSO_GOOGLE","Cloud drive and business email","2026-11-15"',
+      '"Income Tax e-Filing","https://eportal.incometax.gov.in","Government & Tax","HIGH","PAN Assessment Login","ABCDE1234F","taxpayer@example.com","","TaxPortal#2026","PASSWORD","Annual ITR filing and 26AS verification",""',
+    ].join('\n');
+
+    const fullCsv = csvHeader + sampleRows;
+    const blob = new Blob([fullCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'Website_Directory_Sample_Template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+    if (App.utils && App.utils.toast) {
+      App.utils.toast('Sample CSV template downloaded with dummy data.', 'ok');
+    }
+  }
+
+  // Delete sample and dummy data entries
+  async function deleteDummyWebsites() {
+    const dummyNames = new Set([
+      'hdfc netbanking',
+      'zerodha kite',
+      'google workspace',
+      'income tax e-filing',
+      'example banking portal',
+      'sample banking service',
+      'demo broker',
+    ]);
+
+    const matching = state.websites.filter((s) => {
+      const n = (s.name || '').toLowerCase().trim();
+      return dummyNames.has(n) || n.includes('sample') || n.includes('dummy') || n.includes('example');
+    });
+
+    if (matching.length === 0) {
+      App.utils.toast('No dummy or sample websites detected in your vault.', 'info');
+      return;
+    }
+
+    if (confirm(`Found ${matching.length} sample/dummy websites (${matching.map((s) => s.name).join(', ')}). Delete them permanently from your vault?`)) {
+      let delCount = 0;
+      for (const site of matching) {
+        try {
+          await App.api.deleteWebsite(site.id);
+          delCount++;
+        } catch (_) {}
+      }
+      App.utils.toast(`Deleted ${delCount} sample/dummy websites.`, 'ok');
+      await loadData();
+      render();
+    }
+  }
+
   function openImportExportModal() {
     App.ui.open({
-      title: '📥 Vault Import & Export Center',
+      title: '📥 Website Directory Import & Template Center',
       bodyHtml: `
         <div style="display:flex;flex-direction:column;gap:16px">
+          <!-- Sample Template & Instructions Section -->
+          <div class="panel" style="background:linear-gradient(135deg,rgba(201,168,76,0.08),rgba(22,201,163,0.06));border:1px solid rgba(201,168,76,0.3);border-radius:8px;padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+              <div>
+                <div style="font-weight:700;font-size:13.5px;color:var(--gold);margin-bottom:4px">
+                  📋 Sample Template with Dummy Data
+                </div>
+                <div style="font-size:12px;color:var(--text2);line-height:1.4">
+                  Download our pre-formatted spreadsheet template. Replace the dummy rows with your actual websites and credentials, or upload directly.
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button id="btnDownloadSampleTemplateCsv" class="btn btn-gold btn-sm" style="font-weight:600">
+                  📥 Download Sample Template (.CSV)
+                </button>
+                <button id="btnDeleteDummyWebsitesModal" class="btn btn-outline btn-sm" style="color:var(--red);border-color:rgba(235,87,87,0.4)" title="Clear sample/dummy rows after entering real data">
+                  🗑️ Clear Dummy Websites
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Import Upload Section -->
+          <div class="panel" style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:14px">
+            <div style="font-weight:700;font-size:13.5px;color:var(--text);margin-bottom:4px">
+              📂 Upload Website Directory &amp; Accounts (.CSV / .JSON)
+            </div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+              Supports bulk websites, categories, login usernames, passwords, and renewal dates. All passwords are automatically encrypted via AES-256 before storage.
+            </div>
+
+            <div style="margin-bottom:12px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text2)">
+                <input type="checkbox" id="chkClearDummyBeforeImport" style="accent-color:var(--gold)">
+                <span>Automatically remove dummy sample entries upon importing</span>
+              </label>
+            </div>
+
+            <input type="file" id="vaultImportFileInput" accept=".csv,.json,.txt" style="margin-bottom:10px;font-size:12.5px;width:100%">
+            <div id="importPreviewArea" style="font-size:12px;color:var(--text2);margin-top:6px;line-height:1.5"></div>
+          </div>
+
           <!-- Export Section -->
           <div class="panel" style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:14px">
             <div style="font-weight:700;font-size:13.5px;color:var(--text);margin-bottom:4px">
-              📤 Export Vault Data
+              📤 Export &amp; Backup Vault
             </div>
             <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-              Download your website directory records. Per security specifications, plaintext credentials are never exported automatically.
+              Download your current directory. Plaintext passwords are protected per security architecture.
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button id="btnExportMetadataCsv" class="btn btn-outline btn-sm">
                 📄 Export Metadata (CSV)
               </button>
-              <button id="btnExportEncryptedBackup" class="btn btn-gold btn-sm">
+              <button id="btnExportEncryptedBackup" class="btn btn-outline btn-sm">
                 🔒 Download Encrypted Backup (JSON)
               </button>
             </div>
-          </div>
-
-          <!-- Import Section -->
-          <div class="panel" style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:14px">
-            <div style="font-weight:700;font-size:13.5px;color:var(--text);margin-bottom:4px">
-              📥 Import Websites Directory
-            </div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-              Import website metadata from CSV file with column mapping and duplicate URL prevention.
-            </div>
-            <input type="file" id="vaultImportFileInput" accept=".csv,.json" style="margin-bottom:10px;font-size:12px">
-            <div id="importPreviewArea" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
           </div>
         </div>
       `,
@@ -1746,6 +1846,16 @@ App.views.vault = (function () {
 
     const modal = document.querySelector('#sharedModal');
     if (!modal) return;
+
+    // Download Sample Template handler
+    modal.querySelector('#btnDownloadSampleTemplateCsv')?.addEventListener('click', () => {
+      downloadSampleWebsiteTemplateCsv();
+    });
+
+    // Delete dummy websites handler
+    modal.querySelector('#btnDeleteDummyWebsitesModal')?.addEventListener('click', () => {
+      deleteDummyWebsites();
+    });
 
     // Export non-sensitive metadata CSV
     modal.querySelector('#btnExportMetadataCsv')?.addEventListener('click', () => {
@@ -1804,6 +1914,22 @@ App.views.vault = (function () {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
 
+        const clearDummy = modal.querySelector('#chkClearDummyBeforeImport')?.checked;
+        if (clearDummy) {
+          const dummyNames = new Set([
+            'hdfc netbanking',
+            'zerodha kite',
+            'google workspace',
+            'income tax e-filing',
+            'example banking portal',
+          ]);
+          for (const s of state.websites) {
+            if (dummyNames.has((s.name || '').toLowerCase().trim())) {
+              try { await App.api.deleteWebsite(s.id); } catch (_) {}
+            }
+          }
+        }
+
         const reader = new FileReader();
         reader.onload = async (event) => {
           try {
@@ -1811,48 +1937,146 @@ App.views.vault = (function () {
             if (file.name.endsWith('.json')) {
               const data = JSON.parse(content);
               if (data.websites && Array.isArray(data.websites)) {
-                if (confirm(`Import ${data.websites.length} websites from backup?`)) {
-                  for (const s of data.websites) {
-                    try {
-                      await App.api.createWebsite({
-                        name: s.name,
-                        url: s.url,
-                        primary_category: s.primary_category || 'General',
-                        description: s.description,
-                        provider_name: s.provider_name,
-                        importance: s.importance || 'NORMAL',
-                      });
-                    } catch (_) {}
-                  }
-                  App.utils.toast('Backup restore completed.', 'ok');
-                  App.ui.close();
-                  render();
-                }
-              }
-            } else {
-              // Parse CSV lines
-              const lines = content.split('\n').filter((l) => l.trim().length > 0);
-              previewEl.textContent = `Found ${lines.length - 1} records in CSV. Processing import...`;
-              let importedCount = 0;
-              for (let i = 1; i < lines.length; i++) {
-                const cols = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
-                if (cols[0] && cols[1]) {
+                previewEl.textContent = `Processing ${data.websites.length} websites from backup...`;
+                for (const s of data.websites) {
                   try {
-                    await App.api.createWebsite({
-                      name: cols[0],
-                      url: cols[1],
-                      primary_category: cols[2] || 'General',
-                      provider_name: cols[3] || '',
+                    const createdSite = await App.api.createWebsite({
+                      name: s.name,
+                      url: s.url,
+                      primary_category: s.primary_category || 'General',
+                      description: s.description,
+                      provider_name: s.provider_name,
+                      importance: s.importance || 'NORMAL',
                     });
-                    importedCount++;
+                    if (s.accounts && Array.isArray(s.accounts)) {
+                      for (const acc of s.accounts) {
+                        try {
+                          await App.api.createWebsiteAccount(Object.assign({}, acc, { website_id: createdSite.id }));
+                        } catch (_) {}
+                      }
+                    }
                   } catch (_) {}
                 }
+                App.utils.toast('Backup restore completed successfully.', 'ok');
+                App.ui.close();
+                await loadData();
+                render();
               }
-              App.utils.toast(`Successfully imported ${importedCount} websites.`, 'ok');
+            } else {
+              // Parse CSV with robust row splitting
+              const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+              if (lines.length <= 1) {
+                previewEl.textContent = 'CSV file is empty or contains no records.';
+                return;
+              }
+
+              // Simple CSV line parser supporting quoted values
+              function parseCsvLine(text) {
+                const result = [];
+                let curr = '';
+                let inQuotes = false;
+                for (let i = 0; i < text.length; i++) {
+                  const ch = text[i];
+                  if (ch === '"') {
+                    if (inQuotes && text[i + 1] === '"') {
+                      curr += '"';
+                      i++;
+                    } else {
+                      inQuotes = !inQuotes;
+                    }
+                  } else if (ch === ',' && !inQuotes) {
+                    result.push(curr.trim());
+                    curr = '';
+                  } else {
+                    curr += ch;
+                  }
+                }
+                result.push(curr.trim());
+                return result;
+              }
+
+              const headerCols = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+              const nameIdx = headerCols.findIndex((h) => h.includes('website name') || h.includes('name'));
+              const urlIdx = headerCols.findIndex((h) => h.includes('url') || h.includes('link') || h.includes('domain'));
+              const catIdx = headerCols.findIndex((h) => h.includes('category') || h.includes('group'));
+              const impIdx = headerCols.findIndex((h) => h.includes('importance'));
+              const accNameIdx = headerCols.findIndex((h) => h.includes('account name') || h.includes('account'));
+              const userIdx = headerCols.findIndex((h) => h.includes('username') || h.includes('login id'));
+              const emailIdx = headerCols.findIndex((h) => h.includes('email'));
+              const mobIdx = headerCols.findIndex((h) => h.includes('mobile') || h.includes('phone'));
+              const pwdIdx = headerCols.findIndex((h) => h.includes('password') || h.includes('secret'));
+              const methodIdx = headerCols.findIndex((h) => h.includes('method'));
+              const notesIdx = headerCols.findIndex((h) => h.includes('notes'));
+              const renewIdx = headerCols.findIndex((h) => h.includes('renewal'));
+
+              previewEl.textContent = `Found ${lines.length - 1} records. Importing into vault...`;
+              let importedWebsites = 0;
+              let importedAccounts = 0;
+
+              for (let i = 1; i < lines.length; i++) {
+                const cols = parseCsvLine(lines[i]);
+                const siteName = nameIdx >= 0 ? cols[nameIdx] : cols[0];
+                const siteUrl = urlIdx >= 0 ? cols[urlIdx] : cols[1];
+                if (!siteName || !siteUrl) continue;
+
+                const primaryCategory = catIdx >= 0 ? cols[catIdx] : (cols[2] || 'General');
+                const importance = impIdx >= 0 ? cols[impIdx] : (cols[3] || 'NORMAL');
+                const renewalDate = renewIdx >= 0 ? cols[renewIdx] : null;
+
+                try {
+                  const createdSite = await App.api.createWebsite({
+                    name: siteName,
+                    url: siteUrl,
+                    primary_category: primaryCategory || 'General',
+                    importance: importance || 'NORMAL',
+                    renewal_date: renewalDate || null,
+                  });
+                  importedWebsites++;
+
+                  // Check if account details exist in this row
+                  const accDisplayName = (accNameIdx >= 0 ? cols[accNameIdx] : cols[4]) || 'Primary Account';
+                  const username = userIdx >= 0 ? cols[userIdx] : (cols[5] || '');
+                  const emailLogin = emailIdx >= 0 ? cols[emailIdx] : (cols[6] || '');
+                  const mobileLogin = mobIdx >= 0 ? cols[mobIdx] : (cols[7] || '');
+                  const rawPassword = pwdIdx >= 0 ? cols[pwdIdx] : (cols[8] || '');
+                  const loginMethod = methodIdx >= 0 ? cols[methodIdx] : (cols[9] || 'PASSWORD');
+                  const accountNotes = notesIdx >= 0 ? cols[notesIdx] : (cols[10] || '');
+
+                  if (username || emailLogin || rawPassword || mobileLogin) {
+                    let encPwd = '';
+                    let pwdIv = '';
+                    if (rawPassword && App.vaultCrypto) {
+                      const encRes = await App.vaultCrypto.encrypt(rawPassword);
+                      encPwd = encRes.ciphertext;
+                      pwdIv = encRes.iv;
+                    }
+                    await App.api.createWebsiteAccount({
+                      website_id: createdSite.id,
+                      display_name: accDisplayName,
+                      username: username || null,
+                      email_login: emailLogin || null,
+                      mobile_login: mobileLogin || null,
+                      encrypted_password: encPwd || null,
+                      password_iv: pwdIv || null,
+                      password_plain: rawPassword || null,
+                      login_method: loginMethod || 'PASSWORD',
+                      account_notes: accountNotes || null,
+                      is_default: true,
+                    });
+                    importedAccounts++;
+                  }
+                } catch (rowErr) {
+                  console.warn('CSV row import warning:', rowErr);
+                }
+              }
+
+              App.utils.toast(`Successfully imported ${importedWebsites} websites and ${importedAccounts} accounts.`, 'ok');
               App.ui.close();
+              await loadData();
               render();
             }
           } catch (err) {
+            previewEl.textContent = 'Import error: ' + err.message;
             App.utils.toast('Failed to parse import file: ' + err.message, 'err');
           }
         };
@@ -1988,5 +2212,7 @@ App.views.vault = (function () {
     openPasswordGeneratorModal,
     openImportExportModal,
     openAuditTrailModal,
+    downloadSampleWebsiteTemplateCsv,
+    deleteDummyWebsites,
   };
 })();

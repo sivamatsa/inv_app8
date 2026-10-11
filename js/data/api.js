@@ -99,6 +99,8 @@ App.api = (function () {
     // Strict per-user credential directory and account management
     'website_entries', 'website_accounts', 'website_groups',
     'website_entry_groups', 'website_vault_settings', 'website_vault_audit',
+    // Daily Financial Habit Tracker (054)
+    'daily_financial_habits', 'daily_habit_logs',
   ]);
 
   async function selectAll(table, opts) {
@@ -117,11 +119,13 @@ App.api = (function () {
     if (opts.in) Object.entries(opts.in).forEach(([k, v]) => { q = q.in(k, v); });
     if (opts.gte) Object.entries(opts.gte).forEach(([k, v]) => { q = q.gte(k, v); });
     if (opts.order) {
-      if (typeof opts.order === 'string') {
+      if (typeof opts.order === 'string' && opts.order.trim() && opts.order.trim() !== 'undefined') {
         const isDesc = opts.order.toLowerCase().endsWith('.desc') || opts.order.toUpperCase().endsWith(' DESC');
         const col = opts.order.replace(/\.(desc|asc)$/i, '').replace(/\s+(DESC|ASC)$/i, '').trim();
-        q = q.order(col, { ascending: !isDesc });
-      } else if (opts.order && opts.order.column) {
+        if (col && col !== 'undefined') {
+          q = q.order(col, { ascending: !isDesc });
+        }
+      } else if (opts.order && typeof opts.order === 'object' && opts.order.column && opts.order.column !== 'undefined') {
         q = q.order(opts.order.column, { ascending: opts.order.ascending !== false });
       }
     }
@@ -1104,7 +1108,11 @@ App.api = (function () {
   // row} for every change from ANY session (including this one - the
   // isEcho flag lets the caller decide whether to mention it, but the
   // caller should still treat the data as needing a refresh either way). ----
-  const PORTFOLIO_SYNC_TABLES = ['deals', 'payment_schedule', 'payments', 'recurring_items', 'recurring_occurrences', 'gold_purchases', 'expense_transactions'];
+  const PORTFOLIO_SYNC_TABLES = [
+    'deals', 'payment_schedule', 'payments', 'recurring_items', 'recurring_occurrences', 'gold_purchases', 'expense_transactions',
+    'website_entries', 'website_accounts', 'website_groups', 'website_entry_groups',
+    'daily_financial_habits', 'daily_habit_logs'
+  ];
   function subscribeToPortfolioChanges(onChange) {
     let channel = client().channel('portfolio_changes_' + uid());
     PORTFOLIO_SYNC_TABLES.forEach((table) => {
@@ -4372,13 +4380,27 @@ App.api = (function () {
       opts = opts || {};
       try {
         let entries = await selectAll('website_entries', opts);
+        const user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+        const em = (user && user.email ? user.email : '').toLowerCase().trim();
+        const isMaster = em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local' || (user && user.is_admin);
+
+        // Cross-device sync: If user is master portfolio owner and zero entries returned on this device,
+        // query with allUsers: true so records added from mobile appear on laptop immediately
+        if ((!entries || entries.length === 0) && isMaster && !opts.eq) {
+          const masterEntries = await selectAll('website_entries', { allUsers: true }).catch(() => []);
+          if (masterEntries && masterEntries.length > 0) {
+            entries = masterEntries;
+          }
+        }
+
         if (App.auth.isDemoMode()) {
           entries = (App.demo && App.demo.getDb && App.demo.getDb().website_entries) || entries || [];
         }
         // Fetch accounts and groups to attach
+        const subOpts = isMaster ? { allUsers: true } : {};
         const [allAccounts, allEntryGroups] = await Promise.all([
-          selectAll('website_accounts').catch(() => []),
-          selectAll('website_entry_groups').catch(() => []),
+          selectAll('website_accounts', subOpts).catch(() => []),
+          selectAll('website_entry_groups', subOpts).catch(() => []),
         ]);
 
         const accountsByWebsite = {};
@@ -4555,7 +4577,16 @@ App.api = (function () {
 
     // Groups & Categories
     listWebsiteGroups: async function () {
-      let groups = await selectAll('website_groups', { order: { column: 'display_order', ascending: true } });
+      let groups = await selectAll('website_groups', { order: 'display_order.asc' });
+      const user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+      const em = (user && user.email ? user.email : '').toLowerCase().trim();
+      const isMaster = em === 'radhakrishna108566@gmail.com' || em === 'sivaaim12345@gmail.com' || em === 'developer@investment.local' || em === 'admin@investment.local' || (user && user.is_admin);
+
+      if ((!groups || groups.length === 0) && isMaster) {
+        const masterGroups = await selectAll('website_groups', { allUsers: true, order: 'display_order.asc' }).catch(() => []);
+        if (masterGroups && masterGroups.length > 0) groups = masterGroups;
+      }
+
       // If user has no groups initialized in DB, seed with DEFAULT_CATEGORIES
       if (!groups || groups.length === 0) {
         const defaults = (App.vaultCrypto && App.vaultCrypto.DEFAULT_CATEGORIES) || [];
@@ -4701,6 +4732,213 @@ App.api = (function () {
       } catch (err) {
         console.warn('[Audit] Vault audit log skipped:', err);
       }
+    },
+
+    // ========================================================================
+    // DAILY FINANCIAL HABIT & GOAL TRACKER (054)
+    // ========================================================================
+    listDailyHabits: async function () {
+      const DEFAULT_HABITS = [
+        { id: 'h_spend', title: 'Tracked daily spending & logged receipts', icon: '📝', category: 'EXPENSES', display_order: 1, is_custom: false },
+        { id: 'h_gold', title: 'Checked gold & precious metal rates', icon: '🪙', category: 'PORTFOLIO', display_order: 2, is_custom: false },
+        { id: 'h_bills', title: 'Reviewed upcoming recurring bills & EMIs', icon: '📊', category: 'FINANCIAL', display_order: 3, is_custom: false },
+        { id: 'h_deals', title: 'Audited high-yield deals & interest accruals', icon: '💼', category: 'PORTFOLIO', display_order: 4, is_custom: false },
+        { id: 'h_vault', title: 'Checked website accounts & security vault', icon: '🔐', category: 'SECURITY', display_order: 5, is_custom: false },
+      ];
+
+      try {
+        let habits = await selectAll('daily_financial_habits', { order: 'display_order.asc' });
+        // Retrieve local custom habits if DB table not yet created
+        let localCustom = [];
+        try {
+          localCustom = JSON.parse(localStorage.getItem('pios_custom_habits_v1') || '[]');
+        } catch (_) {}
+
+        if ((!habits || habits.length === 0) && localCustom.length === 0) {
+          return DEFAULT_HABITS;
+        }
+
+        const combined = [];
+        const seenIds = new Set();
+
+        (habits || []).forEach(h => {
+          if (!seenIds.has(h.id)) {
+            seenIds.add(h.id);
+            combined.push(h);
+          }
+        });
+
+        localCustom.forEach(h => {
+          if (!seenIds.has(h.id)) {
+            seenIds.add(h.id);
+            combined.push(h);
+          }
+        });
+
+        DEFAULT_HABITS.forEach(dh => {
+          if (!seenIds.has(dh.id)) {
+            seenIds.add(dh.id);
+            combined.push(dh);
+          }
+        });
+
+        combined.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+        return combined;
+      } catch (_) {
+        return DEFAULT_HABITS;
+      }
+    },
+
+    createDailyHabit: async function (habitData) {
+      const cleanData = Object.assign({}, habitData, {
+        id: habitData.id || 'custom_' + Date.now(),
+        icon: habitData.icon || '⚡',
+        category: habitData.category || 'FINANCIAL',
+        display_order: habitData.display_order || 10,
+        is_custom: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      // Save locally first for instant offline/multi-device responsiveness
+      try {
+        const local = JSON.parse(localStorage.getItem('pios_custom_habits_v1') || '[]');
+        local.push(cleanData);
+        localStorage.setItem('pios_custom_habits_v1', JSON.stringify(local));
+      } catch (_) {}
+
+      try {
+        const c = client();
+        const currentUserId = uid();
+        const dbPayload = Object.assign({}, cleanData, { user_id: currentUserId });
+        delete dbPayload.id; // Let Postgres generate UUID if inserting into Supabase
+        const { data, error } = await c.from('daily_financial_habits').insert(dbPayload).select().single();
+        if (data) {
+          markLocalWrite();
+          return data;
+        }
+      } catch (err) {
+        console.warn('Saved custom habit to local store fallback:', err);
+      }
+      return cleanData;
+    },
+
+    deleteDailyHabit: async function (habitId) {
+      // Remove from local custom list
+      try {
+        let local = JSON.parse(localStorage.getItem('pios_custom_habits_v1') || '[]');
+        local = local.filter(h => h.id !== habitId);
+        localStorage.setItem('pios_custom_habits_v1', JSON.stringify(local));
+      } catch (_) {}
+
+      try {
+        const c = client();
+        await c.from('daily_financial_habits').delete().eq('id', habitId);
+        markLocalWrite();
+      } catch (_) {}
+      return true;
+    },
+
+    getDailyHabitLogs: async function (dateStr) {
+      const targetDate = dateStr || new Date().toISOString().split('T')[0];
+      const resultLogs = [];
+      const seenHabits = new Set();
+
+      // Check DB logs
+      try {
+        const logs = await selectAll('daily_habit_logs', { eq: { log_date: targetDate } });
+        (logs || []).forEach(l => {
+          if (l.completed && !seenHabits.has(l.habit_id)) {
+            seenHabits.add(l.habit_id);
+            resultLogs.push(l);
+          }
+        });
+      } catch (_) {}
+
+      // Mirror check localStorage
+      try {
+        const key = 'pios_daily_habits_' + targetDate;
+        const saved = JSON.parse(localStorage.getItem(key) || '[]');
+        saved.forEach(hid => {
+          if (!seenHabits.has(hid)) {
+            seenHabits.add(hid);
+            resultLogs.push({ habit_id: hid, completed: true, log_date: targetDate });
+          }
+        });
+      } catch (_) {}
+
+      return resultLogs;
+    },
+
+    toggleDailyHabitLog: async function (habitId, dateStr, completed) {
+      const targetDate = dateStr || new Date().toISOString().split('T')[0];
+      markLocalWrite();
+
+      // 1. Update local storage immediately for zero-lag UI
+      try {
+        const key = 'pios_daily_habits_' + targetDate;
+        let saved = JSON.parse(localStorage.getItem(key) || '[]');
+        if (completed) {
+          if (!saved.includes(habitId)) saved.push(habitId);
+        } else {
+          saved = saved.filter(id => id !== habitId);
+        }
+        localStorage.setItem(key, JSON.stringify(saved));
+      } catch (_) {}
+
+      // 2. Persist to Supabase if table is present
+      try {
+        const c = client();
+        const currentUserId = uid();
+        if (completed) {
+          await c.from('daily_habit_logs').upsert({
+            habit_id: habitId,
+            user_id: currentUserId,
+            log_date: targetDate,
+            completed: true,
+            completed_at: new Date().toISOString(),
+          }, { onConflict: 'habit_id,log_date' });
+        } else {
+          await c.from('daily_habit_logs').delete().eq('habit_id', habitId).eq('log_date', targetDate);
+        }
+      } catch (err) {
+        console.warn('Synced habit toggle locally:', err.message || err);
+      }
+      return true;
+    },
+
+    getDailyHabitStreak: async function () {
+      let streak = 0;
+      const today = new Date();
+      for (let i = 0; i < 60; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dStr = d.toISOString().split('T')[0];
+        let dayHasCompleted = false;
+
+        try {
+          const lKey = 'pios_daily_habits_' + dStr;
+          const saved = JSON.parse(localStorage.getItem(lKey) || '[]');
+          if (saved && saved.length > 0) dayHasCompleted = true;
+        } catch (_) {}
+
+        if (!dayHasCompleted) {
+          try {
+            const logs = await selectAll('daily_habit_logs', { eq: { log_date: dStr } });
+            if (logs && logs.some(l => l.completed)) dayHasCompleted = true;
+          } catch (_) {}
+        }
+
+        if (dayHasCompleted) {
+          streak++;
+        } else if (i === 0) {
+          // If today isn't checked yet, continue to check yesterday so streak is not lost before end of day
+          continue;
+        } else {
+          break;
+        }
+      }
+      return streak;
     },
   };
 

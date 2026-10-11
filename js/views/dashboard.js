@@ -100,6 +100,9 @@ window.App = window.App || {};
         <div id="dashActionCenterContent"></div>
       </div>
 
+      <!-- ⚡ Daily Financial Goal & Habit Tracker -->
+      <div id="dashDailyGoalTrackerBlock"></div>
+
       <!-- Question 5: 🎯 Am I progressing? (Portfolio Goals) & Recurring Commitments -->
       <div class="grid-2" style="margin-bottom:16px">
         <!-- Question 5: Goals -->
@@ -688,6 +691,14 @@ window.App = window.App || {};
           </div>
         </div>
       `;
+
+      // Render ⚡ Daily Financial Goal & Habit Tracker
+      if (App.dailyGoalTracker) {
+        const trackerContainer = App.utils.qs('#dashDailyGoalTrackerBlock', pane);
+        if (trackerContainer) {
+          App.dailyGoalTracker.render(trackerContainer);
+        }
+      }
     }
 
     // Emergency Fund Configuration & Management Engine

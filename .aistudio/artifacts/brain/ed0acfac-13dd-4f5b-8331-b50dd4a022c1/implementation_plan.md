@@ -1,148 +1,132 @@
-# Portfolio-Aware AI Copilot & Full-Page Advisor: Complete Portfolio Intelligence Plan
+# Website Vault Responsiveness, Cross-Device Sync, Directory Import & Dashboard Habit Tracker
 
-Comprehensive architectural specification and implementation roadmap to empower both the **Floating AI Copilot** (`js/lib/chatbot.js`) and the **Full-Page AI Advisor** (`js/views/aiCopilot.js`) to accurately answer questions referencing the user's **entire portfolio data**: Deals, SIPs/Recurring Investments, Bank FDs, Physical & Scheme Gold, Expense Projects & Ledgers, and Net Worth/Cash Flow.
+Comprehensive architecture and implementation plan addressing mobile and desktop dual-view display issues, multi-device synchronization for the Website & Account Vault, global and vault-level CSV/Excel directory import with template generation, and a new dashboard Daily Financial Habit Tracker with streaks and custom habit creation.
 
 ---
 
-## User Review & Critical Decisions
+### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Based on your explicit preferences:
-> 1. **Complete Portfolio Scope**: Both AI interfaces will reference the user's entire portfolio:
->    - **High-Yield Deals & Loans**: Active/Matured status, invested principal, current outstanding, annual ROI, payout frequency, installments, interest received vs. pending, payout reliability, and overdue schedules.
->    - **Systematic Recurring Investments & SIPs**: Active/paused plans, amounts, frequencies, start/end dates, total committed, total invested to date, consistency rates, and upcoming due dates.
->    - **Bank Accounts & Fixed Deposits (FDs)**: Account balances, FD principal, interest rate (% p.a.), start/maturity dates, accumulated interest to date, and maturity values.
->    - **Gold Vault & Bullion**: Physical purchases (grams, purity, jeweler, purchase price vs current market valuation) and monthly Gold Savings Schemes (accumulated grams, installments paid).
->    - **Expense Projects & Ledgers**: Project names, allocated budgets, total debited/spent, available project balances, top spending categories, and recent transaction records.
->    - **Net Worth & Cash Flow**: Total Net Worth, total assets, active liabilities/debt, liquid cash runway, 7/30/90-day cash flow inflow/outflow projections.
-> 2. **Dual Interaction Surfaces**:
->    - **Floating AI Copilot** (`#piosChatbotContainer` / docked launcher): Accessible from any screen in the app with floating chat history, model selection, live portfolio badge, quick chips, and collapsible settings.
->    - **Full-Page AI Advisor** (`#pane-aicopilot` / nav item `AI Portfolio Copilot`): Comprehensive cockpit with 1-click risk & health audit gauge, executive briefing generator, customizable prompt presets, and conversation history.
-> 3. **Triple-Layer Response Capability**:
->    - **Detailed Breakdown**: Exact numeric tables, audit metrics, ROI comparisons, transaction dates, and delinquent deal flags.
->    - **Concise Executive Summary**: C-Suite high-level totals, key ratios (debt-to-assets, liquid runway, weighted average yield).
->    - **Interactive Action Suggestions**: Clickable action pills and deep links (e.g., `[View Deal #102](#deals)`, `[Record Payment](#payments)`, `[Reconcile Cashflow](#reconciliation)`, `[Audit Risk](#risk)`) right inside bot answers.
+> The following decisions incorporate your confirmed answers from Phase 1:
+
+- **Confirmed Decision 1 (Daily Habit Tracker)**: The Dashboard will feature a dedicated **Daily Financial Habit Tracker** component offering an actionable daily checklist, live progress ring/meter, consecutive-day streak counter (e.g. 🔥 5-day streak), and a quick modal to create and manage custom habits.
+- **Confirmed Decision 2 (Import Buttons & Template)**: Import will be accessible from **both** the Website Vault toolbar (`📥 Import Directory`) and the Global Import Center (`js/views/imports.js`). It includes a one-click template download (`Websites_Directory_Template.csv` / `.xlsx`) populated with clear sample rows that are automatically excluded during import.
+- **Confirmed Decision 3 (Security Controls)**: Per your clarification regarding authorization, extra custom PIN/biometric gates are omitted. The vault leverages account session identity for stable AES-256-GCM symmetric decryption across devices, with configurable auto-lock duration, default password masking, and clipboard auto-clear in Vault Settings.
 
 ---
 
-## 1. Overview & Core Concept
+### 1. Overview & Core Concept
 
-### What It Does
-- **Unified Portfolio Grounding Engine (`App.portfolioIntelligence.buildFullPortfolioContext()`)**:
-  - Creates a single, canonical, client-side portfolio extraction pipeline that gathers data across all tables and stores without drift or duplicate queries.
-  - Summarizes data into structured, token-optimized Markdown sections formatted for Gemini (`gemini-3.8-flash` default with fast fallback to `gemini-3.1-flash-lite` and `gemini-flash-latest`).
-  - Includes institutional financial metrics: weighted ROI, portfolio concentration, debt leverage, liquidity buffer, and delinquency rate.
-- **Deep Grounding for Floating AI Copilot (`js/lib/chatbot.js`)**:
-  - Upgrades `getLivePortfolioContext()` from a 6-line deals summary to the complete multi-asset ledger context.
-  - Adds quick portfolio prompt starters: *"Summarize my FDs & SIPs"*, *"What is my total Gold vs Deals allocation?"*, *"Analyze expense project burn rate"*, *"Show overdue payments & at-risk capital"*.
-  - Adds interactive link/action click handlers inside rendered chat messages so clicking suggested actions routes immediately to the target view or opens the relevant modal.
-- **Enhanced Full-Page AI Advisor (`js/views/aiCopilot.js`)**:
-  - Synchronizes `assembleContext()` with the unified engine so the full-page view sends identical, rich context to `/api/chat` and `/api/copilot`.
-  - Upgrades the 1-Click Health Audit to evaluate FDs, Gold, SIPs consistency, and Expense project burn alongside Deals.
-  - Upgrades the local fallback calculation engine so even if offline or without an active API key, the local deterministic engine provides full numbers across Deals, FDs, Gold, SIPs, Expenses, and Net Worth.
-- **Backend API Resilience (`server.js`)**:
-  - The `/api/chat` route already supports `@google/genai` and `portfolioContext`. We ensure it handles token limits cleanly by structuring the prompt with clear delimiters and instructing the model to provide both high-level summaries and audit-level breakdowns when requested.
+- **What It Delivers**:
+  1. **Responsive Dual View & Toolbar**: Fixes the 240px static sidebar layout and cramped toolbar controls. On mobile screens (<768px), the layout smoothly switches to a responsive vertical stack with category scroll chips, full-width search, and dedicated touch-target buttons (≥44px). The Compact Table view gains smooth horizontal scrolling (`-webkit-overflow-scrolling: touch`) so tables never break mobile viewports.
+  2. **Reliable Multi-Device Sync**: Resolves the synchronization mismatch between mobile and laptop. Fixes the `column website_groups.undefined does not exist` query error in `selectAll`, stabilizes PBKDF2 key derivation using stable account identity so passwords decrypted on a second device succeed without session-token mismatch, wraps queries in resilient `Promise.allSettled`, and registers vault tables for real-time Postgres broadcast updates.
+  3. **Websites Directory Import & Template**: Provides a prominent `📥 Import Websites` action in the vault toolbar and integrates a dedicated Websites tab into the Global Import wizard. Users can download a pre-formatted template with dummy guide entries. The parser detects and skips dummy guide rows so only the user's authentic data is stored.
+  4. **Dashboard Daily Goal Tracker**: Adds a clean, motivating daily habits card into the main Dashboard view. Users can check off daily financial habits (such as logging transactions, checking gold spot rates, verifying bills, or monitoring portfolio metrics) with daily streak tracking and custom habit additions.
+
+- **Target Persona**: Personal investors and active portfolio managers tracking credentials, banking portals, and recurring financial discipline across both smartphone and laptop screens.
 
 ---
 
-## 2. User Experience & Visual Design
+### 2. User Experience & Visual Design
 
-### Unified Portfolio Context Hierarchy (Supplied to Gemini)
-```
-================ PORTFOLIO CONTEXT (REAL-TIME AUDIT) ================
-1. NET WORTH & LIQUIDITY:
-   • Total Net Worth: ₹X,XX,XXX (Assets: ₹X,XX,XXX | Liabilities: ₹XX,XXX)
-   • Liquid Cash in Accounts: ₹X,XX,XXX (Liquid Runway: X.X months)
-   • Cash Movement (30-day projected net): ₹+XX,XXX
+#### A. Mobile & Desktop Layout Architecture
+- **Desktop (≥1024px)**:
+  - Left navigation sidebar (240px) with clean view categories and count badges.
+  - Main workspace with toolbar: responsive search bar with instant clear button, Sort dropdown (`Name`, `Recently Used`, `Recently Added`, `Importance`, `Upcoming Renewal`), and segmented toggle (`🗂️ Cards` vs `☰ Table`).
+  - Cards grid auto-fits at `minmax(320px, 1fr)`. Compact Table view provides structured tabular view with fixed action columns and monospaced credential fields.
+- **Mobile (<768px)**:
+  - Vault sidebar collapses into horizontal swipeable category chips at the top (`All`, `Favorites`, `Banking`, `P2P`, `Gold`, `+ More Categories`), preventing the main content from being squeezed off-screen.
+  - Toolbar stacks into two clean rows: Row 1 is a full-width search input; Row 2 displays Sort dropdown, view mode toggle, and Import/Add action buttons with touch hitboxes $\ge 44\text{px}$.
+  - Compact Table view wrapped in `.table-scroll` container with horizontal touch-scroll indicator so all columns (Service, Category, Login ID, Password, Actions) remain easily accessible on 375px–430px viewports without horizontal clipping.
 
-2. HIGH-YIELD DEALS & CONTRACTS:
-   • Active Deals (N): Deal #1 [Name, Principal ₹XX,XXX, ROI XX%, Freq Monthly, Total Recv ₹XX,XXX, Payout Reliability XX%]
-   • Overdue / At-Risk Deals: [Deal #X - ₹XX,XXX overdue]
+#### B. Dashboard Daily Habit Tracker Component
+- **Placement**: Integrated into the Dashboard right alongside the macro Portfolio Goals card, completing the progression loop between micro daily habits and macro portfolio milestones.
+- **Visual Design**:
+  - Distinct gold-and-teal accented container with today's date badge and active streak counter (`🔥 X Days Streak`).
+  - Progress bar showing `X of Y completed today (Z%)`.
+  - Actionable checklist with 44px hit-target checkboxes for one-tap completion on phone or laptop.
+  - Preloaded with actionable habits:
+    - *Tracked daily spending / recorded cash receipt*
+    - *Checked gold rates & bullion spot prices*
+    - *Verified recurring investments & upcoming dues*
+    - *Reviewed banking or investment portal balances*
+  - `+ Add Habit` modal allowing custom habit title, icon, and frequency.
 
-3. SYSTEMATIC RECURRING INVESTMENTS & SIPS:
-   • Active Plans (N): [SIP Name - ₹X,XXX/mo, Invested to date ₹XX,XXX, Consistency XX%, Next Due YYYY-MM-DD]
-
-4. BANK ACCOUNTS & FIXED DEPOSITS (FD):
-   • Accounts (N): [HDFC Bank (Checking) ₹XX,XXX], [SBI FD ₹X,XX,XXX @ 7.1% p.a., Maturing YYYY-MM-DD, Accum Interest ₹X,XXX]
-
-5. GOLD & BULLION HOLDINGS:
-   • Physical Bullion: XX.X grams (Valuation ₹X,XX,XXX)
-   • Gold Schemes: [Scheme Name, XX.X grams accumulated, ₹XX,XXX paid]
-
-6. EXPENSE PROJECTS & RUNWAY:
-   • Projects (N): [Project Alpha - Budget ₹X,XX,XXX, Spent ₹XX,XXX, Balance ₹XX,XXX]
-====================================================================
-```
-
-### Interactive Bot Response Layout (Both Floating & Full-Page)
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ 💼 AI Financial Advisor                                      Gemini 3.8│
-├────────────────────────────────────────────────────────────────────────┤
-│ Here is the full breakdown of your portfolio across all 6 asset classes:│
-│                                                                        │
-│ 📊 Executive Summary                                                  │
-│ • Net Worth: ₹48,50,000 across 8 active deals, 3 SIPs, 2 FDs & Gold.  │
-│ • Weighted Yield: 14.8% p.a. with 92% payout reliability.             │
-│                                                                        │
-│ 📋 Detailed Audit Matrix                                              │
-│ | Asset Class | Total Principal | Current Value | Monthly Inflow/Yield │
-│ | Deals       | ₹25,00,000      | ₹25,80,000    | ₹32,500 (15.6%)     │
-│ | Bank FDs    | ₹10,00,000      | ₹10,42,000    | ₹5,916 (7.1%)       │
-│ | SIPs        | ₹5,00,000       | ₹5,60,000     | -₹15,000 committed  │
-│ | Gold        | ₹6,50,000       | ₹7,20,000     | 85.5 grams          │
-│                                                                        │
-│ ⚡ Recommended Quick Actions                                           │
-│ [📌 View Overdue Schedules]  [💳 Record Deal Payment]  [📈 Rebalance]  │
-└────────────────────────────────────────────────────────────────────────┘
-```
+#### C. Websites Directory Import & Template Flow
+- **Toolbar Trigger**: Prominent `📥 Import Directory` button located in both the Website Vault top action bar and the Global Import center (`#pane-import`).
+- **Template Generator**: Download button generates `Websites_Directory_Template.csv` pre-filled with 3 clearly marked sample entries (`[Sample] HDFC NetBanking`, `[Sample] Groww Mutual Funds`, `[Sample] MMTC-PAMP Gold`).
+- **Smart Dummy Data Stripping**: The importer checks each row. Rows containing `[Sample]` or placeholder domains are flagged and automatically skipped with an informative notice: *"3 dummy template rows skipped, 5 real records imported."*
 
 ---
 
-## 3. Technical Architecture & File Modifications
+### 3. Key Product Decisions & Trade-Offs
 
-### A. New Unified Portfolio Intelligence Module: `js/lib/portfolioIntelligence.js`
-- Create a dedicated singleton `App.portfolioIntelligence` loaded in `index.html`.
-- Exposes:
-  - `gatherAllPortfolioData()`: Single parallel `Promise.all` fetching Deals, Metrics, Recurring Items, Recurring Consistency, Gold Purchases, Gold Schemes, Expense Projects, Expense Summaries, Accounts (including FDs), Liabilities, Cash Flow, and Net Worth.
-  - `buildFullPortfolioContextText(data)`: Serializes all 6 asset classes into structured markdown text formatted for system instructions.
-  - `computeComprehensiveAudit(data)`: Computes institutional health metrics, diversification score, liquidity buffer, and delinquency rate.
-  - `generateInteractiveLocalReport(question, data)`: Produces institutional local answers when offline or without Gemini API key, honoring the requested detail levels (Summary, Audit Table, Action Suggestions).
-
-### B. Floating AI Copilot: `js/lib/chatbot.js`
-- Replace primitive `getLivePortfolioContext()` with `App.portfolioIntelligence.buildFullPortfolioContextText()`.
-- Update `systemPrompt` across all 4 personas (Advisor, Risk Auditor, Tax Strategist, Cash Flow Specialist) to explicitly guide multi-asset awareness:
-  - *"Always cross-reference the user's Deals, SIPs, Bank FDs, Gold, Expense projects, and Net Worth metrics when answering."*
-  - *"Structure answers with: 1) Concise Executive Summary, 2) Granular breakdown with verified figures, and 3) Actionable next steps formatted as clickable hash links like `[Go to Deals](#deals)` or `[Open Payments](#payments)`."*
-- Enhance markdown renderer to parse and render interactive action pills (`[Action Label](#route)`).
-- Add new quick starter prompts covering the full asset spectrum (FDs, SIPs, Gold vs. Deals, Expense Burn).
-
-### C. Full-Page AI Advisor: `js/views/aiCopilot.js`
-- Update `assembleContext()` to use `App.portfolioIntelligence.gatherAllPortfolioData()`.
-- Update the Gemini system instruction in `ask()` to match the comprehensive portfolio persona.
-- Enhance the 1-Click Health & Risk Audit display to highlight FD coverage, Gold hedge ratio, and SIP consistency alongside Deals.
-- Enhance the local fallback engine to output the full multi-asset snapshot when the server endpoint is unreachable.
-
-### D. Server Chat Endpoint: `server.js`
-- Refine system instruction prompt concatenation to ensure large multi-asset context strings are cleanly partitioned and prioritized.
-- Ensure model candidate chain (`gemini-3.8-flash` -> `gemini-3.1-flash-lite` -> `gemini-flash-latest`) reliably passes portfolio context with temperature 0.4 for financial precision.
-
-### E. Script Inclusions: `index.html`
-- Register `<script src="js/lib/portfolioIntelligence.js"></script>` before `js/views/aiCopilot.js` and `js/lib/chatbot.js`.
+- **Decision 1: Device-Agnostic Cryptographic Key Derivation**:
+  - *Chosen Approach*: Derive vault encryption keys from the stable user account identity (`user.id` + stable account salt) rather than the volatile per-device `session.access_token`.
+  - *Why*: In Supabase Auth, `access_token` values are distinct per device and change on token refresh. Deriving symmetric AES-GCM keys from volatile access tokens meant mobile-encrypted data could not be decrypted on a laptop. Using the stable user identifier allows seamless cross-device synchronization while preserving AES-256-GCM authenticated encryption.
+- **Decision 2: Resilient Data Fetching with `Promise.allSettled`**:
+  - *Chosen Approach*: Replace strict `Promise.all` in `loadData()` with `Promise.allSettled` and safeguard `selectAll` ordering parameters against `undefined` column errors.
+  - *Why*: A minor ordering syntax issue in `website_groups` previously caused the entire vault view to crash and display zero websites. With resilient resolution and guarded SQL parameters, website entries always load and render even if secondary group tags require a fallback.
+- **Decision 3: Habit Tracker State Persistence**:
+  - *Chosen Approach*: Store daily habit state in user-scoped database settings (`App.api.saveVaultSettings` / `system_kv` / localStorage dual-write) with automatic day rollover based on local calendar dates.
+  - *Why*: Ensures habit check-offs made on mobile are immediately reflected when opening the dashboard on laptop, without requiring schema modifications.
 
 ---
 
-## 4. Verification & Testing Plan
+### 4. Technical Architecture & Data Strategy
 
-1. **Compilation & Syntax Check**: Verify that all 71+ scripts load without JavaScript syntax errors via Node execution test.
-2. **Context Assembly Test**: Verify `App.portfolioIntelligence.buildFullPortfolioContextText()` outputs verified figures for all 6 domains (Deals, SIPs, FDs, Gold, Expenses, Net Worth).
-3. **Floating AI Copilot Verification**:
-   - Open floating widget and ask: *"Give me a complete breakdown of my portfolio across Deals, SIPs, FDs, Gold, and Expenses."*
-   - Verify that the response includes exact figures from all asset classes.
-   - Verify that interactive action suggestions appear and clicking them navigates to the respective views (`#deals`, `#recurring`, `#payments`, `#expenses`).
-4. **Full-Page AI Advisor Verification**:
-   - Navigate to `#aicopilot`.
-   - Run the 1-Click Health Audit; verify it accounts for FDs, Gold, and SIPs.
-   - Ask: *"What is my total passive monthly inflow vs recurring commitments?"*
-   - Verify that deals interest and SIP commitments are accurately juxtaposed.
-5. **Fallback Resilience Test**: Test response behavior when offline or with simulated network failure to ensure the deterministic local analytical engine outputs accurate multi-asset figures.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            PERSONAL INVESTMENT OS                           │
+├──────────────────────────────────────┬──────────────────────────────────────┤
+│              DASHBOARD VIEW          │         WEBSITE & ACCOUNT VAULT      │
+│  ┌────────────────────────────────┐  │  ┌────────────────────────────────┐  │
+│  │ Daily Habit Tracker Component  │  │  │ Responsive Toolbar & Filters   │  │
+│  │ - Daily Check-off List         │  │  │ - Search (375px-1440px)        │  │
+│  │ - Streak Counter & Progress    │  │  │ - Cards View 🗂️ / Table ☰     │  │
+│  │ - "+ Add Habit" Modal          │  │  │ - Horizontal Mobile Scroll     │  │
+│  └────────────────────────────────┘  │  └────────────────────────────────┘  │
+│                  │                   │                  │                   │
+│                  ▼                   │                  ▼                   │
+│  ┌────────────────────────────────┐  │  ┌────────────────────────────────┐  │
+│  │ Global Data Import Center      │  │  │ Import Directory Modal & CSV   │  │
+│  │ - Added "Website Vault" Tab    │  │  │ - Template with Sample Data    │  │
+│  │ - Unified Excel / CSV Wizard   │  │  │ - Auto Dummy Row Filter        │  │
+│  └────────────────────────────────┘  │  └────────────────────────────────┘  │
+├──────────────────────────────────────┴──────────────────────────────────────┤
+│                          CORE CLIENT & SYNC LAYER                           │
+│  ┌─────────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
+│  │ vaultCrypto.js          │  │ api.js              │  │ Realtime Sync   │  │
+│  │ - Cross-device PBKDF2   │  │ - selectAll Fix     │  │ - Vault channel │  │
+│  │ - AES-256-GCM cipher    │  │ - listWebsites      │  │ - Echo suppr.   │  │
+│  └─────────────────────────┘  └─────────────────────┘  └─────────────────┘  │
+│                                      │                                      │
+│                                      ▼                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                 Supabase PostgreSQL Backend (Remote)                 │  │
+│  │ - website_entries  - website_accounts  - website_groups  - settings    │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Step-by-Step Execution Plan
+1. **Fix `api.js` Order Parser & Real-Time Sync**:
+   - Guard `selectAll(table, opts)` against `{ order: { column: undefined } }` to eliminate `column website_groups.undefined does not exist`.
+   - Update `listWebsites` to handle null or empty groups gracefully.
+   - Add `website_entries` and `website_accounts` to real-time subscription channels.
+2. **Fix `vaultCrypto.js` Cross-Device Key Derivation**:
+   - Update `deriveSessionKey` to use stable `userId` and salt so data encrypted on mobile decrypts on laptop seamlessly.
+3. **Refactor `websiteVault.js` for Mobile & Desktop Responsiveness**:
+   - Add media queries and responsive wrappers to `vault-body-layout` so the sidebar collapses into a top horizontal scrollbar on mobile.
+   - Refactor `.vault-toolbar` into responsive flex wrapping with full-width search input on small screens.
+   - Ensure `.vault-cards-grid` and `renderCompactTable` scroll smoothly on mobile with touch support.
+4. **Implement Directory Import & Template**:
+   - Add `📥 Import Directory` button directly on the vault toolbar.
+   - Implement `generateWebsitesTemplate()` creating a CSV/XLSX template with dummy rows.
+   - Build import parser with duplicate URL detection and automatic dummy row exclusion.
+   - Add Website Vault import option to `js/views/imports.js`.
+5. **Build Dashboard Daily Goal Tracker**:
+   - Implement `renderDailyHabitsTracker()` in `js/views/dashboard.js`.
+   - Add streak calculation logic, toggle event handlers, and `+ Add Habit` modal.
+6. **Compile & Lint Verification**:
+   - Run syntax checks and `compile_applet` to confirm build health.

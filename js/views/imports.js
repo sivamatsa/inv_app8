@@ -285,13 +285,21 @@ window.App = window.App || {};
           </div>
 
           <div id="excelImportSection">
-            <div class="hint" style="margin-bottom:10px">New to importing? <a href="Investment_Import_Template.xlsx" download style="color:var(--gold)">&#8595; Download the Import Template</a> - one sheet per type (Deals, Recurring Items, Recurring History, Payments, Bank Reconciliation, Contacts) with sample rows and every dropdown's valid values documented.</div>
+            <div class="hint" style="margin-bottom:10px;line-height:1.5">
+              <span>New to importing? </span>
+              <a href="Investment_Import_Template.xlsx" download style="color:var(--gold);font-weight:600">&#8595; Download Financial Workbook Template (.XLSX)</a>
+              <span style="color:var(--text3)"> &middot; </span>
+              <a href="javascript:void(0)" id="btnDownloadVaultTemplateFromGlobal" style="color:var(--teal);font-weight:600">&#8595; Download Website Directory &amp; Password Vault Template (.CSV)</a>
+              <div style="font-size:11.5px;color:var(--text3);margin-top:2px">
+                Covers Deals, Recurring Items, History, Payments, Bank Reconciliation, Contacts, and Website &amp; Account Vault credentials with sample dummy data.
+              </div>
+            </div>
             <div class="dropzone" id="importDropzone">
               <div class="dropzone-icon">&#128202;</div>
               <div class="dropzone-title">Drop your Excel/CSV file here, or click to browse</div>
-              <div class="dropzone-sub">Sheets are auto-detected by name: "Deals" (+ optional "Payments"), "Recurring Items" (+ optional "Recurring History"), and/or "Contacts".</div>
+              <div class="dropzone-sub">Sheets and files auto-detected: "Deals", "Recurring Items", "Contacts", "Expenses", or "Websites &amp; Accounts Vault".</div>
             </div>
-            <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="display:none">
+            <input type="file" id="importFileInput" accept=".xlsx,.xls,.csv,.json" style="display:none">
           </div>
 
           <div id="ocrImportSection" style="display:none">
@@ -375,6 +383,29 @@ window.App = window.App || {};
         ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
         ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
         dz.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+        App.utils.qs('#btnDownloadVaultTemplateFromGlobal', host)?.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (App.websiteVault && typeof App.websiteVault.downloadSampleWebsiteTemplateCsv === 'function') {
+            App.websiteVault.downloadSampleWebsiteTemplateCsv();
+          } else {
+            const csvHeader = 'Website Name,Website URL,Category,Importance,Account Name,Username,Email Login,Mobile Login,Password,Login Method,Notes,Renewal Date\n';
+            const sampleRows = [
+              '"HDFC NetBanking","https://netbanking.hdfcbank.com","Banking & Finance","CRITICAL","Personal Savings Account","hdfc_investor_99","user.investor@example.com","+919876543210","HdfcPass#2026","PASSWORD_2FA","Primary bank savings account","2027-12-31"',
+              '"Zerodha Kite","https://kite.zerodha.com","Trading & Demat","HIGH","Equity Trading Demat","ZR9842","trader.equity@example.com","+919876543210","KiteAlpha#9842","PASSWORD_2FA","Primary stock brokerage account",""',
+              '"Google Workspace","https://workspace.google.com","Cloud & Productivity","NORMAL","Admin Superuser","admin@mybusiness.com","admin@mybusiness.com","","Workspace#2026","SSO_GOOGLE","Cloud drive and business email","2026-11-15"',
+              '"Income Tax e-Filing","https://eportal.incometax.gov.in","Government & Tax","HIGH","PAN Assessment Login","ABCDE1234F","taxpayer@example.com","","TaxPortal#2026","PASSWORD","Annual ITR filing and 26AS verification",""',
+            ].join('\n');
+            const blob = new Blob([csvHeader + sampleRows], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'Website_Directory_Sample_Template.csv';
+            link.click();
+            URL.revokeObjectURL(url);
+            App.utils.toast('Sample CSV template downloaded with dummy data.', 'ok');
+          }
+        });
 
         // OCR Handlers and Terminal State
         let ocrTerminalLogs = [];
@@ -1467,7 +1498,8 @@ window.App = window.App || {};
           const recurringItemSheetName = wb.SheetNames.find((n) => /recurring.*item/i.test(n));
           const paymentSheetName = wb.SheetNames.find((n) => /payment/i.test(n));
           const contactSheetName = wb.SheetNames.find((n) => /contact/i.test(n));
-          const namedSheets = [recurringHistorySheetName, recurringItemSheetName, paymentSheetName, contactSheetName];
+          const websiteVaultSheetName = wb.SheetNames.find((n) => /website|vault|credential|account.*directory/i.test(n));
+          const namedSheets = [recurringHistorySheetName, recurringItemSheetName, paymentSheetName, contactSheetName, websiteVaultSheetName];
           // The user's real expense sheet has no name to go on ("Sheet1",
           // etc.) - "Dr/Cr" is a genuinely distinctive header no other
           // sheet type in this file uses, so any not-yet-claimed sheet
@@ -1481,6 +1513,32 @@ window.App = window.App || {};
               return firstRow.some((h) => /dr\s*\/?\s*cr|debit.*credit/i.test(String(h)));
             });
           }
+
+          // Check if this file is a Website Directory CSV or sheet
+          let isVaultFile = !!websiteVaultSheetName;
+          if (!isVaultFile && wb.SheetNames.length === 1) {
+            const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', header: 1 });
+            const headers = (firstSheetRows[0] || []).map(h => String(h).toLowerCase());
+            if (headers.some(h => h.includes('website') || h.includes('url') || h.includes('domain')) && headers.some(h => h.includes('password') || h.includes('login') || h.includes('username'))) {
+              isVaultFile = true;
+            }
+          }
+
+          if (isVaultFile) {
+            const vaultSheet = wb.Sheets[websiteVaultSheetName || wb.SheetNames[0]];
+            const vaultRows = XLSX.utils.sheet_to_json(vaultSheet, { defval: '' });
+            if (vaultRows.length > 0) {
+              App.utils.toast(`Detected Website & Account Directory (${vaultRows.length} entries). Opening Website Vault Import Center...`, 'ok');
+              App.router.navigate('vault');
+              setTimeout(() => {
+                if (App.websiteVault && typeof App.websiteVault.openImportExportModal === 'function') {
+                  App.websiteVault.openImportExportModal();
+                }
+              }, 200);
+              return;
+            }
+          }
+
           // Only fall back to "first sheet" for Deals when nothing more
           // specific matched at all - otherwise a file containing only
           // Recurring Items/History/Contacts/Expense sheets would wrongly
@@ -1526,7 +1584,7 @@ window.App = window.App || {};
             wizardState.expenseMapping = autoMap(wizardState.expenseHeaders, EXPENSE_TARGETS);
           }
           if (!wizardState.dealRows.length && !wizardState.recurringItemRows.length && !wizardState.recurringHistoryRows.length && !wizardState.contactRows.length && !wizardState.expenseRows.length) {
-            App.utils.toast('No recognized rows found (Deals, Recurring Items, Recurring History, Contacts, or Expense Transactions sheet)', 'err');
+            App.utils.toast('No recognized rows found (Deals, Recurring Items, Recurring History, Contacts, Expense Transactions, or Websites Directory)', 'err');
             return;
           }
           wizardState.step = 2;
