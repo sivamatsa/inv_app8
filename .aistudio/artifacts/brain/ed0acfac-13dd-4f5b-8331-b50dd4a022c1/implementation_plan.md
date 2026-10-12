@@ -1,99 +1,106 @@
-# Restoration of Investment OS & Seamless Integration of Recharge Intelligence India
+# Missed Payments Management & Website Directory Import Sync
 
-Restore the complete **Personal Investment Operating System (Investment OS)** as the primary application on the root route (`/`), while integrating **Recharge Intelligence India** as an integrated view in the sidebar under a **Utility** group, complete with an instant "Open in New Tab" launcher and a dedicated standalone route at `/recharge`.
+Implement a dedicated **Missed Payments** management tab within the Payments workspace with actionable workflows (Record Payment, Reschedule, Waive) that synchronize seamlessly to deals and portfolio cash flows, and repair the Website Directory CSV import engine to ensure robust vault decryption/encryption and automatic recording to the Global Import history.
 
 ---
 
-## User Review & Critical Decisions
+### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Investment OS is preserved in its entirety—including authentication, portfolios, deals, payments, calendar, wealth intelligence, and database synchronization. Recharge Intelligence India will be integrated alongside it without modifying or destabilizing any existing investment schemas or handlers.
-
-- **Confirmed Sidebar Location**: Add a **Utility** navigation group in `NAV_STRUCTURE` inside Investment OS with a new item **Recharge Intelligence** (Icon: `⚡`).
-- **Confirmed View Presentation**:
-  - Selecting "Recharge Intelligence" from the sidebar renders the full comparison platform as a dedicated view inside the main content canvas of Investment OS.
-  - A quick-action button in the view header and sidebar allows opening the tool in a new browser tab (`target="_blank"`) at `/recharge` for distraction-free mobile plan lookups.
-- **Confirmed Route Architecture**:
-  - `/` -> Primary entry point serving the full Investment OS application.
-  - `/recharge` -> Dedicated standalone URL serving Recharge Intelligence India with full viewport immersion.
-  - `/api/plans`, `/api/refresh`, `/api/diagnostics` -> Backend API endpoints serving both the integrated view and standalone tool.
+> The architectural design aligns directly with the choices confirmed during clarification:
+> - **Dedicated Tab Location**: A first-class tab **"Missed Payments"** placed in the primary Payments workspace alongside *Schedule*, *Ledger*, and *Reconciliation*.
+> - **Comprehensive Action Capabilities**: Every missed payment row features an explicit action menu and quick-action buttons for **Record Payment**, **Reschedule Due Date**, and **Waive Payment**, with modal workflows for transaction logging and audit notes.
+> - **Global Import History Sync**: Website Directory CSV imports seamlessly log structured execution records into the **Global Import** history tab (`import_history`), including item counts, success metrics, and timestamps.
 
 ---
 
-## 1. Overview & Core Concept
+### 1. Overview & Core Concept
 
-- **Primary Goal**: Ensure the user has their complete, fully functioning Personal Investment OS active on `/` with zero broken functionality, while having instant access to the telecom recharge comparison engine inside a dedicated sidebar tab and via standalone URL `/recharge`.
-- **Target Audience**: The investor managing assets, deals, and finances who also needs quick access to authentic, verified telecom recharge plans without cluttering the financial workflow.
-- **Key Value**: Both applications coexist seamlessly. Investment OS retains its bank-grade UI and Supabase portfolio vault, while Recharge Intelligence India operates independently as a dedicated utility tool.
-
----
-
-## 2. User Experience & Visual Design
-
-### User Navigation Flows
-1. **Investment OS Discovery**: The user opens the site (`/`) and enters Investment OS directly (with the sign-in/demo mode, portfolio dashboard, deals, payments, etc.).
-2. **Accessing Recharge Intelligence Inside App**:
-   - The user opens the left sidebar navigation.
-   - Under the **Utility** section, a **Recharge Intelligence** link (`⚡`) is visible.
-   - Clicking it navigates to the `recharge` view pane inside `#viewContainer`, rendering the full telecom plan comparison dashboard with operator filters, search, 5G toggles, and side-by-side comparisons.
-3. **New Tab Launch**:
-   - Inside the Recharge view header, an **"Open in New Tab ↗"** button allows opening `/recharge` in a separate browser tab anytime.
-4. **Standalone Route (`/recharge`)**:
-   - Directly accessing `/recharge` serves the standalone responsive Recharge Intelligence platform.
+- **What It Does**:
+  1. **Missed Payments Tab & Action Suite**: Identifies overdue and unpaid installments across all deals in the portfolio. Provides inline and modal actions to immediately record receipts, adjust payment milestones (reschedule), or waive fees/installments with full synchronization into deal status, ledger balances, and portfolio KPIs.
+  2. **Website Directory CSV Import Engine**: Fixes file parsing and cryptographic credential generation so bulk CSV records import directly into the user's unlocked Website & Account Vault, while reliably logging the import batch to the Global Import history table.
+- **Target Audience / Persona**: Portfolio managers, investors, and operations leads tracking active deal servicing, loan schedules, overdue receivables, and secure website credentials.
+- **Key Value**: Closes the operational loop on delinquent/missed payments by eliminating manual recalculation across deals and portfolio metrics, while providing reliable bulk data onboarding for website accounts.
 
 ---
 
-## 3. Key Technical Decisions & Architecture
+### 2. User Experience & Visual Design
 
-- **Decision 1: Restoring Original Root Entry Point (`index.html`)**:
-  - *Approach*: Rebuild `index.html` to load Investment OS's complete stylesheet (`css/app.css`), libraries (Supabase, Chart.js, SheetJS, Tesseract), and script modules in proper dependency order.
-  - *Why*: Investment OS requires its full set of views, models, and UI scripts to mount properly.
-- **Decision 2: Standalone Tool at `/recharge` & `public/recharge.html`**:
-  - *Approach*: Move the standalone Recharge Intelligence markup to `public/recharge.html` and configure Express to serve it on `/recharge`.
-  - *Why*: Satisfies the user requirement for both a dedicated `/recharge` route and full standalone experience.
-- **Decision 3: Dedicated View Module `js/views/recharge.js`**:
-  - *Approach*: Implement `App.views.recharge` conforming to the Investment OS view protocol (`render(container, state)`), rendering the interactive comparison UI with reactive filters and dark/light theme syncing.
+#### A. Key User Flows
+1. **Missed Payments Review & Action Flow**:
+   - The user opens the **Payments** screen and clicks the new **"Missed Payments"** tab (annotated with an overdue count badge).
+   - A summary header displays key delinquent metrics: *Total Overdue Amount*, *Count of Delinquent Deals*, and *Average Days Overdue*.
+   - The user filters or searches by deal name, borrower, or overdue severity (>30d, >60d, >90d).
+   - In each row, the user can click:
+     - **Record Payment**: Opens the payment drawer/modal with the deal and installment preselected, payment date defaulting to today, amount prefilled with principal/interest breakdown, and payment mode options. Submitting logs the payment, updates the schedule item to `PAID`, triggers deal balance recalculation, and refreshes the portfolio ledger.
+     - **Reschedule**: Opens a date picker modal to set a new due date and optional notes. Updates schedule item date and resets status to `PENDING` / `UPCOMING`.
+     - **Waive**: Opens a confirmation dialog requesting an optional waiver justification. Marks schedule status as `WAIVED`, adjusts expected deal totals, and logs an audit entry.
+2. **Website Directory CSV Import Flow**:
+   - In the **Website Vault** or **Global Import** tab, the user uploads a CSV file containing website credentials.
+   - The system parses headers (Domain/Title, URL, Username, Password, 2FA/Notes, Category).
+   - Accounts are encrypted and saved into `website_vault_items`.
+   - A new import batch record is committed to `import_history` with type `WEBSITES`, filename, total processed, error counts, and status `COMPLETED`.
+   - The vault view automatically re-renders and the Global Import history tab reflects the new entry with a direct badge.
+
+#### B. Visual Theme & Layout Specifications
+- **Tabular Numerals**: Overdue amounts, days delinquent, and deal identifiers utilize `font-variant-numeric: tabular-nums` (`font-mono`) to prevent visual shifting.
+- **Status Indicators**:
+  - Overdue badge: Subtle red/amber border and text (`st-missed` / `st-overdue`) adhering to the zero-pill design rules.
+  - Days overdue kicker: Crisp typographic inline text (`42 days overdue · Deal #DL-104`).
+- **High-Density Data Grid**: Row heights aligned between 38px and 44px with right-aligned currencies and left-aligned entities.
 
 ---
 
-## 4. Technical Architecture Diagram
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Direct Integration with Existing `recordPayment` and Deal Sync**:
+  - *Chosen Approach*: Leverage the core `App.api.recordPayment` routine rather than creating an isolated payments handler.
+  - *Why*: Guarantees that ledger entries, deal balance reductions, and portfolio totals update in a single atomic flow with full schema integrity.
+- **Decision 2: Comprehensive Overdue Detection**:
+  - *Chosen Approach*: Combine explicit database status (`MISSED` or `OVERDUE`) and dynamically calculated overdue items (`status === 'PENDING'` with `due_date < today`).
+  - *Why*: Prevents missed installments from silently vanishing if scheduled cron jobs or status update triggers have not run yet.
+- **Decision 3: Global Import Logging Contract**:
+  - *Chosen Approach*: Call `App.api.createImport` and `App.api.updateImport` whenever a Website Directory import is executed from either the Vault modal or Global Import tab.
+  - *Why*: Fulfills the user requirement that website uploads are tracked in the Global Import tab with identical auditing standards as investment and payment sheets.
+
+---
+
+### 4. Technical Architecture & Data Strategy
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   Express Server (Node.js runtime)                     │
-│                                                                        │
-│   ├── GET /          -> Serves Investment OS (index.html)              │
-│   ├── GET /recharge  -> Serves Standalone Recharge Tool (recharge.html)│
-│   └── GET /api/*     -> Telecommunication Plan & Diagnostics APIs      │
-└───────────────────┬──────────────────────────────────┬─────────────────┘
-                    │                                  │
-         ┌──────────▼──────────┐            ┌──────────▼──────────┐
-         │    Investment OS    │            │ Recharge Standalone │
-         │   (Primary Canvas)  │            │     (/recharge)     │
-         │                     │            └─────────────────────┘
-         │  ├── Dashboard      │
-         │  ├── Deals          │
-         │  ├── Payments       │
-         │  ├── Vault          │
-         │  └── Utility:       │
-         │      Recharge (⚡)  │
-         │      [Open in Tab ↗]│
-         └─────────────────────┘
+│                          Payments Workspace                            │
+│  [ Schedule ]    [ Ledger ]    [ Reconciliation ]    [ Missed Payments* ]│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Missed Payments Tab View                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │ Metrics Bar: Total Overdue · Delinquent Deals · Critical (>60d)  │  │
+│  ├──────────────────────────────────────────────────────────────────┤  │
+│  │ Overdue Schedule Table with Action Buttons                       │  │
+│  │  - Deal & Contact Info   - Due Date & Days Overdue               │  │
+│  │  - Expected Principal    - Expected Interest / Late Fee          │  │
+│  │  - Actions: [ Record Payment ]  [ Reschedule ]  [ Waive ]        │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                 ┌──────────────────┼──────────────────┐
+                 ▼                  ▼                  ▼
+          [ Record Modal ]   [ Reschedule Modal ] [ Waive Modal ]
+                 │                  │                  │
+                 ▼                  ▼                  ▼
+        App.api.recordPayment   App.api.updateSched   App.api.updateSched
+                 │                  │                  │
+                 └──────────────┬───┴──────────────────┘
+                                ▼
+         Recalculate Deal Totals & Refresh Global Portfolio Cash Flows
 ```
 
----
-
-## 5. Implementation Phases
-
-1. **Phase 1: Restore Investment OS `index.html`**:
-   - Recreate `index.html` with the complete Investment OS layout: auth screen, topbar, search drawer, sidebar navigation (`#sidebarNav`), view container (`#viewContainer`), notification panel, and full script dependencies.
-2. **Phase 2: Register Utility & Recharge View in Investment OS**:
-   - Add `{ group: 'Utility', items: [{ key: 'recharge', label: 'Recharge Intelligence', icon: '&#9889;' }] }` to `NAV_STRUCTURE` in `js/app.js`.
-   - Create `js/views/recharge.js` registering `App.views.recharge` with interactive controls, KPI cards, filter toggles, comparison tray, and "Open in New Tab" launcher.
-3. **Phase 3: Setup Standalone Route `/recharge`**:
-   - Create `public/recharge.html` and configure Express route `app.get('/recharge', ...)` in `server.js`.
-4. **Phase 4: Verification & Smoke Testing**:
-   - Verify Investment OS loads cleanly with demo/auth mode, deals, payments, and settings.
-   - Verify sidebar navigation switches to the new Recharge Intelligence view seamlessly.
-   - Verify clicking "Open in New Tab" correctly opens `/recharge`.
-   - Run compilation and ensure dev server is healthy.
+#### A. Interactive Handlers & State Mapping
+- `renderMissedPaymentsTab(container, filterState)`: Queries payment schedules where `status in ('MISSED', 'OVERDUE')` or (`status = 'PENDING'` and `due_date < TODAY`).
+- `openRecordMissedPaymentModal(scheduleItem)`: Prefills payment modal, records payment via `App.api.recordPayment`, updates schedule record to `PAID`, triggers `App.api.recalculateDeal(dealId)`, and updates portfolio totals.
+- `openReschedulePaymentModal(scheduleItem)`: Prompts for new due date and reason, updates `due_date` and resets status to `PENDING`.
+- `openWaivePaymentModal(scheduleItem)`: Sets status to `WAIVED`, logs notes, and recalibrates remaining obligations.
+- `executeWebsiteCsvImport(file, rows)`: Parses CSV rows, creates encrypted items via `App.api.createWebsiteVaultItem`, calls `App.api.createImport({ type: 'WEBSITES', filename, ... })`, and marks completion in `import_history`.

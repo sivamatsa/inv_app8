@@ -3,10 +3,7 @@
 window.App = window.App || {};
 
 App.router = (function () {
-  const existingViews = (window.App && window.App.router && window.App.router._pendingViews)
-    ? Object.assign({}, window.App.router._pendingViews)
-    : {};
-  const views = existingViews;
+  const views = {};
   let current = null;
   let currentCleanup = null;
   let initialized = false;
