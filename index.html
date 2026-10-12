@@ -4,10 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Personal Investment Operating System</title>
-<!-- PWA: manifest + icons make "Add to Home Screen" install a real
-     standalone app instead of a browser-chrome URL shortcut. iOS Safari
-     ignores manifest.json for this and needs its own meta tags/icon link,
-     which is why both are present. -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0c1628">
 <link rel="icon" href="icons/favicon-32.png">
@@ -49,8 +45,13 @@
         <button id="authTabSignIn" class="active">Sign In</button>
         <button id="authTabSignUp">Create Account</button>
       </div>
+
+      <!-- Sign In Form -->
       <div id="signInForm">
-        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signInEmail" placeholder="your.name@example.com" autocomplete="username"></div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Email</label>
+          <input type="email" id="signInEmail" placeholder="your.name@example.com" autocomplete="username">
+        </div>
         <div class="field" style="margin-bottom:10px">
           <label>Password</label>
           <div style="position:relative;display:flex;align-items:center">
@@ -58,222 +59,210 @@
             <button type="button" id="toggleSignInPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
           </div>
         </div>
-        <div id="lastSignInWrap" style="display:none;justify-content:flex-end;margin-bottom:6px">
-          <button type="button" id="btnLastSignIn" class="btn btn-outline btn-xs" style="font-size:11px;padding:3px 8px;border-color:var(--gold);color:var(--gold);display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Auto-fill credentials and sign in with last account">
-            <span>⚡ Last Sign In:</span> <strong id="lastSignInUserLabel" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">user</strong>
-          </button>
-        </div>
-        <button class="btn btn-gold" id="signInBtn" style="width:100%;justify-content:center;padding:10px">Sign In</button>
         <div class="auth-error" id="signInError"></div>
+        <button class="btn btn-gold" id="signInBtn" style="width:100%;justify-content:center;margin-top:12px">Sign In</button>
       </div>
+
+      <!-- Sign Up Form -->
       <div id="signUpForm" style="display:none">
-        <div class="field" style="margin-bottom:10px"><label>Full Name</label><input type="text" id="signUpName" placeholder="Your Name" autocomplete="name"></div>
-        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signUpEmail" placeholder="your.name@example.com" autocomplete="username"></div>
-        <div class="field" style="margin-bottom:14px">
-          <label>Password (min 6 characters)</label>
+        <div class="field" style="margin-bottom:10px">
+          <label>Full Name</label>
+          <input type="text" id="signUpName" placeholder="Alex Morgan" autocomplete="name">
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Email</label>
+          <input type="email" id="signUpEmail" placeholder="your.name@example.com" autocomplete="username">
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Password</label>
           <div style="position:relative;display:flex;align-items:center">
-            <input type="password" id="signUpPassword" placeholder="••••••••" autocomplete="new-password" style="width:100%;padding-right:38px">
+            <input type="password" id="signUpPassword" placeholder="Minimum 6 characters" autocomplete="new-password" style="width:100%;padding-right:38px">
             <button type="button" id="toggleSignUpPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
           </div>
         </div>
-        <button class="btn btn-gold" id="signUpBtn" style="width:100%;justify-content:center;padding:10px">Create Account</button>
         <div class="auth-error" id="signUpError"></div>
+        <button class="btn btn-gold" id="signUpBtn" style="width:100%;justify-content:center;margin-top:12px">Create Account</button>
       </div>
-      <div style="display:flex;justify-content:center;align-items:center;margin-top:14px;font-size:12px">
-        <a href="#" id="needHelpLink" class="auth-hint" style="cursor:pointer;color:var(--text2)">🤖 Need Help?</a>
+
+      <!-- Remembered Credentials Shortcut -->
+      <div id="lastSignInWrap" style="display:none;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border2);justify-content:space-between;align-items:center">
+        <span style="font-size:11.5px;color:var(--text2)">Saved session for <strong id="lastSignInUserLabel" style="color:var(--text)"></strong></span>
+        <button class="btn btn-outline btn-sm" id="btnLastSignIn">Quick Login</button>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:11.5px">
+        <a href="#" id="needHelpLink" style="color:var(--text3)">Need Help?</a>
       </div>
     </div>
 
-    <!-- Shown only on a real Supabase PASSWORD_RECOVERY session (the user
-         clicked a password-reset email link) - see App.auth.onChange's
-         event argument and app.js's handling of it. -->
+    <!-- Password Recovery Pane -->
     <div id="setNewPasswordPane" style="display:none">
-      <div class="auth-title" style="font-size:16px;margin-bottom:10px">Set a New Password</div>
-      <div class="field" style="margin-bottom:10px"><label>New Password (min 6 characters)</label><input type="password" id="newPasswordInput" autocomplete="new-password"></div>
-      <div class="field" style="margin-bottom:10px"><label>Confirm New Password</label><input type="password" id="confirmNewPasswordInput" autocomplete="new-password"></div>
-      <button class="btn btn-gold" id="setNewPasswordBtn" style="width:100%">Set Password &amp; Continue</button>
+      <div class="auth-title" style="font-size:18px;margin-bottom:8px">Set New Password</div>
+      <div class="field" style="margin-bottom:10px">
+        <label>New Password</label>
+        <input type="password" id="newPasswordInput" placeholder="Minimum 6 characters">
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label>Confirm Password</label>
+        <input type="password" id="confirmNewPasswordInput" placeholder="Re-enter password">
+      </div>
       <div class="auth-error" id="setNewPasswordError"></div>
+      <button class="btn btn-gold" id="setNewPasswordBtn" style="width:100%;justify-content:center;margin-top:12px">Update Password</button>
     </div>
+
   </div>
 </div>
 
 <!-- ============ APP SHELL ============ -->
-<div id="sidebarBackdrop" class="sidebar-backdrop"></div>
-
 <div id="appShell">
-  <nav class="sidebar" id="appSidebar">
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- Left Sidebar Navigation -->
+  <aside class="sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <div class="sidebar-logo">IOS</div>
-      <div style="flex:1"><div class="sidebar-title">Investment OS</div><div class="sidebar-sub">Personal Portfolio</div></div>
-      <button class="sidebar-close-btn" id="sidebarCloseBtn" title="Close Navigation" aria-label="Close navigation">&#10005;</button>
+      <div>
+        <div class="sidebar-title">Investment OS</div>
+        <div class="sidebar-sub">Private Wealth Engine</div>
+      </div>
+      <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close sidebar">✕</button>
     </div>
-    <div id="sidebarNav"></div>
-    <div class="sidebar-footer" id="sidebarFooter">
-      <button type="button" class="sidebar-version-btn" id="sidebarVersionBtn" title="Click to view What's New & Release Notes">
-        <span class="version-pulse-dot"></span>
-        <span class="version-label">v2.4.0 &middot; Stable</span>
-      </button>
-    </div>
-  </nav>
 
+    <nav id="sidebarNav"></nav>
+
+    <div style="padding:14px 18px;border-top:1px solid var(--border2);margin-top:auto">
+      <button class="btn btn-outline btn-sm" id="sidebarVersionBtn" style="width:100%;justify-content:center;font-size:11px">v1.0.0 Enterprise</button>
+    </div>
+  </aside>
+
+  <!-- Main Content Canvas -->
   <div class="main-area">
-    <div id="demoBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:linear-gradient(90deg,rgba(22,201,163,0.18),rgba(201,168,76,0.18));border-bottom:1px solid var(--border);padding:7px;font-size:11.5px;color:var(--text)">
-      &#9654; <b>Interactive Sandbox Mode</b> — exploring with live simulated portfolio data. No changes are saved to your private vault.
+    <!-- Demo Mode Sandbox Banner -->
+    <div id="demoBanner" style="display:none;background:linear-gradient(90deg,rgba(22,201,163,0.15),rgba(201,168,76,0.15));border-bottom:1px solid var(--border);padding:6px 20px;font-size:12px;display:flex;align-items:center;justify-content:space-between">
+      <span>⚡ <strong>Demo Mode Sandbox</strong> — Exploring with realistic financial test data. Changes are isolated to your local session.</span>
+      <button class="btn btn-sm btn-outline" id="demoBannerExitBtn" onclick="App.auth.signOut()">Exit Demo</button>
     </div>
-    <div id="sharedPortfolioBanner" style="display:none;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(201,168,76,0.22),rgba(34,197,94,0.18));border-bottom:1px solid rgba(201,168,76,0.4);padding:8px 16px;font-size:12.5px;color:var(--text);z-index:90">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:16px">&#128101;</span>
-        <span>Co-Managing Shared Portfolio: <strong id="sharedPortfolioBannerName"></strong> &middot; <span id="sharedPortfolioBannerRole" class="badge" style="background:rgba(201,168,76,0.2);color:var(--gold)"></span></span>
-      </div>
-      <button class="btn btn-outline btn-sm" id="btnExitSharedPortfolio" style="padding:2px 10px;font-size:11.5px;border-color:var(--gold);color:var(--gold)">Exit to My Portfolio ✕</button>
-    </div>
-    <div class="topbar">
-      <div class="topbar-left">
-        <!-- Unified Menu & Sidebar Toggle (Cycles mode on Desktop, opens Drawer on Mobile) -->
-        <button type="button" class="icon-btn topbar-menu-btn" id="mobileMenuBtn" title="Toggle Navigation Menu (Ctrl+B)" aria-label="Toggle Navigation">☰</button>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="topbar-title" id="topbarTitle">Dashboard</div>
-          <button type="button" class="topbar-version-badge" id="topbarVersionBadge" title="Click to view What's New & Release Notes">v2.4.0</button>
-        </div>
-      </div>
-      <div class="topbar-search-wrap" id="topbarSearchWrap">
-        <div style="position:relative;display:flex;align-items:center;width:100%">
-          <input type="text" id="globalSearchInput" class="search-input" placeholder="Search deals, contacts, gold, ₹15000, 'pending'..." style="width:100%;padding-right:48px" autocomplete="off">
-          <span class="search-kbd-badge" id="searchKbdBadge" title="Press ⌘K or / to search">⌘K</span>
-        </div>
-        <div id="globalSearchResults" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-height:75vh;overflow:auto;z-index:999;box-shadow:0 24px 60px rgba(0,0,0,0.5)"></div>
-      </div>
-      <div class="topbar-actions">
-        <!-- Mobile Search Toggle -->
-        <button class="icon-btn mobile-search-btn" id="mobileSearchBtn" title="Search Portfolio">🔍</button>
-        <!-- Offline / Arcade Game Launcher -->
-        <div class="icon-btn topbar-tool-btn" id="btnLaunchArcadeGame" title="Play Market Runner">🎮</div>
-        <div class="icon-btn topbar-tool-btn" id="themeToggle" title="Toggle dark / light mode"></div>
-        <div class="icon-btn" id="notifBell" style="position:relative;width:32px;height:32px;font-size:15px" title="Notifications">
-          &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
-        </div>
-        <div class="user-chip" id="topbarUserChip" style="display:none"><span id="userChipEmail"></span></div>
-        <!-- Single Unified Responsive Sign-Out Button with User Identity & Logout Arrow -->
-        <button type="button" class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Logged in. Click to sign out" aria-label="Sign Out">
-          <span class="user-avatar-badge" id="topbarUserAvatar">👤</span>
-          <span class="signout-logged-prefix">Logged as</span>
-          <span class="signout-user-name" id="topbarUserName">User</span>
-          <span class="signout-ic" id="topbarSignOutIcon" title="Click to log out">&#10132;</span>
-        </button>
-      </div>
-    </div>
-    <div class="view-container" id="viewContainer"></div>
-  </div>
 
-  <!-- Mobile Bottom Navigation Bar: Deals, Recurring, Payments, Projects, More -->
-  <nav class="mobile-bottom-bar" id="mobileBottomBar">
-    <a href="#deals" class="mobile-bottom-item" data-tab="deals" id="mobTabDeals">
-      <span class="m-ic">&#128188;</span>
-      <span class="m-lbl">Deals</span>
-    </a>
-    <a href="#recurring" class="mobile-bottom-item" data-tab="recurring" id="mobTabRecurring">
-      <span class="m-ic">&#128257;</span>
-      <span class="m-lbl">Recurring</span>
-    </a>
-    <a href="#payments" class="mobile-bottom-item" data-tab="payments" id="mobTabPayments">
-      <span class="m-ic">&#128179;</span>
-      <span class="m-lbl">Payments</span>
-    </a>
-    <a href="#expenses" class="mobile-bottom-item" data-tab="expenses" id="mobTabProjects">
-      <span class="m-ic">&#128184;</span>
-      <span class="m-lbl">Projects</span>
-    </a>
-    <button type="button" class="mobile-bottom-item m-menu-trigger" id="mobileBottomMenuBtn" aria-label="Open Full Menu">
-      <span class="m-ic">&#9776;</span>
-      <span class="m-lbl">More</span>
-    </button>
-  </nav>
+    <!-- Sticky Topbar Header -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="topbar-menu-btn" id="mobileMenuBtn" aria-label="Menu">☰</button>
+        <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      </div>
+
+      <div class="topbar-search-wrap" id="topbarSearchWrap">
+        <input type="text" id="globalSearchInput" placeholder="Quick search deals, payments, contacts (Press /)..." style="width:100%;padding:7px 12px;background:var(--fill-1);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:12px;outline:none">
+        <div id="globalSearchDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);max-height:360px;overflow-y:auto;z-index:200"></div>
+      </div>
+
+      <div class="topbar-actions">
+        <!-- Direct Quick Launcher for Recharge Intelligence in New Tab -->
+        <a href="/recharge" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:5px 9px" title="Open Recharge Intelligence in a new tab">
+          ⚡ Recharge ↗
+        </a>
+
+        <!-- Arcade Offline Game -->
+        <button class="topbar-menu-btn" id="btnLaunchArcadeGame" title="Play Portfolio Runner (Offline Game)">🎮</button>
+
+        <!-- Notification Bell -->
+        <div style="position:relative">
+          <button class="topbar-menu-btn" id="notifBell" title="Notifications">🔔<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span></button>
+        </div>
+
+        <!-- Theme Toggle -->
+        <button class="topbar-menu-btn" id="themeToggleBtn" onclick="App.theme.toggle()" title="Toggle Dark/Light">🌓</button>
+
+        <!-- Sign Out Chip -->
+        <button class="topbar-signout-btn" id="signOutBtn">Sign Out</button>
+      </div>
+    </header>
+
+    <!-- Dynamic View Panes Container -->
+    <main class="view-container" id="viewContainer"></main>
+  </div>
 </div>
 
-<script src="js/lib/theme.js"></script>
-<script src="js/lib/privacyMode.js"></script>
-<script src="js/lib/webrtc.js"></script>
+<!-- ============ INVESTMENT OS JAVASCRIPT MODULES ============ -->
+<!-- Core Libraries & Utilities -->
 <script src="js/lib/utils.js"></script>
-<script src="js/lib/currency.js"></script>
-<script src="js/lib/offlineGame.js"></script>
-<script src="js/lib/demoData.js"></script>
-<script src="js/lib/backupProfileDb.js"></script>
-<script src="js/lib/biometricAuth.js"></script>
+<script src="js/lib/theme.js"></script>
 <script src="js/lib/securityAuth.js"></script>
-<script src="js/lib/docScanner.js"></script>
-<script src="js/lib/regionalGoldRates.js"></script>
-<script src="js/lib/permissions.js"></script>
+<script src="js/lib/biometricAuth.js"></script>
+<script src="js/lib/privacyMode.js"></script>
 <script src="js/lib/supabaseClient.js"></script>
+<script src="js/lib/demoData.js"></script>
+<script src="js/lib/permissions.js"></script>
 <script src="js/lib/ui.js"></script>
-<script src="js/lib/recycleBin.js"></script>
-<script src="js/lib/needHelp.js"></script>
-<script src="js/lib/vaultCrypto.js"></script>
-<script src="js/data/api.js"></script>
 <script src="js/state.js"></script>
 <script src="js/calculations.js"></script>
-<script src="js/charts/chartBuilders.js"></script>
-<script src="js/router.js"></script>
+<script src="js/lib/currency.js"></script>
+<script src="js/lib/globalSearch.js"></script>
+<script src="js/lib/vaultCrypto.js"></script>
+<script src="js/lib/docScanner.js"></script>
 <script src="js/lib/dailyGoalTracker.js"></script>
+<script src="js/lib/exportData.js"></script>
+<script src="js/lib/restoreData.js"></script>
+<script src="js/lib/backupProfileDb.js"></script>
+<script src="js/lib/executiveReport.js"></script>
+<script src="js/lib/needHelp.js"></script>
+<script src="js/lib/offlineGame.js"></script>
+<script src="js/lib/push.js"></script>
+<script src="js/lib/recycleBin.js"></script>
+<script src="js/lib/regionalGoldRates.js"></script>
+<script src="js/lib/supabaseMigrationViewer.js"></script>
+<script src="js/lib/tapeCalculator.js"></script>
+<script src="js/lib/telegramClientPoller.js"></script>
+<script src="js/lib/version.js"></script>
+<script src="js/lib/webrtc.js"></script>
+<script src="js/lib/portfolioIntelligence.js"></script>
+<script src="js/lib/chatbot.js"></script>
+
+<!-- Data Layer & Visualizations -->
+<script src="js/data/api.js"></script>
+<script src="js/charts/chartBuilders.js"></script>
+
+<!-- Router Engine -->
+<script src="js/router.js"></script>
+
+<!-- View Modules -->
 <script src="js/views/dashboard.js"></script>
 <script src="js/views/websiteVault.js"></script>
 <script src="js/views/deals.js"></script>
+<script src="js/views/payments.js"></script>
+<script src="js/views/calendar.js"></script>
 <script src="js/views/recurring.js"></script>
 <script src="js/views/gold.js"></script>
 <script src="js/views/expenses.js"></script>
-<script src="js/views/netWorth.js"></script>
-<script src="js/views/cashFlow.js"></script>
-<script src="js/views/reconciliation.js"></script>
-<script src="js/lib/portfolioIntelligence.js"></script>
-<script src="js/views/automationCenter.js"></script>
-<script src="js/views/aiCopilot.js"></script>
 <script src="js/views/contacts.js"></script>
 <script src="js/views/chat.js"></script>
-<script src="js/lib/supabaseMigrationViewer.js"></script>
-<script src="js/views/payments.js"></script>
-<script src="js/views/dateIntelligence.js"></script>
-<script src="js/views/calendar.js"></script>
 <script src="js/views/maturityPlanner.js"></script>
 <script src="js/views/reinvestments.js"></script>
 <script src="js/views/goals.js"></script>
 <script src="js/views/whatIf.js"></script>
+<script src="js/views/netWorth.js"></script>
+<script src="js/views/cashFlow.js"></script>
+<script src="js/views/reconciliation.js"></script>
+<script src="js/views/automationCenter.js"></script>
+<script src="js/views/aiCopilot.js"></script>
 <script src="js/views/analytics.js"></script>
 <script src="js/views/earnings.js"></script>
 <script src="js/views/riskAnalysis.js"></script>
 <script src="js/views/reports.js"></script>
 <script src="js/views/imports.js"></script>
 <script src="js/views/documents.js"></script>
-<script src="js/views/auditHistory.js"></script>
-<script src="js/views/settings.js"></script>
-<script src="js/views/admin.js"></script>
 <script src="js/views/notes.js"></script>
 <script src="js/views/calculator.js"></script>
 <script src="js/views/community.js"></script>
 <script src="js/views/support.js"></script>
 <script src="js/views/blog.js"></script>
+<script src="js/views/settings.js"></script>
+<script src="js/views/admin.js"></script>
 <script src="js/views/sharedWithMe.js"></script>
-<script src="js/lib/globalSearch.js"></script>
-<script src="js/lib/push.js"></script>
-<script src="js/lib/exportData.js"></script>
-<script src="js/lib/restoreData.js"></script>
-<script src="js/lib/executiveReport.js"></script>
-<script src="js/lib/tapeCalculator.js"></script>
-<script src="js/lib/chatbot.js"></script>
-<script src="js/lib/telegramClientPoller.js"></script>
-<script src="js/lib/version.js"></script>
+<script src="js/views/auditHistory.js"></script>
+<script src="js/views/dateIntelligence.js"></script>
+<script src="js/views/recharge.js"></script>
+
+<!-- Application Bootstrapper -->
 <script src="js/app.js"></script>
-<script>
-  // Service Worker Registration + PWA Update Engine wiring
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then((reg) => {
-        if (window.App && window.App.updater) {
-          window.App.updater.setRegistration(reg);
-        }
-      }).catch((err) => {
-        console.warn('SW registration notice:', err);
-      });
-    });
-  }
-</script>
 </body>
 </html>

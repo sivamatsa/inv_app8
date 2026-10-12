@@ -57,6 +57,9 @@ const NAV_STRUCTURE = [
     { key: 'support', label: 'Help & Support', icon: '&#129302;' },
     { key: 'blog', label: 'Blog', icon: '&#128220;' },
   ] },
+  { group: 'Utility', items: [
+    { key: 'recharge', label: 'Recharge Intelligence', icon: '&#9889;' },
+  ] },
   { group: 'Account', items: [
     { key: 'settings', label: 'Settings', icon: '&#9881;' },
   ] },

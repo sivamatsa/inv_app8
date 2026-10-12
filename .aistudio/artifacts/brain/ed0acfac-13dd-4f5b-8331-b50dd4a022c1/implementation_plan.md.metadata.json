@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Website Directory CSV Import & History Fix and Missed Payments Management Tab with Record, Reschedule, and Waive action buttons synced across deals and entire portfolio.",
-  "updatedAt":  "2026-10-11T12:56:46.146642790Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan to restore Investment OS as the primary application while seamlessly integrating Recharge Intelligence India as a dedicated view inside Investment OS (accessible under a new Utility group in the sidebar) and as a standalone portal at /recharge with external new-tab launch support.",
+  "updatedAt": "2026-10-12T16:52:09.636634482Z",
+  "requestFeedback": true,
+  "userFacing": true
 }
