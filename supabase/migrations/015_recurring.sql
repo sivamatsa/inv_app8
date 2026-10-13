@@ -256,10 +256,11 @@ create policy "select own recurring_amount_history"
   on public.recurring_amount_history for select to authenticated
   using (user_id = (select auth.uid()) or private.is_admin());
 
--- No insert/update/delete policy for regular users - every row here is
--- written exclusively by the trigger below (which runs with the privileges
--- of whoever updates recurring_items, i.e. the owner), same "read-only
--- audit trail" reasoning as audit_logs.
+drop policy if exists "insert own recurring_amount_history" on public.recurring_amount_history;
+create policy "insert own recurring_amount_history"
+  on public.recurring_amount_history for insert to authenticated
+  with check (user_id = (select auth.uid()) or private.is_admin());
+
 grant select, insert on table public.recurring_amount_history to authenticated;
 
 create table if not exists public.recurring_schedule_history (
@@ -281,12 +282,18 @@ create policy "select own recurring_schedule_history"
   on public.recurring_schedule_history for select to authenticated
   using (user_id = (select auth.uid()) or private.is_admin());
 
+drop policy if exists "insert own recurring_schedule_history" on public.recurring_schedule_history;
+create policy "insert own recurring_schedule_history"
+  on public.recurring_schedule_history for insert to authenticated
+  with check (user_id = (select auth.uid()) or private.is_admin());
+
 grant select, insert on table public.recurring_schedule_history to authenticated;
 
 create or replace function private.fn_track_recurring_changes()
 returns trigger
 language plpgsql
-set search_path = ''
+security definer
+set search_path = public, private, pg_temp
 as $$
 begin
   if new.expected_amount is distinct from old.expected_amount then

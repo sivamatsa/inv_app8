@@ -1,6 +1,6 @@
 {
-  "name": "Recharge Intelligence India",
-  "description": "Real-time, source-verified comparison and value intelligence platform for prepaid mobile recharge plans from Jio, Airtel, Vi, and BSNL across India.",
+  "name": "Investment OS Personal Portfolio",
+  "description": "Private, bank-grade encrypted portfolio vault & wealth intelligence operating system for deals, recurring commitments, documents, accounts, and net worth.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -2423,6 +2423,8 @@ app.use(express.static(__dirname, {
   setHeaders: (res, filePath) => {
     if (
       filePath.endsWith('.html') ||
+      filePath.endsWith('.js') ||
+      filePath.endsWith('.css') ||
       filePath.endsWith('sw.js') ||
       filePath.endsWith('version.json') ||
       filePath.endsWith('manifest.json')

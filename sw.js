@@ -92,6 +92,17 @@ self.addEventListener('fetch', (event) => {
           if (sharedTitle) redirectUrl.searchParams.set('title', String(sharedTitle));
           if (sharedText) redirectUrl.searchParams.set('text', String(sharedText));
           if (sharedUrl) redirectUrl.searchParams.set('url', String(sharedUrl));
+
+          // Broadcast to active clients so open PWA instances immediately save and navigate
+          self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+            clients.forEach((c) => {
+              c.postMessage({
+                type: 'SHARE_TARGET_RECEIVED',
+                payload: { title: sharedTitle, text: sharedText, url: sharedUrl },
+              });
+            });
+          }).catch(() => {});
+
           return Response.redirect(redirectUrl.href, 303);
         } catch (err) {
           return Response.redirect('./index.html?share_target=1', 303);
@@ -101,13 +112,36 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Web Share Target GET Interception: broadcast to open PWA windows
+  if (req.method === 'GET' && (url.searchParams.has('share_target') || (url.searchParams.has('url') && url.searchParams.get('url').trim() !== '') || (url.searchParams.has('text') && url.searchParams.get('text').includes('http')))) {
+    const sTitle = url.searchParams.get('title') || url.searchParams.get('subject') || '';
+    const sText = url.searchParams.get('text') || url.searchParams.get('body') || '';
+    const sUrl = url.searchParams.get('url') || url.searchParams.get('link') || '';
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((c) => {
+        c.postMessage({
+          type: 'SHARE_TARGET_RECEIVED',
+          payload: { title: sTitle, text: sText, url: sUrl },
+        });
+      });
+    }).catch(() => {});
+  }
+
   if (req.method !== 'GET') return;
 
   // 1. Cross-Origin (Supabase, CDNs, external APIs): Always live network
   if (url.origin !== self.location.origin) return;
 
-  // 2. Version metadata, update scripts, & API routes: NEVER cache stale via ServiceWorker
-  if (url.pathname.includes('/version.json') || url.pathname.includes('version.js') || url.pathname.includes('manifest.json') || url.pathname.includes('sw.js') || url.pathname.startsWith('/api/')) {
+  // 2. Version metadata, update scripts, cache-busting, & API routes: NEVER cache stale via ServiceWorker
+  const hasCacheBuster = url.searchParams.has('_v') || url.searchParams.has('_t') || url.searchParams.has('_hard_reload');
+  if (
+    hasCacheBuster ||
+    url.pathname.includes('/version.json') ||
+    url.pathname.includes('version.js') ||
+    url.pathname.includes('manifest.json') ||
+    url.pathname.includes('sw.js') ||
+    url.pathname.startsWith('/api/')
+  ) {
     event.respondWith(
       fetch(req, { cache: 'no-store' }).catch(() => caches.match(req))
     );
@@ -120,10 +154,17 @@ self.addEventListener('fetch', (event) => {
       let didRespond = false;
       const timeoutId = setTimeout(() => {
         if (!didRespond) {
-          caches.match(req, { ignoreSearch: true }).then((cached) => {
+          caches.match(req, { ignoreSearch: false }).then((cached) => {
             if (cached) {
               didRespond = true;
               resolve(cached);
+            } else {
+              caches.match(req, { ignoreSearch: true }).then((cachedFallback) => {
+                if (cachedFallback && !didRespond) {
+                  didRespond = true;
+                  resolve(cachedFallback);
+                }
+              });
             }
           });
         }

@@ -29,6 +29,77 @@ window.App = window.App || {};
     return null;
   }
 
+  const RECURRING_RLS_SQL_FIX = `-- Fix recurring amount history trigger RLS in Supabase SQL editor:
+create or replace function private.fn_track_recurring_changes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, private, pg_temp
+as $$
+begin
+  if new.expected_amount is distinct from old.expected_amount then
+    insert into public.recurring_amount_history (user_id, recurring_item_id, effective_from, old_amount, new_amount)
+    values (new.user_id, new.id, current_date, old.expected_amount, new.expected_amount);
+  end if;
+  if new.frequency is distinct from old.frequency then
+    insert into public.recurring_schedule_history (user_id, recurring_item_id, effective_from, old_frequency, new_frequency)
+    values (new.user_id, new.id, current_date, old.frequency, new.frequency);
+  end if;
+  return new;
+end;
+$$;
+
+drop policy if exists "insert own recurring_amount_history" on public.recurring_amount_history;
+create policy "insert own recurring_amount_history"
+  on public.recurring_amount_history for insert to authenticated
+  with check (user_id = (select auth.uid()) or private.is_admin());
+
+drop policy if exists "insert own recurring_schedule_history" on public.recurring_schedule_history;
+create policy "insert own recurring_schedule_history"
+  on public.recurring_schedule_history for insert to authenticated
+  with check (user_id = (select auth.uid()) or private.is_admin());
+
+grant select, insert on table public.recurring_amount_history to authenticated;
+grant select, insert on table public.recurring_schedule_history to authenticated;`;
+
+  function handleRecurringSaveError(e, actionLabel = 'save recurring item') {
+    const msg = String(e?.message || e || '');
+    if (msg.includes('recurring_amount_history') || msg.includes('recurring_schedule_history') || msg.includes('row-level security policy')) {
+      App.ui.open({
+        title: 'Database Policy Fix Required',
+        bodyHtml: `
+          <div style="font-size:13px;line-height:1.5;color:var(--text)">
+            <p style="margin-bottom:10px;color:var(--text2)">
+              When updating recurring amounts or frequencies, PostgreSQL triggers an audit log into <code>recurring_amount_history</code>. In your Supabase database, this trigger requires the <code>SECURITY DEFINER</code> upgrade or an INSERT policy.
+            </p>
+            <div style="margin-bottom:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px">
+              <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:6px">SQL Migration Snippet (from Migration 055):</div>
+              <textarea readonly style="width:100%;height:140px;font-family:monospace;font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;resize:none">${RECURRING_RLS_SQL_FIX}</textarea>
+            </div>
+            <p style="font-size:12px;color:var(--text3)">
+              Run this in your <a href="https://supabase.com/dashboard/project/_/sql" target="_blank" rel="noopener" style="color:var(--gold)">Supabase SQL Editor</a>, or apply <code>supabase/migrations/055_fix_recurring_amount_history_and_cloud_documents_rls.sql</code>.
+            </p>
+          </div>
+        `,
+        actions: [
+          { label: 'Close', className: 'btn-outline', onClick: App.ui.close },
+          {
+            label: '📋 Copy SQL Fix',
+            className: 'btn-gold',
+            onClick: () => {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(RECURRING_RLS_SQL_FIX);
+              }
+              App.utils.toast('SQL fix copied to clipboard!', 'ok');
+            }
+          }
+        ]
+      });
+    } else {
+      App.utils.toast('Could not ' + actionLabel + ': ' + msg, 'err');
+    }
+  }
+
   // ---- Add / Edit wizard (Section 71) - one field list, type-conditional
   // visibility rather than a dozen bespoke per-type forms (Section 57 "only
   // display relevant fields for the selected item type"). ----
@@ -243,7 +314,7 @@ window.App = window.App || {};
         App.ui.close();
         App.router.refreshCurrent();
       } catch (e) {
-        App.utils.toast('Could not save recurring item: ' + (e.message || e), 'err');
+        handleRecurringSaveError(e, 'save recurring item');
       }
     }
 
@@ -472,7 +543,7 @@ window.App = window.App || {};
             await App.api.updateRecurringItem(item.id, { expected_amount: v });
             await App.api.generateRecurringOccurrences(item.id);
             App.utils.toast('Amount updated for future occurrences'); App.ui.close(); App.router.refreshCurrent();
-          } catch (e) { App.utils.toast('Could not update amount: ' + (e.message || e), 'err'); }
+          } catch (e) { handleRecurringSaveError(e, 'update amount'); }
         });
         const changeFreqBtn = App.utils.qs('#changeFrequencyBtn', body);
         if (changeFreqBtn) changeFreqBtn.addEventListener('click', async () => {
@@ -481,7 +552,7 @@ window.App = window.App || {};
             await App.api.updateRecurringItem(item.id, { frequency: v });
             await App.api.generateRecurringOccurrences(item.id);
             App.utils.toast('Frequency updated for future occurrences'); App.ui.close(); App.router.refreshCurrent();
-          } catch (e) { App.utils.toast('Could not update frequency: ' + (e.message || e), 'err'); }
+          } catch (e) { handleRecurringSaveError(e, 'update frequency'); }
         });
         const deleteBtn = App.utils.qs('#deleteItemBtn', body);
         if (deleteBtn) deleteBtn.addEventListener('click', () => openDeleteRecurringItemModal(item, () => App.router.refreshCurrent()));

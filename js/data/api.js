@@ -984,31 +984,128 @@ App.api = (function () {
   }
 
   // ---- documents (Supabase Storage + metadata row) ----
+  const MAX_DOC_SIZE_BYTES = 52428800; // 50MB
+
+  function getFallbackMimeType(ext) {
+    const map = {
+      pdf: 'application/pdf',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      webp: 'image/webp',
+      gif: 'image/gif',
+      svg: 'image/svg+xml',
+      csv: 'text/csv',
+      txt: 'text/plain',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      xls: 'application/vnd.ms-excel',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      doc: 'application/msword'
+    };
+    return map[String(ext || '').toLowerCase()] || 'application/octet-stream';
+  }
+
+  function sanitizeStorageFileName(rawName) {
+    const cleanExt = (rawName.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const lastDotIdx = rawName.lastIndexOf('.');
+    const baseName = lastDotIdx > 0 ? rawName.substring(0, lastDotIdx) : rawName;
+    const safeBase = baseName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50) || 'doc';
+    const rand = Math.random().toString(36).substring(2, 8);
+    return `${Date.now()}_${rand}_${safeBase}${cleanExt ? '.' + cleanExt : ''}`;
+  }
+
   const listDocuments = (opts) => selectAll('documents', Object.assign({ order: { column: 'created_at', ascending: false } }, opts));
+
   async function uploadDocument(file, meta) {
-    const path = `${uid()}/${meta.dealId || 'general'}/${Date.now()}_${file.name}`;
-    const { error: upErr } = await client().storage.from('documents').upload(path, file);
+    if (!file) throw new Error('No file provided for upload.');
+    if (file.size > MAX_DOC_SIZE_BYTES) {
+      throw new Error(`File "${file.name}" exceeds maximum allowed size of 50 MB.`);
+    }
+
+    const activeCtx = App.state && App.state.activePortfolioContext;
+    const ownerId = (meta && meta.userId) || (activeCtx && activeCtx.owner_user_id) || uid();
+    const folder = meta && meta.dealId ? `deal_${meta.dealId}` : 'general';
+    const storageFileName = sanitizeStorageFileName(file.name || 'document');
+    const path = `${ownerId}/${folder}/${storageFileName}`;
+    const cleanExt = (file.name.split('.').pop() || '').toLowerCase();
+    const mimeType = file.type || getFallbackMimeType(cleanExt);
+
+    // 1. Upload file to Supabase Cloud Storage
+    const { error: upErr } = await client().storage.from('documents').upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: mimeType
+    });
     check(upErr);
-    return insertRow('documents', {
-      deal_id: meta.dealId || null,
-      payment_id: meta.paymentId || null,
-      document_type: meta.documentType,
-      document_reference: meta.documentReference || null,
-      document_date: meta.documentDate || null,
-      notes: meta.notes || null,
+
+    // 2. Insert metadata row into public.documents table
+    // Uses canonical database columns: user_id, deal_id, payment_id, document_type,
+    // document_reference, document_date, notes, storage_path, file_name, file_size_bytes, mime_type
+    const basePayload = {
+      user_id: ownerId,
+      deal_id: (meta && meta.dealId) || null,
+      payment_id: (meta && meta.paymentId) || null,
+      document_type: (meta && (meta.documentType || meta.category)) || 'Other',
+      document_reference: (meta && meta.documentReference) || null,
+      document_date: (meta && meta.documentDate) || null,
+      notes: (meta && (meta.notes || meta.description)) || null,
       storage_path: path,
       file_name: file.name,
       file_size_bytes: file.size,
-      mime_type: file.type,
-    });
+      mime_type: mimeType
+    };
+
+    try {
+      const row = await insertRow('documents', basePayload);
+      return row;
+    } catch (insertErr) {
+      // Consistency safeguard: if database insertion fails, roll back the orphaned storage object
+      try {
+        await client().storage.from('documents').remove([path]);
+      } catch (_) {}
+      throw insertErr;
+    }
   }
+
+  async function updateDocument(id, patch) {
+    const cleanPatch = {};
+    const allowed = ['file_name', 'deal_id', 'payment_id', 'document_type', 'document_reference', 'document_date', 'notes'];
+    allowed.forEach((k) => {
+      if (patch && patch[k] !== undefined) cleanPatch[k] = patch[k];
+    });
+    if (patch && patch.category && !cleanPatch.document_type) cleanPatch.document_type = patch.category;
+    if (patch && patch.description && !cleanPatch.notes) cleanPatch.notes = patch.description;
+    return updateRow('documents', id, cleanPatch);
+  }
+
   async function getDocumentUrl(storagePath) {
     const { data, error } = await client().storage.from('documents').createSignedUrl(storagePath, 300);
     check(error);
     return data.signedUrl;
   }
+
+  async function getDocumentDownloadUrl(storagePath, originalFileName) {
+    const opts = originalFileName ? { download: originalFileName } : { download: true };
+    const { data, error } = await client().storage.from('documents').createSignedUrl(storagePath, 300, opts);
+    check(error);
+    return data.signedUrl;
+  }
+
+  async function getDocumentPreviewUrl(storagePath) {
+    // 15-minute signed URL for authenticated preview
+    const { data, error } = await client().storage.from('documents').createSignedUrl(storagePath, 900);
+    check(error);
+    return data.signedUrl;
+  }
+
   async function deleteDocument(id, storagePath) {
-    await client().storage.from('documents').remove([storagePath]);
+    if (storagePath) {
+      try {
+        await client().storage.from('documents').remove([storagePath]);
+      } catch (err) {
+        console.warn('Storage deletion notification:', err);
+      }
+    }
     return deleteRow('documents', id);
   }
 
@@ -3667,24 +3764,46 @@ App.api = (function () {
   };
 
   const uploadDocumentForUser = async (file, meta, targetUserId) => {
+    if (!file) throw new Error('No file provided for upload.');
+    if (file.size > MAX_DOC_SIZE_BYTES) {
+      throw new Error(`File "${file.name}" exceeds maximum allowed size of 50 MB.`);
+    }
     const ownerId = targetUserId || uid();
-    const path = `${ownerId}/${Date.now()}_${file.name}`;
-    try {
-      await client().storage.from('documents').upload(path, file);
-    } catch (_) {}
-    return insertRow('documents', {
+    const folder = meta && meta.dealId ? `deal_${meta.dealId}` : 'general';
+    const storageFileName = sanitizeStorageFileName(file.name || 'document');
+    const path = `${ownerId}/${folder}/${storageFileName}`;
+    const cleanExt = (file.name.split('.').pop() || '').toLowerCase();
+    const mimeType = file.type || getFallbackMimeType(cleanExt);
+
+    const { error: upErr } = await client().storage.from('documents').upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: mimeType
+    });
+    check(upErr);
+
+    const basePayload = {
       user_id: ownerId,
-      deal_id: meta.dealId || null,
-      payment_id: meta.paymentId || null,
-      document_type: meta.documentType || 'Other',
-      document_reference: meta.documentReference || null,
-      document_date: meta.documentDate || null,
-      notes: meta.notes || null,
+      deal_id: (meta && meta.dealId) || null,
+      payment_id: (meta && meta.paymentId) || null,
+      document_type: (meta && (meta.documentType || meta.category)) || 'Other',
+      document_reference: (meta && meta.documentReference) || null,
+      document_date: (meta && meta.documentDate) || null,
+      notes: (meta && (meta.notes || meta.description)) || null,
       storage_path: path,
       file_name: file.name,
       file_size_bytes: file.size,
-      mime_type: file.type,
-    });
+      mime_type: mimeType
+    };
+
+    try {
+      return await insertRow('documents', basePayload);
+    } catch (insertErr) {
+      try {
+        await client().storage.from('documents').remove([path]);
+      } catch (_) {}
+      throw insertErr;
+    }
   };
 
   // ---- Benchmark Comparison (026) ----
@@ -4030,7 +4149,7 @@ App.api = (function () {
     listCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent,
     listUserIntelligenceCards, saveUserIntelligenceCard, deleteUserIntelligenceCard,
     getAppSettings, updateAppSettings,
-    listDocuments, uploadDocument, getDocumentUrl, deleteDocument,
+    listDocuments, uploadDocument, updateDocument, getDocumentUrl, getDocumentDownloadUrl, getDocumentPreviewUrl, deleteDocument,
     listAuditLogs, listImports, createImport, updateImport,
     listGoals, createGoal, updateGoal, listCashTransactions, createCashTransaction,
     listTaxRecords, createTaxRecord, updateTaxRecord,

@@ -1670,8 +1670,15 @@ ${App.utils.escapeHtml(msgText)}
 
     const documentsHtml = `
       <div class="card-row">${documents.map((d) => `
-        <div class="integration-card"><div class="name">${App.utils.escapeHtml(d.file_name)}</div>
-        <div class="status">${d.document_type} · ${App.utils.fmtDate(d.document_date)}</div></div>`).join('') || '<div class="empty-note">No documents attached.</div>'}
+        <div class="integration-card" style="display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div class="name" style="word-break:break-word">📄 ${App.utils.escapeHtml(d.file_name)}</div>
+            <div class="status">${d.document_type} · ${App.utils.fmtDate(d.document_date)}</div>
+          </div>
+          <div style="margin-top:8px">
+            <button type="button" class="btn btn-gold btn-sm btnDealDocDl" style="padding:3px 10px;font-size:11px" data-path="${App.utils.escapeHtml(d.storage_path)}" data-name="${App.utils.escapeHtml(d.file_name)}">⬇ Download File</button>
+          </div>
+        </div>`).join('') || '<div class="empty-note">No documents attached.</div>'}
       </div>`;
 
     const bodyHtml = `
@@ -1746,6 +1753,29 @@ ${App.utils.escapeHtml(msgText)}
           }
         }
         attachSyncHandler();
+
+        App.utils.qsa('.btnDealDocDl', body).forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const storagePath = btn.dataset.path;
+            const originalName = btn.dataset.name;
+            try {
+              App.utils.toast('Preparing download...', 'info');
+              const url = await App.api.getDocumentDownloadUrl(storagePath, originalName);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = originalName || 'document';
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => document.body.removeChild(a), 200);
+              App.utils.toast('Download started', 'ok');
+            } catch (dlErr) {
+              App.utils.toast('Download failed: ' + (dlErr.message || dlErr), 'err');
+            }
+          });
+        });
       },
     });
   }

@@ -275,11 +275,16 @@ App.shareTarget = (function () {
       createdSite = await App.api.createWebsite(payload);
     } catch (err) {
       console.error('[ShareTarget] Failed to save website entry:', err);
+      // Keep stashed so the link is never lost if auth/network was transiently unavailable
+      stashPendingShare(extractedData);
       if (App.utils && App.utils.toast) {
         App.utils.toast('Failed to save shared link: ' + (err.message || err), 'err');
       }
       return null;
     }
+
+    // Success: safely remove pending share now that it's persisted in the database
+    clearPendingShare();
 
     // Feedback toast
     if (App.utils && App.utils.toast) {
@@ -293,7 +298,7 @@ App.shareTarget = (function () {
   }
 
   /**
-   * Routes to #vault view, waits for rendering, smooth-scrolls to the target
+   * Routes to #vault view, renders the pane, smooth-scrolls to the target
    * entry, and applies the temporary attention pulse (.vault-item-just-added).
    */
   function navigateToVaultAndHighlight(siteId) {
@@ -303,19 +308,22 @@ App.shareTarget = (function () {
       App.views.vault.setHighlightSiteId(siteId);
     }
 
+    // Update URL hash to #vault
     if (App.router && typeof App.router.navigate === 'function') {
       App.router.navigate('vault');
     }
 
-    // Also refresh current if already on vault
-    if (App.router && typeof App.router.refreshCurrent === 'function') {
+    // Explicitly invoke show('vault') to guarantee instant rendering even if hash was already vault
+    if (App.router && typeof App.router.show === 'function') {
+      App.router.show('vault');
+    } else if (App.router && typeof App.router.refreshCurrent === 'function') {
       App.router.refreshCurrent();
     }
 
-    // Trigger visual highlight with smooth scrolling
-    setTimeout(() => {
-      triggerVaultItemHighlight(siteId);
-    }, 300);
+    // Trigger visual highlight with smooth scrolling across multiple render ticks
+    setTimeout(() => { triggerVaultItemHighlight(siteId); }, 200);
+    setTimeout(() => { triggerVaultItemHighlight(siteId); }, 600);
+    setTimeout(() => { triggerVaultItemHighlight(siteId); }, 1200);
   }
 
   /**
@@ -329,7 +337,7 @@ App.shareTarget = (function () {
     const el = document.querySelector(selector);
     if (el) {
       el.classList.remove('vault-item-just-added');
-      // Trigger reflow to restart animation if needed
+      // Trigger reflow to restart animation
       void el.offsetWidth;
       el.classList.add('vault-item-just-added');
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -338,7 +346,7 @@ App.shareTarget = (function () {
         el.classList.remove('vault-item-just-added');
       }, 2600);
     } else {
-      // Retry in case vault list is still rendering
+      // Retry in case vault list is still completing network render
       setTimeout(() => {
         const retryEl = document.querySelector(selector);
         if (retryEl) {
@@ -346,12 +354,13 @@ App.shareTarget = (function () {
           retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           setTimeout(() => retryEl.classList.remove('vault-item-just-added'), 2600);
         }
-      }, 450);
+      }, 400);
     }
   }
 
   /**
-   * Stashes unauthenticated share payload in sessionStorage.
+   * Stashes unauthenticated share payload in both sessionStorage and localStorage
+   * so it survives browser app restarts, reloads, or biometric/PIN unlock gates.
    */
   function stashPendingShare(extractedData) {
     try {
@@ -362,19 +371,21 @@ App.shareTarget = (function () {
         hostname: extractedData.hostname,
         timestamp: Date.now(),
       };
-      sessionStorage.setItem(STORAGE_KEY_PENDING, JSON.stringify(payload));
+      const json = JSON.stringify(payload);
+      sessionStorage.setItem(STORAGE_KEY_PENDING, json);
+      localStorage.setItem(STORAGE_KEY_PENDING, json);
       renderPendingNoticeOnAuth();
     } catch (e) {
-      console.warn('[ShareTarget] sessionStorage error:', e);
+      console.warn('[ShareTarget] storage error:', e);
     }
   }
 
   /**
-   * Retrieves pending share from sessionStorage if any.
+   * Retrieves pending share from sessionStorage or localStorage if any.
    */
   function getPendingShare() {
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY_PENDING);
+      const raw = sessionStorage.getItem(STORAGE_KEY_PENDING) || localStorage.getItem(STORAGE_KEY_PENDING);
       if (!raw) return null;
       return JSON.parse(raw);
     } catch (_) {
@@ -383,11 +394,12 @@ App.shareTarget = (function () {
   }
 
   /**
-   * Clears pending share from sessionStorage.
+   * Clears pending share from both sessionStorage and localStorage.
    */
   function clearPendingShare() {
     try {
       sessionStorage.removeItem(STORAGE_KEY_PENDING);
+      localStorage.removeItem(STORAGE_KEY_PENDING);
       const notice = document.querySelector('#authPendingShareNotice');
       if (notice) {
         notice.style.display = 'none';
@@ -429,56 +441,68 @@ App.shareTarget = (function () {
   }
 
   /**
-   * Auto-save listener triggered upon App.auth 'LOGIN' or session restore.
+   * Auto-save listener triggered upon App.auth 'LOGIN', session restore, or unlock.
    */
   async function handlePendingShare() {
     const pending = getPendingShare();
     if (!pending) return;
 
     // Check if user session is ready
-    const user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+    let user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
     const isDemo = App.auth && typeof App.auth.isDemoMode === 'function' && App.auth.isDemoMode();
 
     if (!user && !isDemo) {
-      renderPendingNoticeOnAuth();
-      return;
+      // Give session restoration up to 2.5 seconds before showing notice
+      user = await resolveAuthenticatedUser(2500);
+      if (!user) {
+        renderPendingNoticeOnAuth();
+        return;
+      }
     }
 
-    clearPendingShare();
     await saveSharedEntry(pending);
   }
 
   /**
-   * Resolves whether user is currently authenticated, including waiting briefly
-   * for async Supabase session recovery on cold app launch.
+   * Resolves whether user is currently authenticated, including waiting up to
+   * timeoutMs for async Supabase session recovery on app launch.
    */
-  async function resolveAuthenticatedUser() {
+  async function resolveAuthenticatedUser(timeoutMs = 3500) {
     let user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
     if (user || (App.auth && App.auth.isDemoMode && App.auth.isDemoMode())) {
       return user || { id: 'demo' };
     }
 
-    // If client is available, wait up to 1.5s for session restoration
-    const supaClient = App.auth && typeof App.auth.getClient === 'function' ? App.auth.getClient() : null;
-    if (supaClient && supaClient.auth) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+      if (user || (App.auth && App.auth.isDemoMode && App.auth.isDemoMode())) {
+        return user || { id: 'demo' };
+      }
+
+      const supaClient = App.auth && typeof App.auth.getClient === 'function' ? App.auth.getClient() : null;
+      if (supaClient && supaClient.auth) {
+        try {
+          const { data } = await supaClient.auth.getSession();
+          if (data && data.session && data.session.user) {
+            // Allow App.auth.onChange / init a moment to sync in-memory user
+            await new Promise((r) => setTimeout(r, 60));
+            return data.session.user;
+          }
+        } catch (_) {}
+      }
+
+      // Check persistent mobile session storage keys
       try {
-        const sessionPromise = supaClient.auth.getSession().then(({ data }) => data?.session?.user || null).catch(() => null);
-        const timeoutPromise = new Promise((r) => setTimeout(() => r(null), 1500));
-        const resolved = await Promise.race([sessionPromise, timeoutPromise]);
-        if (resolved) {
-          return resolved;
+        const savedMobile = localStorage.getItem('ios_persistent_mobile_session') || localStorage.getItem('investment_persistent_mobile_session_v1');
+        if (savedMobile) {
+          const parsed = JSON.parse(savedMobile);
+          if (parsed && parsed.user) return parsed.user;
         }
       } catch (_) {}
-    }
 
-    // Check local storage for persistent mobile session
-    try {
-      const savedMobile = localStorage.getItem('ios_persistent_mobile_session');
-      if (savedMobile) {
-        const parsed = JSON.parse(savedMobile);
-        if (parsed?.user) return parsed.user;
-      }
-    } catch (_) {}
+      await new Promise((r) => setTimeout(r, 120));
+    }
 
     return null;
   }
@@ -549,17 +573,17 @@ App.shareTarget = (function () {
     // Auto-detect category
     extracted.category = autoDetectCategory(extracted.url, extracted.title);
 
-    // Authentication Gate: wait briefly if session is still restoring
-    const user = await resolveAuthenticatedUser();
+    // Authentication Gate: wait for session recovery
+    const user = await resolveAuthenticatedUser(3500);
 
     if (user) {
       // User is authenticated: immediately save to Supabase website_entries
       await saveSharedEntry(extracted);
     } else {
-      // User is logged out / session locked: safely stash in sessionStorage
+      // User is logged out / session locked: safely stash in storage
       stashPendingShare(extracted);
       if (App.utils && App.utils.toast) {
-        App.utils.toast(`Shared link saved for next login: ${extracted.title}`, 'info');
+        App.utils.toast(`Shared link staged for next login: ${extracted.title}`, 'info');
       }
     }
 
@@ -575,10 +599,26 @@ App.shareTarget = (function () {
       processIncomingShare();
     }
 
-    // 2. Render notice if any stashed item exists
+    // 2. Chromium Launch Handler API (handles Android Chrome PWA share target to existing window)
+    if ('launchQueue' in window && typeof window.launchQueue.setConsumer === 'function') {
+      try {
+        window.launchQueue.setConsumer((launchParams) => {
+          if (launchParams && launchParams.targetURL) {
+            const parsed = new URL(launchParams.targetURL);
+            if (parsed.search) {
+              processIncomingShare(parsed.search);
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('[ShareTarget] launchQueue setup notice:', e);
+      }
+    }
+
+    // 3. Render notice if any stashed item exists
     renderPendingNoticeOnAuth();
 
-    // 3. Listen for warm navigation or visibility changes
+    // 4. Listen for warm navigation or visibility changes
     window.addEventListener('pageshow', () => {
       if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
         processIncomingShare();
@@ -586,8 +626,13 @@ App.shareTarget = (function () {
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && (window.location.search || (window.location.hash && window.location.hash.includes('?')))) {
-        processIncomingShare();
+      if (document.visibilityState === 'visible') {
+        if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
+          processIncomingShare();
+        } else {
+          // If returning to foreground, check for any pending share stashed
+          handlePendingShare();
+        }
       }
     });
 
@@ -597,15 +642,20 @@ App.shareTarget = (function () {
       }
     });
 
-    // 4. Listen for service worker postMessages
+    // 5. Listen for service worker postMessages (dispatched on share target requests)
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', (event) => {
+      navigator.serviceWorker.addEventListener('message', async (event) => {
         if (event.data && event.data.type === 'SHARE_TARGET_RECEIVED') {
           const payload = event.data.payload || {};
           const extracted = extractUrlAndTitle(payload);
           if (extracted.valid) {
             extracted.category = autoDetectCategory(extracted.url, extracted.title);
-            saveSharedEntry(extracted);
+            const user = await resolveAuthenticatedUser(3000);
+            if (user) {
+              await saveSharedEntry(extracted);
+            } else {
+              stashPendingShare(extracted);
+            }
           }
         }
       });

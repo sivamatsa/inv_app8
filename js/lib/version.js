@@ -197,7 +197,7 @@
               sessionStorage.setItem(reloadKey, String(now));
               App.utils.toast?.(`Auto-updating to v${remoteVersion}...`);
               setTimeout(() => {
-                App.updater.applyUpdate();
+                App.updater.applyUpdate(remoteVersion);
               }, 2500);
             } else if (autoReload && alreadyAttempted) {
               console.warn(`[Updater] Auto-reload already attempted for v${remoteVersion}. Suppressing reload loop.`);
@@ -205,13 +205,15 @@
 
             return { hasUpdate: true, version: remoteVersion, data };
           } else {
-            // Version is already current; remove banner and clear any lingering attempt markers
+            // Version is already current; remove banner and mark dismissed
             if (updateBannerEl) {
               updateBannerEl.remove();
               updateBannerEl = null;
             }
             try {
               sessionStorage.removeItem(`ios_auto_reload_attempt_${remoteVersion}`);
+              localStorage.setItem('ios_dismissed_update_' + remoteVersion, '1');
+              localStorage.setItem('ios_last_applied_version', remoteVersion);
             } catch (_) {}
           }
         }
@@ -247,12 +249,17 @@
       const newVer = versionData?.version || '2.4.3';
       // Suppress if the app is already on or past this version
       if (compareSemVer(newVer, CURRENT_VERSION) <= 0) {
+        if (updateBannerEl) {
+          updateBannerEl.remove();
+          updateBannerEl = null;
+        }
         return;
       }
-      // Suppress auto-appearing if already dismissed for this version in current session or local storage
+      // Suppress auto-appearing if already dismissed or applied for this version
       if (
         sessionStorage.getItem('dismissed_update_' + newVer) === '1' ||
-        localStorage.getItem('ios_dismissed_update_' + newVer) === '1'
+        localStorage.getItem('ios_dismissed_update_' + newVer) === '1' ||
+        localStorage.getItem('ios_last_applied_version') === newVer
       ) {
         return;
       }
@@ -278,7 +285,7 @@
       document.body.appendChild(updateBannerEl);
 
       App.utils?.qs('#btnApplyUpdateNow', updateBannerEl)?.addEventListener('click', () => {
-        App.updater.applyUpdate();
+        App.updater.applyUpdate(newVer);
       });
 
       App.utils?.qs('#btnViewWhatNewUpdate', updateBannerEl)?.addEventListener('click', () => {
@@ -288,20 +295,27 @@
       App.utils?.qs('#btnCloseUpdateBanner', updateBannerEl)?.addEventListener('click', () => {
         sessionStorage.setItem('dismissed_update_' + newVer, '1');
         localStorage.setItem('ios_dismissed_update_' + newVer, '1');
+        localStorage.setItem('ios_last_applied_version', newVer);
         updateBannerEl?.remove();
         updateBannerEl = null;
       });
     },
 
-    // Apply update: postMessage to SW, flush cache, and clean reload
-    applyUpdate: async function () {
+    // Apply update: record version, postMessage to SW, unregister stale workers, flush cache, and clean reload
+    applyUpdate: async function (targetVersion = null) {
+      const targetVer = targetVersion || '2.4.3';
       if (App.utils && App.utils.toast) {
-        App.utils.toast('Purging cache & activating v' + CURRENT_VERSION + '...', 'ok');
+        App.utils.toast('Purging cache & activating v' + targetVer + '...', 'ok');
       }
 
       try {
-        sessionStorage.setItem('dismissed_update_' + CURRENT_VERSION, '1');
-        localStorage.setItem('ios_dismissed_update_' + CURRENT_VERSION, '1');
+        sessionStorage.setItem('dismissed_update_' + targetVer, '1');
+        localStorage.setItem('ios_dismissed_update_' + targetVer, '1');
+        localStorage.setItem('ios_last_applied_version', targetVer);
+        if (updateBannerEl) {
+          updateBannerEl.remove();
+          updateBannerEl = null;
+        }
         if ('caches' in window) {
           const keys = await caches.keys();
           await Promise.all(keys.map((k) => caches.delete(k)));
@@ -311,16 +325,15 @@
           for (const reg of regs) {
             if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
             if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING' });
-            reg.update().catch(() => {});
+            await reg.unregister().catch(() => {});
           }
         }
       } catch (_) {}
 
       setTimeout(() => {
-        const cleanUrl = window.location.href.replace(/([?&])_t=[^&]+/, '').replace(/([?&])_v=[^&]+/, '');
-        const sep = cleanUrl.includes('?') ? '&' : '?';
-        window.location.replace(cleanUrl + sep + '_v=' + Date.now());
-      }, 350);
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.location.replace(cleanUrl + '?_v=' + Date.now());
+      }, 300);
     },
 
     // Nuclear cache flush: wipes CacheStorage and ServiceWorker registrations

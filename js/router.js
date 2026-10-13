@@ -86,5 +86,5 @@ App.router = (function () {
     show(currentName());
   }
 
-  return { register, navigate, init, refresh: refreshCurrent, refreshCurrent, onLeave, currentName: () => current };
+  return { register, navigate, show, init, refresh: refreshCurrent, refreshCurrent, onLeave, currentName: () => current };
 })();

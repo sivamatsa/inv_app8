@@ -949,6 +949,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (user) {
       tryEnterApp(user);
+      if (App.shareTarget && typeof App.shareTarget.handlePendingShare === 'function') {
+        App.shareTarget.handlePendingShare().catch(() => {});
+      }
     } else {
       if (App.security && App.security.lockSession) App.security.lockSession();
       showAuthScreen();
