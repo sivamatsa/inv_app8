@@ -95,16 +95,16 @@ App.shareTarget = (function () {
 
   /**
    * Robust URL and title extractor. Handles raw URLs, URLs inside freeform text
-   * (e.g. Twitter/Reddit/WhatsApp shares), and rejects invalid or unsafe schemes.
+   * (e.g. Chrome, Twitter, Reddit, WhatsApp shares), and rejects invalid or unsafe schemes.
    */
   function extractUrlAndTitle(params) {
     if (!params) {
       return { valid: false, error: 'No share payload provided.' };
     }
 
-    let rawUrl = (params.url || '').trim();
-    let rawText = (params.text || '').trim();
-    let rawTitle = (params.title || '').trim();
+    let rawUrl = (params.url || params.link || params.shared_url || '').trim();
+    let rawText = (params.text || params.body || params.extra_text || '').trim();
+    let rawTitle = (params.title || params.subject || params.extra_subject || '').trim();
 
     let candidateUrl = '';
 
@@ -307,10 +307,15 @@ App.shareTarget = (function () {
       App.router.navigate('vault');
     }
 
+    // Also refresh current if already on vault
+    if (App.router && typeof App.router.refreshCurrent === 'function') {
+      App.router.refreshCurrent();
+    }
+
     // Trigger visual highlight with smooth scrolling
     setTimeout(() => {
       triggerVaultItemHighlight(siteId);
-    }, 250);
+    }, 300);
   }
 
   /**
@@ -333,7 +338,7 @@ App.shareTarget = (function () {
         el.classList.remove('vault-item-just-added');
       }, 2600);
     } else {
-      // Retry briefly in case vault list is still rendering
+      // Retry in case vault list is still rendering
       setTimeout(() => {
         const retryEl = document.querySelector(selector);
         if (retryEl) {
@@ -341,7 +346,7 @@ App.shareTarget = (function () {
           retryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           setTimeout(() => retryEl.classList.remove('vault-item-just-added'), 2600);
         }
-      }, 500);
+      }, 450);
     }
   }
 
@@ -397,7 +402,7 @@ App.shareTarget = (function () {
   function renderPendingNoticeOnAuth() {
     const pending = getPendingShare();
     const notice = document.querySelector('#authPendingShareNotice');
-    if (!notice) return;
+    if (!notice || !notice.style) return;
 
     if (!pending) {
       notice.style.display = 'none';
@@ -444,28 +449,81 @@ App.shareTarget = (function () {
   }
 
   /**
+   * Resolves whether user is currently authenticated, including waiting briefly
+   * for async Supabase session recovery on cold app launch.
+   */
+  async function resolveAuthenticatedUser() {
+    let user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+    if (user || (App.auth && App.auth.isDemoMode && App.auth.isDemoMode())) {
+      return user || { id: 'demo' };
+    }
+
+    // If client is available, wait up to 1.5s for session restoration
+    const supaClient = App.auth && typeof App.auth.getClient === 'function' ? App.auth.getClient() : null;
+    if (supaClient && supaClient.auth) {
+      try {
+        const sessionPromise = supaClient.auth.getSession().then(({ data }) => data?.session?.user || null).catch(() => null);
+        const timeoutPromise = new Promise((r) => setTimeout(() => r(null), 1500));
+        const resolved = await Promise.race([sessionPromise, timeoutPromise]);
+        if (resolved) {
+          return resolved;
+        }
+      } catch (_) {}
+    }
+
+    // Check local storage for persistent mobile session
+    try {
+      const savedMobile = localStorage.getItem('ios_persistent_mobile_session');
+      if (savedMobile) {
+        const parsed = JSON.parse(savedMobile);
+        if (parsed?.user) return parsed.user;
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  /**
+   * Extracts query parameters from a raw query or hash string, normalizing
+   * potential double '??' strings from some browser share target formats.
+   */
+  function parseShareParams(rawString) {
+    if (!rawString) return new URLSearchParams();
+    // Normalize: if there is a second '?', replace it with '&'
+    const normalized = rawString.replace(/\?/g, (match, offset) => offset === 0 ? '?' : '&');
+    return new URLSearchParams(normalized);
+  }
+
+  /**
    * Main entry point: intercepts incoming URL parameters (?share_target=1&url=...&title=...&text=...).
    * Cleans address bar via history.replaceState, validates, and routes appropriately.
    */
   async function processIncomingShare(searchString) {
-    const search = searchString !== undefined ? searchString : window.location.search;
+    let search = searchString !== undefined ? searchString : window.location.search;
+
+    // Check hash if search is empty (e.g. /#vault?url=... or /?url=...#vault)
+    if (!search && window.location.hash && window.location.hash.includes('?')) {
+      search = '?' + window.location.hash.split('?')[1];
+    }
+
     if (!search) return false;
 
-    const params = new URLSearchParams(search);
-    const hasShareTargetFlag = params.get('share_target') === '1';
+    const params = parseShareParams(search);
+    const hasShareTargetFlag = params.get('share_target') === '1' || params.has('share_target');
     const hasUrl = params.has('url') && params.get('url').trim() !== '';
+    const hasLink = params.has('link') && params.get('link').trim() !== '';
     const hasText = params.has('text') && params.get('text').trim() !== '';
     const hasTitle = params.has('title') && params.get('title').trim() !== '';
 
     // Only process if this is a share target invocation
-    if (!hasShareTargetFlag && !hasUrl && !hasText) {
+    if (!hasShareTargetFlag && !hasUrl && !hasLink && !hasText && !hasTitle) {
       return false;
     }
 
     const payload = {
-      url: params.get('url') || '',
-      title: params.get('title') || '',
-      text: params.get('text') || '',
+      url: params.get('url') || params.get('link') || params.get('shared_url') || '',
+      title: params.get('title') || params.get('subject') || params.get('extra_subject') || '',
+      text: params.get('text') || params.get('body') || params.get('extra_text') || '',
     };
 
     // Clean browser URL query parameters immediately via history.replaceState
@@ -491,11 +549,10 @@ App.shareTarget = (function () {
     // Auto-detect category
     extracted.category = autoDetectCategory(extracted.url, extracted.title);
 
-    // Authentication Gate
-    const user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
-    const isDemo = App.auth && typeof App.auth.isDemoMode === 'function' && App.auth.isDemoMode();
+    // Authentication Gate: wait briefly if session is still restoring
+    const user = await resolveAuthenticatedUser();
 
-    if (user || isDemo) {
+    if (user) {
       // User is authenticated: immediately save to Supabase website_entries
       await saveSharedEntry(extracted);
     } else {
@@ -513,9 +570,9 @@ App.shareTarget = (function () {
    * Initializes shareTarget listeners for both cold and warm launches.
    */
   function init() {
-    // 1. Process cold launch with search parameters
-    if (window.location.search) {
-      processIncomingShare(window.location.search);
+    // 1. Process cold launch with search or hash parameters
+    if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
+      processIncomingShare();
     }
 
     // 2. Render notice if any stashed item exists
@@ -523,16 +580,36 @@ App.shareTarget = (function () {
 
     // 3. Listen for warm navigation or visibility changes
     window.addEventListener('pageshow', () => {
-      if (window.location.search) {
-        processIncomingShare(window.location.search);
+      if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
+        processIncomingShare();
       }
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && window.location.search) {
-        processIncomingShare(window.location.search);
+      if (document.visibilityState === 'visible' && (window.location.search || (window.location.hash && window.location.hash.includes('?')))) {
+        processIncomingShare();
       }
     });
+
+    window.addEventListener('popstate', () => {
+      if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
+        processIncomingShare();
+      }
+    });
+
+    // 4. Listen for service worker postMessages
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'SHARE_TARGET_RECEIVED') {
+          const payload = event.data.payload || {};
+          const extracted = extractUrlAndTitle(payload);
+          if (extracted.valid) {
+            extracted.category = autoDetectCategory(extracted.url, extracted.title);
+            saveSharedEntry(extracted);
+          }
+        }
+      });
+    }
   }
 
   return {

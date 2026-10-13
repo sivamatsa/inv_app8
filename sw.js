@@ -1,5 +1,5 @@
 /* Service Worker: Personal Investment OS
-   Version: v2.4.0
+   Version: v2.4.3
    PWA Shell + Push Notifications + Dynamic Cache Invalidation
 */
 
@@ -106,8 +106,8 @@ self.addEventListener('fetch', (event) => {
   // 1. Cross-Origin (Supabase, CDNs, external APIs): Always live network
   if (url.origin !== self.location.origin) return;
 
-  // 2. Version metadata & API routes: NEVER cache via ServiceWorker
-  if (url.pathname.includes('/version.json') || url.pathname.startsWith('/api/')) {
+  // 2. Version metadata, update scripts, & API routes: NEVER cache stale via ServiceWorker
+  if (url.pathname.includes('/version.json') || url.pathname.includes('version.js') || url.pathname.includes('manifest.json') || url.pathname.includes('sw.js') || url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(req, { cache: 'no-store' }).catch(() => caches.match(req))
     );
@@ -120,7 +120,7 @@ self.addEventListener('fetch', (event) => {
       let didRespond = false;
       const timeoutId = setTimeout(() => {
         if (!didRespond) {
-          caches.match(req).then((cached) => {
+          caches.match(req, { ignoreSearch: true }).then((cached) => {
             if (cached) {
               didRespond = true;
               resolve(cached);
@@ -145,7 +145,7 @@ self.addEventListener('fetch', (event) => {
           clearTimeout(timeoutId);
           if (!didRespond) {
             didRespond = true;
-            caches.match(req).then((cached) => {
+            caches.match(req, { ignoreSearch: true }).then((cached) => {
               if (cached) {
                 resolve(cached);
               } else if (req.mode === 'navigate') {

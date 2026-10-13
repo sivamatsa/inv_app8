@@ -4549,6 +4549,23 @@ App.api = (function () {
     },
 
     createWebsite: async function (siteData) {
+      if (App.auth.isDemoMode()) {
+        const demoDb = (App.demo && App.demo.getDb && App.demo.getDb()) || {};
+        demoDb.website_entries = demoDb.website_entries || [];
+        const newSite = Object.assign({}, siteData, {
+          id: 'site-' + Date.now(),
+          user_id: (App.demo && App.demo.DEMO_USER && App.demo.DEMO_USER.id) || 'usr_demo',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          accounts: [],
+          account_count: 0,
+          group_ids: [],
+        });
+        demoDb.website_entries.unshift(newSite);
+        markLocalWrite();
+        return newSite;
+      }
+
       const c = client();
       const currentUserId = uid();
       const cleanData = Object.assign({}, siteData, {

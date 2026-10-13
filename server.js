@@ -2405,10 +2405,6 @@ app.post(['/api/bot/dispatch-alerts', '/api/bot/dispatch-alerts/'], async (req, 
   }
 });
 
-// Serve static assets from workspace root
-
-app.use(express.static(__dirname));
-
 // Web Share Target: Handle direct POST submissions
 app.post(['/', '/index.html', '/share-target'], (req, res) => {
   const sharedTitle = req.body?.title || '';
@@ -2419,11 +2415,30 @@ app.post(['/', '/index.html', '/share-target'], (req, res) => {
   if (sharedTitle) query.set('title', String(sharedTitle));
   if (sharedText) query.set('text', String(sharedText));
   if (sharedUrl) query.set('url', String(sharedUrl));
-  return res.redirect(303, `/?${query.toString()}`);
+  return res.redirect(303, `/index.html?${query.toString()}`);
 });
+
+// Serve static assets from workspace root with strict cache invalidation on shell & manifest
+app.use(express.static(__dirname, {
+  setHeaders: (res, filePath) => {
+    if (
+      filePath.endsWith('.html') ||
+      filePath.endsWith('sw.js') ||
+      filePath.endsWith('version.json') ||
+      filePath.endsWith('manifest.json')
+    ) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // Single Page Application fallback
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 

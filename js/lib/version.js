@@ -9,10 +9,10 @@
 
   window.App = window.App || {};
 
-  const CURRENT_VERSION = '2.4.2';
-  const BUILD_DATE = '2026-10-05';
+  const CURRENT_VERSION = '2.4.3';
+  const BUILD_DATE = '2026-10-13';
   const BUILD_CHANNEL = 'Stable';
-  const BUILD_ID = '20261005.1';
+  const BUILD_ID = '20261013.1';
 
   App.version = CURRENT_VERSION;
   App.buildInfo = {
@@ -38,6 +38,41 @@
 
   // Fallback release notes if offline / disconnected
   const FALLBACK_RELEASES = [
+    {
+      version: '2.4.3',
+      type: 'minor',
+      date: '2026-10-13',
+      title: 'Android Web Share Target & Direct Share to Website Vault',
+      highlights: [
+        'W3C Web Share Target API enabling Android Sharesheet integration directly from Chrome and mobile apps',
+        'Automatic URL extraction, validation, and multi-tier category auto-detection into Website Vault',
+        'Immediate save feedback with animated item highlight and direct vault navigation',
+        'Safe unauthenticated staging in sessionStorage with auto-commit on sign-in'
+      ]
+    },
+    {
+      version: '2.4.2',
+      type: 'minor',
+      date: '2026-10-05',
+      title: 'Full Portfolio Dossier, Auto-Reload Loop Guard & Settings Accordions',
+      highlights: [
+        'Full Portfolio Dossier export covering Deals, Recurring SIPs, Gold Vault, Expense Projects, Accounts, and Liabilities in PDF, Excel, and Print',
+        'Dedicated Full Portfolio Dossier action buttons in Reports, Dashboard, and Settings',
+        'Infinite Auto-Reload loop fix on static domains with session attempt locks and SW cache flushing',
+        'Interactive expandable accordion panels for Profile, Privacy, Sidebar, and Notification Delivery'
+      ]
+    },
+    {
+      version: '2.4.1',
+      type: 'minor',
+      date: '2026-10-04',
+      title: 'Static Host Telegram Linking & Direct Supabase Verification',
+      highlights: [
+        'Resolved linking code generation on static hosts and direct Supabase verification persistence',
+        'Direct Telegram Chat ID instant binding with automated welcome ping',
+        'Dynamic Telegram deep linking (t.me/BotName?start=CODE) with auto-bind'
+      ]
+    },
     {
       version: '2.4.0',
       type: 'major',
@@ -170,7 +205,11 @@
 
             return { hasUpdate: true, version: remoteVersion, data };
           } else {
-            // Version is already current; clear any lingering attempt markers
+            // Version is already current; remove banner and clear any lingering attempt markers
+            if (updateBannerEl) {
+              updateBannerEl.remove();
+              updateBannerEl = null;
+            }
             try {
               sessionStorage.removeItem(`ios_auto_reload_attempt_${remoteVersion}`);
             } catch (_) {}
@@ -205,7 +244,19 @@
     showUpdateNotification: function (message, versionData = null) {
       if (updateBannerEl) updateBannerEl.remove();
 
-      const newVer = versionData?.version || 'new';
+      const newVer = versionData?.version || '2.4.3';
+      // Suppress if the app is already on or past this version
+      if (compareSemVer(newVer, CURRENT_VERSION) <= 0) {
+        return;
+      }
+      // Suppress auto-appearing if already dismissed for this version in current session or local storage
+      if (
+        sessionStorage.getItem('dismissed_update_' + newVer) === '1' ||
+        localStorage.getItem('ios_dismissed_update_' + newVer) === '1'
+      ) {
+        return;
+      }
+
       updateBannerEl = document.createElement('div');
       updateBannerEl.id = 'pwaUpdateBanner';
       updateBannerEl.className = 'pwa-update-banner';
@@ -235,27 +286,41 @@
       });
 
       App.utils?.qs('#btnCloseUpdateBanner', updateBannerEl)?.addEventListener('click', () => {
+        sessionStorage.setItem('dismissed_update_' + newVer, '1');
+        localStorage.setItem('ios_dismissed_update_' + newVer, '1');
         updateBannerEl?.remove();
+        updateBannerEl = null;
       });
     },
 
     // Apply update: postMessage to SW, flush cache, and clean reload
     applyUpdate: async function () {
+      if (App.utils && App.utils.toast) {
+        App.utils.toast('Purging cache & activating v' + CURRENT_VERSION + '...', 'ok');
+      }
+
       try {
+        sessionStorage.setItem('dismissed_update_' + CURRENT_VERSION, '1');
+        localStorage.setItem('ios_dismissed_update_' + CURRENT_VERSION, '1');
         if ('caches' in window) {
           const keys = await caches.keys();
-          await Promise.all(keys.filter((k) => k.includes('investment-os')).map((k) => caches.delete(k)));
+          await Promise.all(keys.map((k) => caches.delete(k)));
         }
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            if (reg.active) reg.active.postMessage({ type: 'SKIP_WAITING' });
+            reg.update().catch(() => {});
+          }
         }
       } catch (_) {}
 
       setTimeout(() => {
-        const cleanUrl = window.location.href.replace(/([?&])_t=[^&]+/, '');
+        const cleanUrl = window.location.href.replace(/([?&])_t=[^&]+/, '').replace(/([?&])_v=[^&]+/, '');
         const sep = cleanUrl.includes('?') ? '&' : '?';
-        window.location.replace(cleanUrl + sep + '_t=' + Date.now());
-      }, 300);
+        window.location.replace(cleanUrl + sep + '_v=' + Date.now());
+      }, 350);
     },
 
     // Nuclear cache flush: wipes CacheStorage and ServiceWorker registrations
