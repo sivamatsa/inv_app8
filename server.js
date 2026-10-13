@@ -23,6 +23,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 let aiClient = null;
 let lastApiKey = null;
@@ -2407,6 +2408,19 @@ app.post(['/api/bot/dispatch-alerts', '/api/bot/dispatch-alerts/'], async (req, 
 // Serve static assets from workspace root
 
 app.use(express.static(__dirname));
+
+// Web Share Target: Handle direct POST submissions
+app.post(['/', '/index.html', '/share-target'], (req, res) => {
+  const sharedTitle = req.body?.title || '';
+  const sharedText = req.body?.text || '';
+  const sharedUrl = req.body?.url || '';
+  const query = new URLSearchParams();
+  query.set('share_target', '1');
+  if (sharedTitle) query.set('title', String(sharedTitle));
+  if (sharedText) query.set('text', String(sharedText));
+  if (sharedUrl) query.set('url', String(sharedUrl));
+  return res.redirect(303, `/?${query.toString()}`);
+});
 
 // Single Page Application fallback
 app.get('*', (req, res) => {

@@ -36,6 +36,7 @@ App.views.vault = (function () {
     sortBy: 'name', // 'name', 'recent_used', 'recent_added', 'importance', 'renewal'
     activeSelectedAccountMap: {}, // siteId -> accountId
     revealedPasswords: {}, // siteId_accId -> boolean
+    highlightSiteId: null,
     loading: false,
   };
 
@@ -100,7 +101,37 @@ App.views.vault = (function () {
     }
 
     await loadData();
+
+    // If a specific site was targeted for attention highlight (e.g. from Web Share Target),
+    // ensure it is visible in the active list view
+    if (state.highlightSiteId) {
+      state.selectedNav = 'all';
+      state.searchQuery = '';
+      state.filterImportance = 'ALL';
+      state.filterMultiAccount = false;
+      state.filterMissingInfo = false;
+      state.filterReviewDue = false;
+      state.filterRenewalDue = false;
+    }
+
     drawMain(pane);
+
+    if (state.highlightSiteId) {
+      const targetId = state.highlightSiteId;
+      setTimeout(() => {
+        if (App.shareTarget && typeof App.shareTarget.triggerVaultItemHighlight === 'function') {
+          App.shareTarget.triggerVaultItemHighlight(targetId);
+        } else {
+          const el = pane.querySelector(`[data-site-id="${targetId}"]`);
+          if (el) {
+            el.classList.add('vault-item-just-added');
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => el.classList.remove('vault-item-just-added'), 2600);
+          }
+        }
+        state.highlightSiteId = null;
+      }, 150);
+    }
   }
 
   // Render Vault Locked Screen
@@ -691,7 +722,7 @@ App.views.vault = (function () {
                 const isPasswordRevealed = activeAccount && state.revealedPasswords[`${site.id}_${activeAccount.id}`];
 
                 return `
-                <tr style="border-bottom:1px solid var(--border2)">
+                <tr data-site-id="${site.id}" style="border-bottom:1px solid var(--border2)">
                   <td style="padding:10px 14px">
                     <div style="display:flex;align-items:center;gap:8px">
                       <span style="font-weight:700;color:var(--text)">${App.utils.escapeHtml(site.name)}</span>
@@ -2302,6 +2333,11 @@ App.views.vault = (function () {
 
   return {
     render,
+    setHighlightSiteId: (id) => { state.highlightSiteId = id; },
+    highlightSite: (id) => {
+      state.highlightSiteId = id;
+      render();
+    },
     openAddEditWebsiteModal,
     openPasswordGeneratorModal,
     openImportExportModal,

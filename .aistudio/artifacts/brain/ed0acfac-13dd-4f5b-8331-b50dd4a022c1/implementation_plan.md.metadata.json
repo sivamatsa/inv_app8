@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Website Directory CSV Import & History Fix and Missed Payments Management Tab with Record, Reschedule, and Waive action buttons synced across deals and entire portfolio.",
-  "updatedAt":  "2026-10-11T12:56:46.146642790Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan for Share URLs Directly to Investment OS Website Vault via PWA Web Share Target API, multi-tier category auto-detection, immediate toast feedback, vault navigation with element highlighting, and an accompanying lightweight Android APK intent wrapper specification.",
+  "updatedAt": "2026-10-13T11:42:32.909462102Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

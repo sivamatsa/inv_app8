@@ -2232,4 +2232,39 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
+/* ==========================================================================
+   Vault Item Attention Pulse (Web Share Target Saved Item)
+   ========================================================================== */
+.vault-item-just-added {
+  outline: 2px solid #16c9a3 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 24px rgba(22, 201, 163, 0.5) !important;
+  animation: vaultJustAddedPulse 2.5s ease-out forwards !important;
+  position: relative;
+  z-index: 5;
+}
+
+@keyframes vaultJustAddedPulse {
+  0% {
+    outline-color: #16c9a3;
+    box-shadow: 0 0 28px rgba(22, 201, 163, 0.65);
+    transform: scale(1.015);
+  }
+  25% {
+    outline-color: #16c9a3;
+    box-shadow: 0 0 22px rgba(22, 201, 163, 0.45);
+  }
+  70% {
+    outline-color: rgba(22, 201, 163, 0.6);
+    box-shadow: 0 0 10px rgba(22, 201, 163, 0.2);
+    transform: scale(1);
+  }
+  100% {
+    outline-color: transparent;
+    outline-offset: 0;
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
 

@@ -3,7 +3,7 @@
    PWA Shell + Push Notifications + Dynamic Cache Invalidation
 */
 
-const APP_VERSION = 'v2.4.2';
+const APP_VERSION = 'v2.4.3';
 const CACHE_NAME = `investment-os-shell-${APP_VERSION}`;
 
 self.addEventListener('install', (event) => {
@@ -76,9 +76,32 @@ self.addEventListener('notificationclick', (event) => {
 // Fetch Strategy: Network-First with Cache Fallback for Local Assets
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET') return;
-
   const url = new URL(req.url);
+
+  // Web Share Target: Intercept POST submissions from compatible sharing clients
+  if (req.method === 'POST' && (url.pathname.endsWith('index.html') || url.pathname === '/' || url.pathname.endsWith('share-target'))) {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await req.formData();
+          const sharedTitle = formData.get('title') || '';
+          const sharedText = formData.get('text') || '';
+          const sharedUrl = formData.get('url') || '';
+          const redirectUrl = new URL('./index.html', self.location.origin);
+          redirectUrl.searchParams.set('share_target', '1');
+          if (sharedTitle) redirectUrl.searchParams.set('title', String(sharedTitle));
+          if (sharedText) redirectUrl.searchParams.set('text', String(sharedText));
+          if (sharedUrl) redirectUrl.searchParams.set('url', String(sharedUrl));
+          return Response.redirect(redirectUrl.href, 303);
+        } catch (err) {
+          return Response.redirect('./index.html?share_target=1', 303);
+        }
+      })()
+    );
+    return;
+  }
+
+  if (req.method !== 'GET') return;
 
   // 1. Cross-Origin (Supabase, CDNs, external APIs): Always live network
   if (url.origin !== self.location.origin) return;

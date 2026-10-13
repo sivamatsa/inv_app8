@@ -1,11 +1,23 @@
 {
-  "version": "2.4.2",
+  "version": "2.4.3",
   "name": "Personal Investment Operating System",
-  "releaseDate": "2026-10-05",
+  "releaseDate": "2026-10-13",
   "channel": "Stable",
-  "build": "20261005.1",
+  "build": "20261013.1",
   "minSupportedVersion": "2.0.0",
   "releases": [
+    {
+      "version": "2.4.3",
+      "type": "minor",
+      "date": "2026-10-13",
+      "title": "Android Web Share Target & Direct Share to Website Vault",
+      "highlights": [
+        "W3C Web Share Target API enabling Android Sharesheet integration directly from Chrome and mobile apps",
+        "Automatic URL extraction, validation, and multi-tier category auto-detection into Website Vault",
+        "Immediate save feedback with animated item highlight and direct vault navigation",
+        "Safe unauthenticated staging in sessionStorage with auto-commit on sign-in"
+      ]
+    },
     {
       "version": "2.4.2",
       "type": "minor",

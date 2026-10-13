@@ -1,6 +1,15 @@
 /* Shared formatting/parsing helpers, plain global namespace (no bundler, no
    ES modules) so this keeps working when the file is opened directly. */
 window.App = window.App || {};
+if (!window.App.router) {
+  const pendingViews = {};
+  window.App.router = {
+    _pendingViews: pendingViews,
+    register: function (name, fn) {
+      pendingViews[name] = fn;
+    }
+  };
+}
 
 App.utils = (function () {
   const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'AED ', SGD: 'S$', CAD: 'C$', AUD: 'A$', JPY: '¥', CHF: 'CHF ' };

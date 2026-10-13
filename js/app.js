@@ -443,6 +443,11 @@ async function enterApp() {
       if (!isEcho) App.utils.toast('Your data was updated elsewhere', 'info');
     });
   } catch (e) { /* realtime is a nice-to-have; the app works fine without cross-device sync */ }
+
+  // Check and commit any pending shared link stashed while unauthenticated
+  if (App.shareTarget && typeof App.shareTarget.handlePendingShare === 'function') {
+    App.shareTarget.handlePendingShare().catch((e) => console.warn('[ShareTarget] Pending commit notice:', e));
+  }
 }
 
 function showAuthScreen() {
@@ -455,6 +460,11 @@ function showAuthScreen() {
   if (formsPane) formsPane.style.display = 'block';
   const passPane = App.utils.qs('#setNewPasswordPane');
   if (passPane) passPane.style.display = 'none';
+
+  // Render pending share status notice if a link was shared while unauthenticated
+  if (App.shareTarget && typeof App.shareTarget.renderPendingNoticeOnAuth === 'function') {
+    App.shareTarget.renderPendingNoticeOnAuth();
+  }
 
   // Check if a registered user with Biometrics or PIN is remembered on this device
   const quickUnlockWrap = App.utils.qs('#authQuickUnlockWrap');
@@ -897,6 +907,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize Floating Gemini AI Chatbot
   if (App.chatbot) {
     App.chatbot.init();
+  }
+
+  // Initialize PWA Web Share Target handler for Android Sharesheet
+  if (App.shareTarget && typeof App.shareTarget.init === 'function') {
+    App.shareTarget.init();
   }
 
   // Re-render views on global currency change

@@ -1,67 +1,81 @@
-# Missed Payments Management & Website Directory Import Sync
+# Share URLs Directly to Investment OS Website Vault
 
-Implement a dedicated **Missed Payments** management tab within the Payments workspace with actionable workflows (Record Payment, Reschedule, Waive) that synchronize seamlessly to deals and portfolio cash flows, and repair the Website Directory CSV import engine to ensure robust vault decryption/encryption and automatic recording to the Global Import history.
+Implement a zero-friction **Share to Website Vault** feature for Personal Investment OS, enabling Android Chrome and compatible mobile apps to share URLs and webpage titles directly into the user's encrypted Website Vault via the PWA Web Share Target API, with multi-tier category auto-detection, immediate toast feedback, seamless vault navigation, and an accompanying lightweight Android APK intent wrapper specification.
 
 ---
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The architectural design aligns directly with the choices confirmed during clarification:
-> - **Dedicated Tab Location**: A first-class tab **"Missed Payments"** placed in the primary Payments workspace alongside *Schedule*, *Ledger*, and *Reconciliation*.
-> - **Comprehensive Action Capabilities**: Every missed payment row features an explicit action menu and quick-action buttons for **Record Payment**, **Reschedule Due Date**, and **Waive Payment**, with modal workflows for transaction logging and audit notes.
-> - **Global Import History Sync**: Website Directory CSV imports seamlessly log structured execution records into the **Global Import** history tab (`import_history`), including item counts, success metrics, and timestamps.
+> The architectural design directly incorporates the three implementation decisions confirmed during clarification:
+> - **Share Target Architecture**: PWA Web Share Target API implemented via `manifest.json` and `sw.js` for instant browser/Android Sharesheet registration, accompanied by a lightweight Android native wrapper guide with `ACTION_SEND` intent filter configuration for standalone APK builds.
+> - **Intelligent Multi-Tier Category Auto-Detection**: Incoming shared URLs undergo automatic domain and keyword parsing to assign existing categories (e.g., *Banking & Finance*, *Recharge & Utilities*, *Stocks & Mutual Funds*, *Shopping & Payments*). If domain heuristics fail or find no match, entries default gracefully to *General* / *Shared Links*.
+> - **Post-Save Navigation & Visual Feedback**: Upon receiving a share, the application displays a crisp success toast, navigates directly to the Website Vault view (`#vault`), smooth-scrolls to the newly created entry, and applies an attention highlight pulse.
+> - **Duplicate Handling**: Strict compliance with user directive — repeated shares of identical URLs create separate, independent vault entries without blocking, merging, or overwriting.
 
 ---
 
 ### 1. Overview & Core Concept
 
 - **What It Does**:
-  1. **Missed Payments Tab & Action Suite**: Identifies overdue and unpaid installments across all deals in the portfolio. Provides inline and modal actions to immediately record receipts, adjust payment milestones (reschedule), or waive fees/installments with full synchronization into deal status, ledger balances, and portfolio KPIs.
-  2. **Website Directory CSV Import Engine**: Fixes file parsing and cryptographic credential generation so bulk CSV records import directly into the user's unlocked Website & Account Vault, while reliably logging the import batch to the Global Import history table.
-- **Target Audience / Persona**: Portfolio managers, investors, and operations leads tracking active deal servicing, loan schedules, overdue receivables, and secure website credentials.
-- **Key Value**: Closes the operational loop on delinquent/missed payments by eliminating manual recalculation across deals and portfolio metrics, while providing reliable bulk data onboarding for website accounts.
+  1. Registers Investment OS as an official Android Sharesheet destination through the W3C Web Share Target API (`action`, `params: { url, title, text }`) in `manifest.json`.
+  2. Intercepts incoming share invocations in both closed (cold launch) and active (background/warm) app states via a dedicated URL handler (`js/lib/shareTarget.js`).
+  3. Sanitizes and validates the incoming payload, extracting HTTP/HTTPS URLs from either the dedicated URL parameter or embedded text snippets, and deriving high-fidelity titles (with clean domain fallback when titles are omitted).
+  4. Persists the record directly into Supabase `website_entries` using the user's authenticated session, respecting Row-Level Security (RLS) and existing vault encryption structures.
+  5. Stashes pending shares in `sessionStorage` if the user is unauthenticated, automatically saving the item once the session is unlocked.
+- **Target Audience / Persona**: Mobile portfolio investors, researchers, and financial operators quickly saving banking platforms, utility portals, financial news, investment articles, and loan/deal counterparty sites from mobile browsers directly to their personal vault.
+- **Key Value**: Eliminates the multi-step chore of copying a URL, opening Investment OS, unlocking, clicking Add Website, pasting, and typing names. One tap on Android's native Share menu immediately archives the link.
 
 ---
 
 ### 2. User Experience & Visual Design
 
 #### A. Key User Flows
-1. **Missed Payments Review & Action Flow**:
-   - The user opens the **Payments** screen and clicks the new **"Missed Payments"** tab (annotated with an overdue count badge).
-   - A summary header displays key delinquent metrics: *Total Overdue Amount*, *Count of Delinquent Deals*, and *Average Days Overdue*.
-   - The user filters or searches by deal name, borrower, or overdue severity (>30d, >60d, >90d).
-   - In each row, the user can click:
-     - **Record Payment**: Opens the payment drawer/modal with the deal and installment preselected, payment date defaulting to today, amount prefilled with principal/interest breakdown, and payment mode options. Submitting logs the payment, updates the schedule item to `PAID`, triggers deal balance recalculation, and refreshes the portfolio ledger.
-     - **Reschedule**: Opens a date picker modal to set a new due date and optional notes. Updates schedule item date and resets status to `PENDING` / `UPCOMING`.
-     - **Waive**: Opens a confirmation dialog requesting an optional waiver justification. Marks schedule status as `WAIVED`, adjusts expected deal totals, and logs an audit entry.
-2. **Website Directory CSV Import Flow**:
-   - In the **Website Vault** or **Global Import** tab, the user uploads a CSV file containing website credentials.
-   - The system parses headers (Domain/Title, URL, Username, Password, 2FA/Notes, Category).
-   - Accounts are encrypted and saved into `website_vault_items`.
-   - A new import batch record is committed to `import_history` with type `WEBSITES`, filename, total processed, error counts, and status `COMPLETED`.
-   - The vault view automatically re-renders and the Global Import history tab reflects the new entry with a direct badge.
+1. **Cold & Warm Share Flow (Authenticated)**:
+   - User browses a portal in Chrome (e.g., `https://netbanking.hdfcbank.com` or `https://zerodha.com`) on Android and taps **Share**.
+   - The Android Sharesheet displays **Investment OS** with its custom icon.
+   - User taps Investment OS; the PWA launches or shifts to focus.
+   - The share handler intercepts parameters (`?share_target=1&url=...&title=...`).
+   - Category heuristics identify the domain (e.g., `hdfcbank.com` $\rightarrow$ *Banking & Finance*).
+   - The entry is immediately committed to Supabase `website_entries`.
+   - The browser URL query parameters are cleaned via `history.replaceState`.
+   - A crisp toast appears: `✓ Saved to Website Vault: HDFC NetBanking`.
+   - The viewport automatically routes to `#vault`, loads the entries, smooth-scrolls to the new item, and triggers a 2-second glow border highlight.
+2. **Unauthenticated Share Flow**:
+   - If the user is logged out or session is expired, the payload is safely persisted to `sessionStorage.setItem('pending_shared_vault_item', ...)` without data loss.
+   - The login screen presents a status notice: `Shared link pending: example.com. Sign in to save to your vault.`
+   - Once credentials are verified, the pending item is committed automatically, followed by the vault navigation and toast.
+3. **Invalid or Malformed Share Flow**:
+   - If incoming text contains no valid HTTP/HTTPS link, a warning toast is shown: `Invalid or missing URL in shared content.` The app routes to `#vault` safely without writing corrupted records.
 
 #### B. Visual Theme & Layout Specifications
-- **Tabular Numerals**: Overdue amounts, days delinquent, and deal identifiers utilize `font-variant-numeric: tabular-nums` (`font-mono`) to prevent visual shifting.
-- **Status Indicators**:
-  - Overdue badge: Subtle red/amber border and text (`st-missed` / `st-overdue`) adhering to the zero-pill design rules.
-  - Days overdue kicker: Crisp typographic inline text (`42 days overdue · Deal #DL-104`).
-- **High-Density Data Grid**: Row heights aligned between 38px and 44px with right-aligned currencies and left-aligned entities.
+- **Toast Feedback**: Crisp domain notification adhering to anti-slop rules (no excessive gradients; clean dark background `#0f172a`, border `#1e293b`, text `#f8fafc`, subtle emerald accent indicator).
+- **Vault Highlight Style**: The newly saved website card receives a temporary CSS class `.vault-item-just-added` featuring a high-contrast 2px accent outline (`#16C9A3` / cyan emerald) that smoothly fades over 2.5 seconds.
+- **Zero-Pill Adherence**: Shared entries display clean typographic metadata (e.g., `Domain · Shared via Mobile · Just now`) without clumsy pill capsules.
 
 ---
 
 ### 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Direct Integration with Existing `recordPayment` and Deal Sync**:
-  - *Chosen Approach*: Leverage the core `App.api.recordPayment` routine rather than creating an isolated payments handler.
-  - *Why*: Guarantees that ledger entries, deal balance reductions, and portfolio totals update in a single atomic flow with full schema integrity.
-- **Decision 2: Comprehensive Overdue Detection**:
-  - *Chosen Approach*: Combine explicit database status (`MISSED` or `OVERDUE`) and dynamically calculated overdue items (`status === 'PENDING'` with `due_date < today`).
-  - *Why*: Prevents missed installments from silently vanishing if scheduled cron jobs or status update triggers have not run yet.
-- **Decision 3: Global Import Logging Contract**:
-  - *Chosen Approach*: Call `App.api.createImport` and `App.api.updateImport` whenever a Website Directory import is executed from either the Vault modal or Global Import tab.
-  - *Why*: Fulfills the user requirement that website uploads are tracked in the Global Import tab with identical auditing standards as investment and payment sheets.
+- **Decision 1: GET vs. POST Web Share Target**:
+  - *Chosen Approach*: Configure `GET` parameters (`action: "./index.html"`, `params: { url: "url", title: "title", text: "text" }`) combined with a service worker fallback in `sw.js` that handles both GET queries and POST form data.
+  - *Why*: GET-based Web Share Target has universal, rock-solid support across Android Chrome, Edge, and Samsung Internet without requiring complex multipart service-worker body parsing. Service worker POST interception provides a safety net if sharing applications dispatch form posts.
+- **Decision 2: Dedicated Modular Share Handler (`js/lib/shareTarget.js`)**:
+  - *Chosen Approach*: Encapsulate URL extraction, regex parsing, domain categorization, and Supabase persistence into an isolated helper module imported into `index.html`.
+  - *Why*: Prevents cluttering `websiteVault.js` or `app.js`, guarantees testability, and allows direct reuse in both PWA boot routines and future Android wrappers.
+- **Decision 3: Multi-Tier Category Auto-Detection Engine**:
+  - *Chosen Approach*: Regex match domain hostnames and title tokens against existing vault categories:
+    - `Banking & Finance`: `hdfc`, `sbi`, `icici`, `axis`, `kotak`, `bank`, `paytm`, `phonepe`, `gpay`
+    - `Stocks & Mutual Funds`: `zerodha`, `groww`, `upstox`, `angelone`, `nseindia`, `bseindia`, `moneycontrol`
+    - `Gold Investment`: `tanishq`, `kalyan`, `malabar`, `bullion`, `gold`
+    - `Recharge & Utilities`: `airtel`, `jio`, `vi.in`, `bescom`, `tneb`, `bill`, `recharge`
+    - `Shopping & Payments`: `amazon`, `flipkart`, `myntra`, `swiggy`, `zomato`
+    - `Government & Tax`: `incometax`, `epfindia`, `uidai`, `gst`, `parivahan`
+    - *Fallback*: If no rule matches, categorize as `General` (or `Shared Links`).
+  - *Why*: Fulfills the user's explicit preference ("Build all 2 and 3, first auto detect if it fails to 2").
+- **Decision 4: Intentional Duplicates Policy**:
+  - *Chosen Approach*: Always insert a new row into `website_entries` with a fresh `id` and current timestamp, allowing identical URLs.
+  - *Why*: Complies with user requirement Section 5. Users frequently re-share portals for different accounts or project notes.
 
 ---
 
@@ -69,38 +83,80 @@ Implement a dedicated **Missed Payments** management tab within the Payments wor
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                          Payments Workspace                            │
-│  [ Schedule ]    [ Ledger ]    [ Reconciliation ]    [ Missed Payments* ]│
-└───────────────────────────────────┬────────────────────────────────────┘
+│                   Android OS / Mobile Browser Ecosystem                │
+│                                                                        │
+│   [ Chrome / Firefox / Edge ]           [ Android Native Apps ]        │
+│                │                                   │                   │
+│   (Tap Share in Browser)                 (Tap Share in App)            │
+│                └─────────────────┬─────────────────┘                   │
+│                                  │                                     │
+│                                  ▼                                     │
+│                      [ Android Sharesheet Menu ]                       │
+│                     ┌───────────────────────────┐                      │
+│                     │  ★ Investment OS (PWA)   │                      │
+│                     └─────────────┬─────────────┘                      │
+└───────────────────────────────────┼────────────────────────────────────┘
                                     │
+               ┌────────────────────┴────────────────────┐
+               │                                         │
+               ▼                                         ▼
+┌───────────────────────────────┐     ┌──────────────────────────────────┐
+│     PWA Web Share Target      │     │    Android Wrapper Alternative   │
+│  manifest.json (share_target) │     │  AndroidManifest.xml intent-filter│
+│  sw.js fetch interception     │     │  ACTION_SEND (text/plain)        │
+└──────────────┬────────────────┘     └──────────────────┬───────────────┘
+               │                                         │
+               └────────────────────┬────────────────────┘
+                                    │ Launches / Focuses
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        Missed Payments Tab View                        │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │ Metrics Bar: Total Overdue · Delinquent Deals · Critical (>60d)  │  │
-│  ├──────────────────────────────────────────────────────────────────┤  │
-│  │ Overdue Schedule Table with Action Buttons                       │  │
-│  │  - Deal & Contact Info   - Due Date & Days Overdue               │  │
-│  │  - Expected Principal    - Expected Interest / Late Fee          │  │
-│  │  - Actions: [ Record Payment ]  [ Reschedule ]  [ Waive ]        │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                 ┌──────────────────┼──────────────────┐
-                 ▼                  ▼                  ▼
-          [ Record Modal ]   [ Reschedule Modal ] [ Waive Modal ]
-                 │                  │                  │
-                 ▼                  ▼                  ▼
-        App.api.recordPayment   App.api.updateSched   App.api.updateSched
-                 │                  │                  │
-                 └──────────────┬───┴──────────────────┘
-                                ▼
-         Recalculate Deal Totals & Refresh Global Portfolio Cash Flows
+│                 Investment OS App Shell (index.html)                   │
+│                                                                        │
+│  1. Check URL parameters (?share_target=1&url=...&title=...&text=...)  │
+│                                                                        │
+│  2. App.shareTarget.processIncomingShare()                             │
+│     ├── Extract & validate HTTP/HTTPS URL                              │
+│     ├── Extract title or fallback to hostname                          │
+│     └── Auto-detect Category (Tier 1 regex -> Tier 2 'General')        │
+│                                                                        │
+│  3. Authentication Gate:                                               │
+│     ├── If Auth Ready:                                                 │
+│     │   └── App.api.createWebsite(...) ──► Supabase website_entries    │
+│     │       ├── Replace state (clean browser URL params)               │
+│     │       ├── App.utils.toast('Saved to Website Vault', 'ok')        │
+│     │       └── App.router.navigate('vault') + Highlight Element       │
+│     │                                                                  │
+│     └── If Logged Out / Locked:                                        │
+│         └── Stash in sessionStorage('pending_shared_vault_item')       │
+│             └── Auto-save listener triggered upon App.auth 'LOGIN'     │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### A. Interactive Handlers & State Mapping
-- `renderMissedPaymentsTab(container, filterState)`: Queries payment schedules where `status in ('MISSED', 'OVERDUE')` or (`status = 'PENDING'` and `due_date < TODAY`).
-- `openRecordMissedPaymentModal(scheduleItem)`: Prefills payment modal, records payment via `App.api.recordPayment`, updates schedule record to `PAID`, triggers `App.api.recalculateDeal(dealId)`, and updates portfolio totals.
-- `openReschedulePaymentModal(scheduleItem)`: Prompts for new due date and reason, updates `due_date` and resets status to `PENDING`.
-- `openWaivePaymentModal(scheduleItem)`: Sets status to `WAIVED`, logs notes, and recalibrates remaining obligations.
-- `executeWebsiteCsvImport(file, rows)`: Parses CSV rows, creates encrypted items via `App.api.createWebsiteVaultItem`, calls `App.api.createImport({ type: 'WEBSITES', filename, ... })`, and marks completion in `import_history`.
+#### A. Files to Update & Create
+1. **`manifest.json`**:
+   - Add the standard `share_target` configuration:
+     ```json
+     "share_target": {
+       "action": "./index.html",
+       "method": "GET",
+       "enctype": "application/x-www-form-urlencoded",
+       "params": {
+         "title": "title",
+         "text": "text",
+         "url": "url"
+       }
+     }
+     ```
+2. **`sw.js`**:
+   - Enhance the `fetch` listener to detect any POST-based share target submissions (if sent by specific user agents), converting payload to redirect navigation so data is never dropped.
+3. **`js/lib/shareTarget.js` (New Module)**:
+   - `extractUrlAndTitle(params)`: Robust regex extraction ensuring URLs inside freeform text are accurately parsed and Javascript/data schemes are rejected.
+   - `autoDetectCategory(url, title)`: Keyword & domain matcher against existing categories with fallback to `General`.
+   - `handlePendingShare()`: Checks `sessionStorage` upon authentication.
+   - `saveSharedEntry(data)`: Calls `App.api.createWebsite()`, fires toast, navigates to `#vault`, and marks highlight state.
+4. **`js/views/websiteVault.js`**:
+   - Support `highlightSiteId` state parameter to scroll to the target entry and add visual pulsing animation.
+5. **`index.html`**:
+   - Include `<script src="js/lib/shareTarget.js"></script>` in correct load order before router initialization.
+6. **`ANDROID_WRAPPER_GUIDE.md` (New Documentation Artifact)**:
+   - Provide minimal, production-grade instructions for scaffolding a Trusted Web Activity (TWA) or Android WebView wrapper using Android Studio, including `AndroidManifest.xml` intent-filter snippet for `android.intent.action.SEND` with MIME type `text/plain`.
