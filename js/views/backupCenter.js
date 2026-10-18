@@ -34,24 +34,29 @@ window.App = window.App || {};
 
     const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
     const isAdmin = !isDemo && App.utils && App.utils.isAdminOrDev && App.utils.isAdminOrDev(App.state.profile);
+    const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
+    const loginEmail = App.auth?.getUser()?.email || App.state?.profile?.email || '';
 
     pane.innerHTML = `
-      <div class="backup-center-container" style="display:flex;flex-direction:column;gap:18px">
-        <!-- Top Action & Header Bar -->
-        <div class="vault-header-bar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border2)">
-          <div style="display:flex;align-items:center;gap:12px">
-            <div style="font-size:28px">💾</div>
-            <div>
-              <h1 style="font-size:24px;margin:0;color:var(--text);font-family:'Cormorant Garamond',serif">Backup, Sync &amp; Restore Center</h1>
-              <div style="font-size:12.5px;color:var(--text2)">Bank-grade portfolio archival, automated Google Sheets sync, cloud documents backup &amp; disaster recovery</div>
+      <div class="backup-center-container">
+        <!-- Top Action & Responsive Header Bar -->
+        <div class="backup-header-bar">
+          <div class="backup-title-wrap">
+            <div style="font-size:28px;line-height:1">💾</div>
+            <div style="min-width:0">
+              <div class="section-title" style="margin-bottom:2px">Backup, Sync &amp; Restore Center <div class="line"></div></div>
+              <div class="backup-sub">Bank-grade portfolio archival, automated Google Sheets sync, cloud documents backup &amp; disaster recovery</div>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="backup-header-actions">
             <button id="btnQuickBackupTop" class="btn btn-gold btn-sm" style="font-weight:600">
-              ⚡ Back Up My Entire Portfolio
+              ⚡ Back Up Portfolio (ZIP)
             </button>
-            <button id="btnQuickSheetsTop" class="btn btn-outline btn-sm" title="Sync portfolio to Google Sheets">
-              📊 Google Sheets Sync
+            <button id="btnQuickXlsxTop" class="btn btn-outline btn-sm" title="Download formatted 14-tab Google Sheets (.xlsx) workbook (works on any domain)">
+              📊 Export 14-Tab Sheets (.xlsx)
+            </button>
+            <button id="btnQuickSheetsTop" class="btn btn-outline btn-sm" title="Direct Google Sheets Cloud Sync">
+              📈 Google Sheets Sync
             </button>
             <button id="btnQuickExportTop" class="btn btn-outline btn-sm" title="Export all data as JSON">
               📥 Export JSON
@@ -59,6 +64,26 @@ window.App = window.App || {};
             <button id="btnRefreshBackupCenter" class="btn btn-outline btn-sm" title="Refresh backup records and telemetry">
               &#8635; Refresh
             </button>
+          </div>
+        </div>
+
+        <!-- Target Backup & Google Account Email Selection Bar -->
+        <div class="backup-email-bar" id="backupEmailBar">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <span style="font-size:22px;flex-shrink:0">📧</span>
+            <div style="min-width:0">
+              <div style="font-size:13.5px;font-weight:700;color:var(--text)">Target Backup &amp; Google Account Email</div>
+              <div style="font-size:11.5px;color:var(--text2)">Enter any login email or alternate personal email to receive backups, 14-tab sheets, and Google auth</div>
+            </div>
+          </div>
+          <div class="backup-email-inputs">
+            <input type="email" id="inputTargetBackupEmail" class="form-input" style="font-size:12.5px;flex:1 1 200px;min-width:0;max-width:100%" value="${App.utils.escapeHtml(targetEmail)}" placeholder="e.g. radhakrishna108566@gmail.com">
+            <button type="button" id="btnSaveTargetEmail" class="btn btn-gold btn-sm" style="font-weight:600;flex-shrink:0">Set Email</button>
+            <button type="button" id="btnUseRadhaEmail" class="btn btn-outline btn-sm" style="flex-shrink:0" title="Switch to radhakrishna108566@gmail.com">radhakrishna108566@gmail.com</button>
+            ${loginEmail && loginEmail !== targetEmail ? `<button type="button" id="btnUseLoginEmail" class="btn btn-outline btn-sm" style="flex-shrink:0" title="Use current login email">Login (${App.utils.escapeHtml(loginEmail.split('@')[0])})</button>` : ''}
+          </div>
+          <div id="targetEmailStatusBadge" style="font-size:11.5px;color:var(--teal);font-weight:600;display:flex;align-items:center;gap:6px;word-break:break-all">
+            ✓ Active Target: <strong style="color:var(--gold)">${App.utils.escapeHtml(targetEmail)}</strong>
           </div>
         </div>
 
@@ -76,23 +101,23 @@ window.App = window.App || {};
           </div>
         </div>
 
-        <!-- 11 Sub-Navigation Tabs Bar -->
-        <div style="display:flex;gap:6px;border-bottom:1px solid var(--border);padding-bottom:10px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch" id="backupTabsBar">
-          <button class="btn btn-sm ${currentTab === 'dashboard' ? 'btn-gold' : 'btn-outline'}" data-tab="dashboard">📊 Dashboard</button>
-          <button class="btn btn-sm ${currentTab === 'personal' ? 'btn-gold' : 'btn-outline'}" data-tab="personal">👤 Personal Backups</button>
-          <button class="btn btn-sm ${currentTab === 'sheets' ? 'btn-gold' : 'btn-outline'}" data-tab="sheets">📈 Google Sheets Sync</button>
-          <button class="btn btn-sm ${currentTab === 'exports' ? 'btn-gold' : 'btn-outline'}" data-tab="exports">📦 Database &amp; Data Exports</button>
-          <button class="btn btn-sm ${currentTab === 'documents' ? 'btn-gold' : 'btn-outline'}" data-tab="documents">📁 Documents &amp; Files</button>
-          ${isAdmin ? `<button class="btn btn-sm ${currentTab === 'admin' ? 'btn-gold' : 'btn-outline'}" data-tab="admin" style="border-color:var(--gold)">👑 Administrator Backups</button>` : ''}
-          <button class="btn btn-sm ${currentTab === 'schedules' ? 'btn-gold' : 'btn-outline'}" data-tab="schedules">⏱️ Scheduled Jobs</button>
-          <button class="btn btn-sm ${currentTab === 'history' ? 'btn-gold' : 'btn-outline'}" data-tab="history">📜 Backup History</button>
-          <button class="btn btn-sm ${currentTab === 'restore' ? 'btn-gold' : 'btn-outline'}" data-tab="restore">🔄 Restore &amp; Recovery</button>
-          <button class="btn btn-sm ${currentTab === 'settings' ? 'btn-gold' : 'btn-outline'}" data-tab="settings">⚙️ Settings &amp; Quotas</button>
-          <button class="btn btn-sm ${currentTab === 'audit' ? 'btn-gold' : 'btn-outline'}" data-tab="audit">🛡️ Audit History</button>
+        <!-- 11 Sub-Navigation Tabs Bar (Matches app tabbar pattern with smooth touch scroll) -->
+        <div class="tabbar backup-tabbar" id="backupTabsBar">
+          <button class="tab-btn ${currentTab === 'dashboard' ? 'active' : ''}" data-tab="dashboard">📊 Dashboard</button>
+          <button class="tab-btn ${currentTab === 'personal' ? 'active' : ''}" data-tab="personal">👤 Personal Backups</button>
+          <button class="tab-btn ${currentTab === 'sheets' ? 'active' : ''}" data-tab="sheets">📈 Google Sheets Sync</button>
+          <button class="tab-btn ${currentTab === 'exports' ? 'active' : ''}" data-tab="exports">📦 Database &amp; Data Exports</button>
+          <button class="tab-btn ${currentTab === 'documents' ? 'active' : ''}" data-tab="documents">📁 Documents &amp; Files</button>
+          ${isAdmin ? `<button class="tab-btn ${currentTab === 'admin' ? 'active' : ''}" data-tab="admin" style="color:var(--gold)">👑 Administrator Backups</button>` : ''}
+          <button class="tab-btn ${currentTab === 'schedules' ? 'active' : ''}" data-tab="schedules">⏱️ Scheduled Jobs</button>
+          <button class="tab-btn ${currentTab === 'history' ? 'active' : ''}" data-tab="history">📜 Backup History</button>
+          <button class="tab-btn ${currentTab === 'restore' ? 'active' : ''}" data-tab="restore">🔄 Restore &amp; Recovery</button>
+          <button class="tab-btn ${currentTab === 'settings' ? 'active' : ''}" data-tab="settings">⚙️ Settings &amp; Quotas</button>
+          <button class="tab-btn ${currentTab === 'audit' ? 'active' : ''}" data-tab="audit">🛡️ Audit History</button>
         </div>
 
         <!-- Tab Content Host Container -->
-        <div id="backupTabContentPane"></div>
+        <div id="backupTabContentPane" style="width:100%;max-width:100%;min-width:0;box-sizing:border-box"></div>
       </div>
     `;
 
@@ -101,7 +126,7 @@ window.App = window.App || {};
       btn.addEventListener('click', () => {
         currentTab = btn.dataset.tab;
         App.utils.qsa('#backupTabsBar [data-tab]', pane).forEach((b) => {
-          b.className = `btn btn-sm ${b.dataset.tab === currentTab ? 'btn-gold' : 'btn-outline'}`;
+          b.classList.toggle('active', b.dataset.tab === currentTab);
         });
         drawActiveTabContent();
       });
@@ -109,12 +134,45 @@ window.App = window.App || {};
 
     // Top action buttons wiring
     pane.querySelector('#btnQuickBackupTop')?.addEventListener('click', () => triggerFullPersonalBackup());
+    pane.querySelector('#btnQuickXlsxTop')?.addEventListener('click', () => triggerXlsxExport());
     pane.querySelector('#btnQuickSheetsTop')?.addEventListener('click', () => {
       currentTab = 'sheets';
-      renderBackupCenterView();
+      App.utils.qsa('#backupTabsBar [data-tab]', pane).forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === 'sheets');
+      });
+      drawActiveTabContent();
     });
     pane.querySelector('#btnQuickExportTop')?.addEventListener('click', () => triggerJsonExport());
     pane.querySelector('#btnRefreshBackupCenter')?.addEventListener('click', () => drawActiveTabContent());
+
+    // Target Email Bar wiring
+    const emailInput = pane.querySelector('#inputTargetBackupEmail');
+    const emailBadge = pane.querySelector('#targetEmailStatusBadge');
+
+    const updateEmail = (newEmail) => {
+      if (!newEmail || !newEmail.includes('@')) {
+        App.utils.toast('Please enter a valid email address.', 'err');
+        return;
+      }
+      App.googleSheetsSync.setTargetEmail(newEmail);
+      if (emailInput) emailInput.value = newEmail;
+      if (emailBadge) {
+        emailBadge.innerHTML = `✓ Active Target: <strong style="color:var(--gold)">${App.utils.escapeHtml(newEmail)}</strong>`;
+      }
+      App.utils.toast(`✓ Target backup email set to: ${newEmail}`, 'ok');
+      drawActiveTabContent();
+    };
+
+    pane.querySelector('#btnSaveTargetEmail')?.addEventListener('click', () => {
+      updateEmail(emailInput?.value?.trim());
+    });
+    pane.querySelector('#btnUseRadhaEmail')?.addEventListener('click', () => {
+      updateEmail('radhakrishna108566@gmail.com');
+    });
+    pane.querySelector('#btnUseLoginEmail')?.addEventListener('click', () => {
+      const login = App.auth?.getUser()?.email || App.state?.profile?.email;
+      if (login) updateEmail(login);
+    });
 
     await loadInitialData();
     await drawActiveTabContent();
@@ -213,86 +271,89 @@ window.App = window.App || {};
     }
 
     host.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:18px">
+      <div style="display:flex;flex-direction:column;gap:16px">
         <!-- Health Status Banner -->
-        <div style="background:var(--card);border:1px solid ${healthColor};border-radius:12px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;box-shadow:0 4px 20px rgba(0,0,0,0.15)">
+        <div class="backup-health-banner" style="border-color:${healthColor}">
           <div style="display:flex;align-items:center;gap:14px">
             <span style="font-size:34px">${healthIcon}</span>
             <div>
               <div style="font-size:18px;font-weight:700;color:${healthColor}">${healthTitle}</div>
-              <div style="font-size:13px;color:var(--text2);margin-top:2px">${healthSub}</div>
+              <div style="font-size:12.5px;color:var(--text2);margin-top:2px">${healthSub}</div>
             </div>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button id="btnDashFullBackup" class="btn btn-gold" style="font-weight:600">
-              ⚡ Back Up My Entire Portfolio
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btnDashFullBackup" class="btn btn-gold btn-sm" style="font-weight:600">
+              ⚡ Back Up Portfolio (ZIP)
             </button>
-            <button id="btnDashSyncSheets" class="btn btn-outline" style="border-color:var(--teal);color:var(--teal)">
-              📊 Sync to Google Sheets
+            <button id="btnDashExportXlsx" class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)">
+              📊 Export 14-Tab Sheets (.xlsx)
+            </button>
+            <button id="btnDashSyncSheets" class="btn btn-outline btn-sm" style="border-color:var(--teal);color:var(--teal)">
+              📈 Google Sheets Sync
             </button>
           </div>
         </div>
 
-        <!-- 5 Summary Metric Cards -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px">
+        <!-- 5 Summary Metric Cards in Responsive Grid -->
+        <div class="backup-kpi-grid">
           <!-- Card 1: Last Personal Backup -->
-          <div class="panel" style="padding:16px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Last Personal Backup</div>
-            <div style="font-size:18px;font-weight:700;color:var(--gold);margin:6px 0 2px">
+          <div class="panel" style="padding:14px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Last Personal Backup</div>
+            <div style="font-size:17px;font-weight:700;color:var(--gold);margin:6px 0 2px">
               ${lastFullJob ? App.utils.fmtDate(lastFullJob.completed_at) : 'Never'}
             </div>
-            <div style="font-size:12px;color:var(--text2)">
+            <div style="font-size:11.5px;color:var(--text2)">
               ${lastFullJob ? `${lastFullJob.records_exported} records &middot; ${App.utils.fmtBytes ? App.utils.fmtBytes(lastFullJob.output_size_bytes) : Math.round(lastFullJob.output_size_bytes / 1024) + ' KB'}` : 'Click run to create initial archive'}
             </div>
           </div>
 
           <!-- Card 2: Last Google Sheets Sync -->
-          <div class="panel" style="padding:16px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Google Sheets Sync</div>
-            <div style="font-size:18px;font-weight:700;color:var(--teal);margin:6px 0 2px">
+          <div class="panel" style="padding:14px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Google Sheets Sync</div>
+            <div style="font-size:17px;font-weight:700;color:var(--teal);margin:6px 0 2px">
               ${lastSheetsSync ? App.utils.fmtDate(lastSheetsSync.completed_at) : (App.googleSheetsSync.isConnected() ? 'Ready' : 'Not Connected')}
             </div>
-            <div style="font-size:12px;color:var(--text2)">
+            <div style="font-size:11.5px;color:var(--text2)">
               ${lastSheetsSync ? `${lastSheetsSync.records_exported} rows synced to Drive` : 'Mirror portfolio into spreadsheets'}
             </div>
           </div>
 
           <!-- Card 3: Full Data Coverage -->
-          <div class="panel" style="padding:16px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Database Coverage</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text);margin:6px 0 2px">
+          <div class="panel" style="padding:14px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Database Coverage</div>
+            <div style="font-size:17px;font-weight:700;color:var(--text);margin:6px 0 2px">
               ${availableTables} / ${cachedDataSources.length} Tables
             </div>
-            <div style="font-size:12px;color:var(--text2)">
+            <div style="font-size:11.5px;color:var(--text2)">
               ${totalRecordsDiscovered} live persistent records
             </div>
           </div>
 
           <!-- Card 4: Documents & Attachments -->
-          <div class="panel" style="padding:16px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Cloud Attachments</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text);margin:6px 0 2px">
+          <div class="panel" style="padding:14px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Cloud Attachments</div>
+            <div style="font-size:17px;font-weight:700;color:var(--text);margin:6px 0 2px">
               ${lastDocJob ? `${lastDocJob.files_backed_up} Files` : 'Cloud Storage'}
             </div>
-            <div style="font-size:12px;color:var(--text2)">
+            <div style="font-size:11.5px;color:var(--text2)">
               Binary PDFs &amp; images in 'documents'
             </div>
           </div>
 
           <!-- Card 5: Next Scheduled Run -->
-          <div class="panel" style="padding:16px;background:var(--card);border:1px solid var(--border);border-radius:10px">
-            <div style="font-size:11.5px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scheduled Automation</div>
-            <div style="font-size:18px;font-weight:700;color:var(--gold);margin:6px 0 2px">
+          <div class="panel" style="padding:14px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scheduled Automation</div>
+            <div style="font-size:17px;font-weight:700;color:var(--gold);margin:6px 0 2px">
               ${cachedSchedule && cachedSchedule.is_enabled ? cachedSchedule.frequency : 'Manual Only'}
             </div>
-            <div style="font-size:12px;color:var(--text2)">
+            <div style="font-size:11.5px;color:var(--text2)">
               ${cachedSchedule && cachedSchedule.preferred_time ? `At ${cachedSchedule.preferred_time} (${cachedSchedule.timezone || 'UTC'})` : 'Configured via Schedules tab'}
             </div>
           </div>
         </div>
 
-        <!-- Data Coverage Inventory Table -->
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px">
+        <!-- Data Coverage Inventory Table wrapped in responsive scroll -->
+        <div class="panel backup-panel">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
             <div>
               <div style="font-size:16px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif">Discovered Application Data Sources (${cachedDataSources.length})</div>
@@ -301,8 +362,8 @@ window.App = window.App || {};
             <div style="font-size:12px;color:var(--teal);font-weight:600">✓ 100% Schema Discovery Synchronized</div>
           </div>
 
-          <div style="overflow-x:auto">
-            <table class="data-table" style="width:100%;font-size:12.5px;border-collapse:collapse">
+          <div class="table-scroll">
+            <table class="data" style="width:100%;min-width:620px;font-size:12px;border-collapse:collapse">
               <thead>
                 <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3)">
                   <th style="padding:8px">Module / Data Source</th>
@@ -323,8 +384,8 @@ window.App = window.App || {};
                     <td style="padding:8px;color:var(--text2)">JSON, CSV, ZIP, Sheets</td>
                     <td style="padding:8px">
                       ${s.sensitive
-                        ? '<span style="color:var(--gold);font-size:11.5px">🔒 AES-256 Encrypted (Secrets Excluded from Sheets)</span>'
-                        : '<span style="color:var(--teal);font-size:11.5px">✓ Owner RLS Protected</span>'}
+                        ? '<span style="color:var(--gold);font-size:11px">🔒 AES-256 Encrypted (Secrets Excluded from Sheets)</span>'
+                        : '<span style="color:var(--teal);font-size:11px">✓ Owner RLS Protected</span>'}
                     </td>
                   </tr>
                 `).join('')}
@@ -336,8 +397,12 @@ window.App = window.App || {};
     `;
 
     host.querySelector('#btnDashFullBackup')?.addEventListener('click', () => triggerFullPersonalBackup());
+    host.querySelector('#btnDashExportXlsx')?.addEventListener('click', () => triggerXlsxExport());
     host.querySelector('#btnDashSyncSheets')?.addEventListener('click', () => {
       currentTab = 'sheets';
+      App.utils.qsa('#backupTabsBar [data-tab]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === 'sheets');
+      });
       drawActiveTabContent();
     });
   }
@@ -346,31 +411,43 @@ window.App = window.App || {};
      TAB 2: PERSONAL BACKUPS
      ========================================================================== */
   async function drawPersonalBackupsTab(host) {
+    const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
+
     host.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
-          <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0 0 6px">Personal Portfolio Backup</h2>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="panel backup-panel">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+            <div>
+              <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0 0 4px">Personal Portfolio Backup</h2>
+              <div style="font-size:12.5px;color:var(--text2)">
+                Target Recipient: <strong style="color:var(--gold)">${App.utils.escapeHtml(targetEmail)}</strong>
+              </div>
+            </div>
+          </div>
           <p style="font-size:13px;color:var(--text2);margin:0 0 16px;line-height:1.5">
             Package your entire private portfolio into an encrypted or offline ZIP archive containing structured JSON data,
             CSV table exports, actual cloud documents, SHA-256 verification hashes, and restore manifests.
           </p>
 
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-            <button id="btnRunFullPersonalBackup" class="btn btn-gold" style="font-weight:600">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <button id="btnRunFullPersonalBackup" class="btn btn-gold btn-sm" style="font-weight:600">
               ⚡ Back Up My Entire Portfolio (Full ZIP)
             </button>
-            <button id="btnDownloadJsonOnly" class="btn btn-outline">
+            <button id="btnPersonalExportXlsx" class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)">
+              📊 Export 14-Tab Sheets (.xlsx)
+            </button>
+            <button id="btnDownloadJsonOnly" class="btn btn-outline btn-sm">
               📥 Export All Data (JSON)
             </button>
-            <button id="btnBackupDocsOnly" class="btn btn-outline">
-              📁 Back Up Documents &amp; Attachments
+            <button id="btnBackupDocsOnly" class="btn btn-outline btn-sm">
+              📁 Back Up Documents &amp; Files
             </button>
-            <button id="btnVerifyLatest" class="btn btn-outline" style="border-color:var(--teal);color:var(--teal)">
+            <button id="btnVerifyLatest" class="btn btn-outline btn-sm" style="border-color:var(--teal);color:var(--teal)">
               🛡️ Verify Latest Backup
             </button>
           </div>
 
-          <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;font-size:12.5px;color:var(--text2);line-height:1.6">
+          <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text2);line-height:1.6">
             <strong>What's Included:</strong> Deals, Loans, Payment Schedules, Confirmed Payments, Recurring Investments,
             Gold Intelligence Holdings, Net Worth Snapshots, Accounts, Liabilities, Expense Projects, Vendors, Contacts, Notes,
             Calendar Events, Community &amp; Support Messages, Website Vault Directory (encrypted), and Document Metadata &amp; Files.
@@ -378,17 +455,17 @@ window.App = window.App || {};
         </div>
 
         <!-- Inventory List for Personal Scope -->
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px">
-          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:12px">Your Personal Data Sources (${cachedDataSources.length} Modules)</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:10px">
+        <div class="panel backup-panel">
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Your Personal Data Sources (${cachedDataSources.length} Modules)</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:10px">
             ${cachedDataSources.map(s => `
-              <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center">
-                <div>
-                  <div style="font-weight:600;font-size:13px;color:var(--text)">${App.utils.escapeHtml(s.label)}</div>
+              <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;min-width:0">
+                <div style="overflow:hidden;text-overflow:ellipsis;margin-right:8px;min-width:0">
+                  <div style="font-weight:600;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${App.utils.escapeHtml(s.label)}</div>
                   <div style="font-size:11px;color:var(--text3);font-family:monospace">${s.table}</div>
                 </div>
-                <div style="text-align:right">
-                  <span class="badge" style="background:rgba(201,168,76,0.15);color:var(--gold);font-weight:700;font-size:12px">${s.recordCount} records</span>
+                <div style="text-align:right;flex-shrink:0">
+                  <span class="badge" style="background:rgba(201,168,76,0.15);color:var(--gold);font-weight:700;font-size:11.5px">${s.recordCount} rows</span>
                 </div>
               </div>
             `).join('')}
@@ -398,10 +475,14 @@ window.App = window.App || {};
     `;
 
     host.querySelector('#btnRunFullPersonalBackup')?.addEventListener('click', () => triggerFullPersonalBackup());
+    host.querySelector('#btnPersonalExportXlsx')?.addEventListener('click', () => triggerXlsxExport());
     host.querySelector('#btnDownloadJsonOnly')?.addEventListener('click', () => triggerJsonExport());
     host.querySelector('#btnBackupDocsOnly')?.addEventListener('click', () => triggerDocumentsBackup());
     host.querySelector('#btnVerifyLatest')?.addEventListener('click', () => {
       currentTab = 'restore';
+      App.utils.qsa('#backupTabsBar [data-tab]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === 'restore');
+      });
       drawActiveTabContent();
     });
   }
@@ -411,86 +492,124 @@ window.App = window.App || {};
      ========================================================================== */
   async function drawGoogleSheetsTab(host) {
     const isConn = App.googleSheetsSync.isConnected();
+    const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
+    const currentOrigin = window.location.origin;
     let spreadsheets = [];
     if (isConn) {
       try { spreadsheets = await App.googleSheetsSync.listUserSpreadsheets(); } catch (_) {}
     }
 
     host.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:18px">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <!-- Domain Intelligence & Target Email Indicator -->
+        <div style="background:rgba(201,168,76,0.08);border:1px solid var(--gold);border-radius:10px;padding:14px 18px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div style="min-width:0;flex:1 1 280px">
+              <div style="font-weight:700;color:var(--gold);font-size:13.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <span>🌐</span> Domain: <code>${App.utils.escapeHtml(currentOrigin)}</code> &middot; Google Target: <code>${App.utils.escapeHtml(targetEmail)}</code>
+              </div>
+              <div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5">
+                &bull; <strong>Option 1 (Instant 14-Tab Spreadsheet):</strong> Click <em>"Download 14-Tab Sheets (.xlsx)"</em> to generate a multi-tab workbook formatted for Google Sheets right in your browser with zero configuration.<br>
+                &bull; <strong>Option 2 (Direct Google Drive Cloud Sync):</strong> Click <em>"Connect Google Account"</em> to authorize Google Drive directly for <strong>${App.utils.escapeHtml(targetEmail)}</strong>.
+              </div>
+            </div>
+            <button id="btnDownloadXlsxDirect" class="btn btn-gold btn-sm" style="font-weight:600;flex-shrink:0">
+              📊 Download 14-Tab Sheets (.xlsx)
+            </button>
+          </div>
+        </div>
+
         <!-- Google Account Connection Card -->
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">
-            <div style="display:flex;align-items:center;gap:12px">
-              <span style="font-size:32px">📊</span>
-              <div>
+            <div style="display:flex;align-items:center;gap:12px;min-width:0">
+              <span style="font-size:32px;line-height:1;flex-shrink:0">📊</span>
+              <div style="min-width:0">
                 <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0">Google Sheets Synchronization</h2>
-                <div style="font-size:12.5px;color:var(--text2)">Mirror live portfolio records into private Google Drive spreadsheets</div>
+                <div style="font-size:12px;color:var(--text2)">Mirror live portfolio records into private Google Drive spreadsheets</div>
               </div>
             </div>
             <div>
               ${isConn
-                ? `<span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);padding:6px 12px;font-size:12px;font-weight:700">● Google Account Connected</span>
+                ? `<span class="badge" style="background:rgba(22,201,163,0.15);color:var(--teal);padding:6px 12px;font-size:12px;font-weight:700">● Google Connected (${App.utils.escapeHtml(targetEmail)})</span>
                    <button id="btnDisconnectGoogle" class="btn btn-outline btn-sm" style="margin-left:8px">Disconnect</button>`
-                : `<button id="btnConnectGoogle" class="btn btn-gold btn-sm" style="font-weight:600">Connect Google Account</button>`}
+                : `<button id="btnConnectGoogle" class="btn btn-gold btn-sm" style="font-weight:600">Connect Google Account (${App.utils.escapeHtml(targetEmail.split('@')[0])})</button>`}
             </div>
           </div>
 
-          <p style="font-size:13px;color:var(--text2);line-height:1.5;margin:0 0 16px">
+          <p style="font-size:13px;color:var(--text2);line-height:1.5;margin:0 0 14px">
             Google Sheets serves as an accessible, multi-tab financial ledger of your portfolio. Syncing creates structured sheets for
             Deals, Payments, Recurring SIPs, Gold Holdings, Expense Projects, and Contacts with automated headers and formatted currency cells.
           </p>
 
           <!-- Privacy Disclosure -->
-          <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.3);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text);margin-bottom:16px">
+          <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.3);border-radius:8px;padding:10px 14px;font-size:11.5px;color:var(--text);margin-bottom:14px">
             🔒 <strong>Privacy &amp; Security Boundary:</strong> Google Sheets is an unencrypted readable format. For security,
             Website Vault passwords, login PINs, and session tokens are <em>strictly excluded</em> from Google Sheets synchronization.
           </div>
 
           ${isConn ? `
             <!-- Spreadsheet Selection & Configuration -->
-            <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px">
-              <div style="font-weight:700;font-size:13.5px;color:var(--text)">Target Backup Spreadsheet</div>
+            <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:12px">
+              <div style="font-weight:700;font-size:13px;color:var(--text)">Target Backup Spreadsheet in Google Drive</div>
               
-              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-                <select id="selSpreadsheetPicker" class="form-input" style="flex:1;min-width:260px;font-size:13px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <select id="selSpreadsheetPicker" class="form-input" style="flex:1 1 200px;min-width:0;max-width:100%;font-size:12.5px">
                   <option value="">-- Choose an existing portfolio spreadsheet --</option>
                   ${spreadsheets.map(s => `<option value="${s.id}">${App.utils.escapeHtml(s.name)}</option>`).join('')}
                 </select>
-                <button id="btnCreateNewSheet" class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)">
+                <button id="btnCreateNewSheet" class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold);flex-shrink:0">
                   + Create New Backup Spreadsheet
                 </button>
               </div>
 
-              <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
-                <input type="text" id="manualSheetIdInput" class="form-input" placeholder="Or enter Google Spreadsheet ID directly (from docs.google.com/spreadsheets/d/...)" style="flex:1;font-size:12px">
-                <button id="btnTestSheetConn" class="btn btn-outline btn-sm">Test Connection</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px">
+                <input type="text" id="manualSheetIdInput" class="form-input" placeholder="Or enter Google Spreadsheet ID directly (from docs.google.com/spreadsheets/d/...)" style="flex:1 1 200px;min-width:0;max-width:100%;font-size:12px">
+                <button id="btnTestSheetConn" class="btn btn-outline btn-sm" style="flex-shrink:0">Test Connection</button>
               </div>
 
               <!-- Action Buttons -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:12px;border-top:1px solid var(--border2)">
-                <button id="btnSyncEntirePortfolioSheets" class="btn btn-gold" style="font-weight:600">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:10px;border-top:1px solid var(--border2)">
+                <button id="btnSyncEntirePortfolioSheets" class="btn btn-gold btn-sm" style="font-weight:600">
                   ⚡ Sync Entire Portfolio Now
                 </button>
-                <a id="lnkOpenSheet" href="#" target="_blank" rel="noopener" class="btn btn-outline" style="display:none;text-decoration:none">
+                <a id="lnkOpenSheet" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;text-decoration:none">
                   Open in Google Sheets ↗
                 </a>
               </div>
             </div>
           ` : `
-            <div style="text-align:center;padding:24px;background:var(--bg3);border:1px dashed var(--border);border-radius:8px">
-              <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px">Connect your Google Account to begin</div>
-              <div style="font-size:12.5px;color:var(--text2);margin-bottom:14px">Grants minimal scope (spreadsheets and app-created files only) without sharing your password.</div>
-              <button id="btnConnectGoogleInline" class="btn btn-gold">Connect Google Account</button>
+            <div style="text-align:center;padding:20px;background:var(--bg3);border:1px dashed var(--border);border-radius:8px">
+              <div style="font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:4px">Connect your Google Account to begin direct sync</div>
+              <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Target Google Account: <strong>${App.utils.escapeHtml(targetEmail)}</strong></div>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button id="btnConnectGoogleInline" class="btn btn-gold btn-sm" style="font-weight:600">Connect Google Account</button>
+                <button id="btnDownloadXlsxInline" class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)">📊 Download 14-Tab Sheets (.xlsx)</button>
+              </div>
             </div>
           `}
+
+          <!-- Custom Google OAuth Client ID Section for Custom Domains -->
+          <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px;margin-top:14px">
+            <div style="font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:3px">
+              ⚙️ Google Cloud OAuth Client ID (For ${App.utils.escapeHtml(currentOrigin)})
+            </div>
+            <div style="font-size:11.5px;color:var(--text2);margin-bottom:8px;line-height:1.5">
+              If Google Cloud returns an <code>origin_mismatch</code> error on <code>${App.utils.escapeHtml(currentOrigin)}</code>, you can register <code>${App.utils.escapeHtml(currentOrigin)}</code> under <em>"Authorized JavaScript origins"</em> in Google Cloud Console and paste your Client ID below:
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input type="text" id="inputCustomClientId" class="form-input" style="flex:1 1 200px;min-width:0;max-width:100%;font-size:11.5px;font-family:monospace" placeholder="e.g. 750143071178-...apps.googleusercontent.com" value="${App.googleSheetsSync.getClientId() !== '750143071178-b33kquf2eqpb63lkg4ukldvmbir6n9og.apps.googleusercontent.com' ? App.utils.escapeHtml(App.googleSheetsSync.getClientId()) : ''}">
+              <button type="button" id="btnSaveCustomClientId" class="btn btn-outline btn-sm" style="flex-shrink:0">Save Client ID</button>
+              <button type="button" id="btnResetClientId" class="btn btn-outline btn-sm" style="flex-shrink:0">Reset Default</button>
+            </div>
+          </div>
         </div>
 
         <!-- Sync Console / Log Output -->
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px">
-          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px">Live Synchronization Console</div>
+        <div class="panel backup-panel">
+          <div style="font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:8px">Live Synchronization Console</div>
           <div id="sheetsSyncConsole" style="background:#090d16;color:#a0aec0;font-family:monospace;font-size:11.5px;padding:12px;border-radius:6px;min-height:90px;max-height:220px;overflow-y:auto;line-height:1.6">
-            [Ready] Google Sheets sync module initialized. Waiting for trigger.
+            [Ready] Google Sheets sync module initialized for ${App.utils.escapeHtml(targetEmail)}. Ready for trigger.
           </div>
         </div>
       </div>
@@ -499,19 +618,39 @@ window.App = window.App || {};
     // Connect / Disconnect handlers
     const connectHandler = async () => {
       try {
-        await App.googleSheetsSync.authorizeGoogleAccount();
+        await App.googleSheetsSync.authorizeGoogleAccount(targetEmail);
         App.utils.toast('Google Account connected successfully!', 'ok');
         drawActiveTabContent();
       } catch (err) {
-        App.utils.toast('Connection failed: ' + (err.message || err), 'err');
+        console.warn('Google connect notice:', err);
+        if (err && (err.type === 'origin_mismatch' || String(err.message || '').includes('origin') || String(err.code || '').includes('origin'))) {
+          App.googleSheetsSync.showOriginMismatchDialog(targetEmail);
+        } else if (err && err.message && !err.message.includes('closed')) {
+          App.utils.toast('Google login: ' + err.message, 'err');
+        }
       }
     };
 
     host.querySelector('#btnConnectGoogle')?.addEventListener('click', connectHandler);
     host.querySelector('#btnConnectGoogleInline')?.addEventListener('click', connectHandler);
+    host.querySelector('#btnDownloadXlsxDirect')?.addEventListener('click', () => triggerXlsxExport());
+    host.querySelector('#btnDownloadXlsxInline')?.addEventListener('click', () => triggerXlsxExport());
     host.querySelector('#btnDisconnectGoogle')?.addEventListener('click', () => {
       App.googleSheetsSync.disconnect();
       App.utils.toast('Google Account disconnected.');
+      drawActiveTabContent();
+    });
+
+    host.querySelector('#btnSaveCustomClientId')?.addEventListener('click', () => {
+      const val = host.querySelector('#inputCustomClientId')?.value?.trim();
+      App.googleSheetsSync.setCustomClientId(val);
+      App.utils.toast(val ? 'Custom Google OAuth Client ID saved!' : 'Reset to default Client ID.', 'ok');
+      drawActiveTabContent();
+    });
+
+    host.querySelector('#btnResetClientId')?.addEventListener('click', () => {
+      App.googleSheetsSync.setCustomClientId('');
+      App.utils.toast('Reset to default Google Client ID.', 'ok');
       drawActiveTabContent();
     });
 
@@ -633,7 +772,7 @@ window.App = window.App || {};
   async function drawExportsTab(host) {
     host.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
           <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0 0 6px">Structured Data Exports</h2>
           <p style="font-size:13px;color:var(--text2);margin:0 0 16px;line-height:1.5">
             Export raw portfolio records in machine-readable JSON or tabular CSV formats. JSON preserves nested foreign key relationships,
@@ -653,10 +792,10 @@ window.App = window.App || {};
           <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:14px;margin-bottom:18px">
             <div style="font-weight:700;font-size:13.5px;color:var(--text);margin-bottom:8px">Download Single Table CSV</div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-              <select id="selSingleTable" class="form-input" style="flex:1;min-width:240px;font-size:13px">
+              <select id="selSingleTable" class="form-input" style="flex:1 1 200px;min-width:0;max-width:100%;font-size:13px">
                 ${cachedDataSources.map(s => `<option value="${s.key}">${App.utils.escapeHtml(s.label)} (${s.table}) - ${s.recordCount} rows</option>`).join('')}
               </select>
-              <button id="btnDownloadSingleCsv" class="btn btn-outline btn-sm">Download Table CSV</button>
+              <button id="btnDownloadSingleCsv" class="btn btn-outline btn-sm" style="flex-shrink:0">Download Table CSV</button>
             </div>
           </div>
 
@@ -745,8 +884,8 @@ window.App = window.App || {};
           </div>
 
           <!-- Documents List Table -->
-          <div style="overflow-x:auto">
-            <table class="data-table" style="width:100%;font-size:12.5px;border-collapse:collapse">
+          <div class="table-scroll">
+            <table class="data" style="width:100%;min-width:600px;font-size:12px;border-collapse:collapse">
               <thead>
                 <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3)">
                   <th style="padding:8px">File Name</th>
@@ -907,13 +1046,13 @@ window.App = window.App || {};
 
     host.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
           <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0 0 6px">Automated Recurring Backup Schedules</h2>
           <p style="font-size:13px;color:var(--text2);margin:0 0 16px;line-height:1.5">
             Configure automated periodic backups of your personal portfolio.
           </p>
 
-          <form id="scheduleForm" style="display:flex;flex-direction:column;gap:14px;max-width:600px">
+          <form id="scheduleForm" style="display:flex;flex-direction:column;gap:14px;max-width:600px;width:100%">
             <div>
               <label style="display:block;font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:4px">Backup Frequency</label>
               <select id="schedFreq" class="form-input" style="width:100%;font-size:13px">
@@ -989,7 +1128,7 @@ window.App = window.App || {};
   async function drawHistoryTab(host) {
     host.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
             <div>
               <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0">Persistent Backup Job History</h2>
@@ -998,8 +1137,8 @@ window.App = window.App || {};
             <button id="btnRefreshHistory" class="btn btn-outline btn-sm">&#8635; Refresh</button>
           </div>
 
-          <div style="overflow-x:auto">
-            <table class="data-table" style="width:100%;font-size:12.5px;border-collapse:collapse">
+          <div class="table-scroll">
+            <table class="data" style="width:100%;min-width:620px;font-size:12px;border-collapse:collapse">
               <thead>
                 <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3)">
                   <th style="padding:8px">Type</th>
@@ -1117,7 +1256,7 @@ window.App = window.App || {};
         </div>
 
         <!-- Disaster Recovery Checklist -->
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px">
           <div style="font-size:16px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif;margin-bottom:8px">Emergency Disaster Recovery Checklist</div>
           <div style="font-size:12.5px;color:var(--text);line-height:1.6;display:flex;flex-direction:column;gap:6px">
             <div>1. <strong>Cloud Project Outage:</strong> Retrieve your offline ZIP backup from your computer, Google Drive, or cold storage.</div>
@@ -1156,8 +1295,8 @@ window.App = window.App || {};
         `;
 
         conflictArea.innerHTML = `
-          <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
-            <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <div class="table-scroll" style="max-height:180px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+            <table class="data" style="width:100%;font-size:12px;border-collapse:collapse">
               <thead><tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3)"><th style="padding:6px 10px">Table</th><th style="padding:6px 10px">Records in Archive</th></tr></thead>
               <tbody>
                 ${preview.conflictReport.map(c => `
@@ -1209,7 +1348,7 @@ window.App = window.App || {};
   async function drawSettingsTab(host) {
     host.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
           <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0 0 6px">Retention &amp; Storage Quota Management</h2>
           <p style="font-size:13px;color:var(--text2);margin:0 0 16px;line-height:1.5">
             Manage archival lifecycle, retention policies, and local storage limits.
@@ -1245,7 +1384,7 @@ window.App = window.App || {};
   async function drawAuditTab(host) {
     host.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:18px">
-        <div class="panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div class="panel backup-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
             <div>
               <h2 style="font-size:20px;color:var(--gold);font-family:'Cormorant Garamond',serif;margin:0">Backup Audit History</h2>
@@ -1253,8 +1392,8 @@ window.App = window.App || {};
             </div>
           </div>
 
-          <div style="overflow-x:auto">
-            <table class="data-table" style="width:100%;font-size:12.5px;border-collapse:collapse">
+          <div class="table-scroll">
+            <table class="data" style="width:100%;min-width:600px;font-size:12px;border-collapse:collapse">
               <thead>
                 <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3)">
                   <th style="padding:8px">Timestamp</th>
@@ -1304,8 +1443,10 @@ window.App = window.App || {};
   async function triggerFullPersonalBackup() {
     try {
       showProgress('Initializing full portfolio backup...', 5);
+      const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
       await App.backupEngine.runFullBackup({
         scope: 'PERSONAL',
+        targetEmail: targetEmail,
         onProgress: (p) => showProgress(p.message, p.progress)
       });
       hideProgress();
@@ -1318,10 +1459,30 @@ window.App = window.App || {};
     }
   }
 
+  async function triggerXlsxExport() {
+    try {
+      showProgress('Generating 14-tab Google Sheets workbook...', 15);
+      const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
+      const res = await App.googleSheetsSync.exportPortfolioToXlsx({
+        scope: 'PERSONAL',
+        targetEmail: targetEmail,
+        onProgress: (p) => showProgress(p.message, p.progress)
+      });
+      hideProgress();
+      App.utils.toast(`✓ Downloaded ${res.filename} (${res.recordsExported} rows in ${res.tabs} tabs)!`, 'ok');
+      await loadInitialData();
+      drawActiveTabContent();
+    } catch (e) {
+      hideProgress();
+      App.utils.toast('Export failed: ' + e.message, 'err');
+    }
+  }
+
   async function triggerJsonExport() {
     try {
       App.utils.toast('Generating complete portfolio JSON export...');
-      const res = await App.backupEngine.exportAllDataJson({ scope: 'PERSONAL' });
+      const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
+      const res = await App.backupEngine.exportAllDataJson({ scope: 'PERSONAL', targetEmail: targetEmail });
       App.utils.toast(`Downloaded ${res.filename} (${res.records} records)`, 'ok');
       await loadInitialData();
     } catch (e) {
@@ -1332,8 +1493,10 @@ window.App = window.App || {};
   async function triggerDocumentsBackup() {
     try {
       showProgress('Archiving uploaded documents...', 10);
+      const targetEmail = App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : 'radhakrishna108566@gmail.com';
       await App.backupEngine.runFullBackup({
         scope: 'PERSONAL',
+        targetEmail: targetEmail,
         includeDocuments: true,
         onProgress: (p) => showProgress(p.message, p.progress)
       });
@@ -1352,6 +1515,7 @@ window.App = window.App || {};
   App.backupCenter = {
     render: renderBackupCenterView,
     triggerFullPersonalBackup,
+    triggerXlsxExport,
     triggerJsonExport,
     triggerDocumentsBackup
   };

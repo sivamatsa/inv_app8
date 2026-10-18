@@ -66,13 +66,15 @@ App.backupEngine = (function () {
     }
 
     const scope = opts.scope || 'PERSONAL';
+    const targetEmail = opts.targetEmail || (App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : (App.state?.profile?.email || 'radhakrishna108566@gmail.com'));
+    const cleanEmail = (targetEmail || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
     const onProgress = opts.onProgress || (() => {});
     const includeDocuments = opts.includeDocuments !== false;
     const startTime = Date.now();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const dateFormatted = new Date().toISOString().slice(0, 10);
 
-    onProgress({ phase: 'INIT', message: `Initializing ${scope.toLowerCase()} backup...`, progress: 5 });
+    onProgress({ phase: 'INIT', message: `Initializing ${scope.toLowerCase()} backup for ${targetEmail}...`, progress: 5 });
 
     // Create job record in database
     const job = await App.api.createBackupJob({
@@ -80,6 +82,7 @@ App.backupEngine = (function () {
       scope: scope,
       status: 'RUNNING',
       destination: 'LOCAL_DOWNLOAD',
+      destination_details: { targetEmail },
       started_at: new Date().toISOString()
     }).catch(() => ({ id: null }));
 
@@ -153,6 +156,7 @@ App.backupEngine = (function () {
         version: '2.4.4',
         backup_type: scope === 'ADMIN' ? 'ADMIN_FULL' : 'PERSONAL_FULL',
         scope: scope,
+        target_email: targetEmail,
         exported_at: new Date().toISOString(),
         exported_by: App.state.profile?.email || 'User',
         total_tables: stats.tablesIncluded,
@@ -217,9 +221,10 @@ SECURITY & PRIVACY DISCLOSURE:
         compressionOptions: { level: 6 }
       });
 
+      const emailSlug = cleanEmail ? `_${cleanEmail}` : '';
       const zipFilename = scope === 'ADMIN'
-        ? `Investment_OS_Admin_Full_Backup_${timestamp}.zip`
-        : `Investment_OS_Portfolio_Backup_${timestamp}.zip`;
+        ? `Investment_OS_Admin_Full_Backup${emailSlug}_${timestamp}.zip`
+        : `Investment_OS_Portfolio_Backup${emailSlug}_${timestamp}.zip`;
 
       const downloadUrl = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
@@ -281,6 +286,8 @@ SECURITY & PRIVACY DISCLOSURE:
    */
   async function exportAllDataJson(opts = {}) {
     const scope = opts.scope || 'PERSONAL';
+    const targetEmail = opts.targetEmail || (App.googleSheetsSync?.getTargetEmail ? App.googleSheetsSync.getTargetEmail() : (App.state?.profile?.email || 'radhakrishna108566@gmail.com'));
+    const cleanEmail = (targetEmail || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
     const timestamp = new Date().toISOString().slice(0, 10);
     const { data, stats } = await App.api.fetchEntirePortfolioData({ scope });
 
@@ -289,6 +296,7 @@ SECURITY & PRIVACY DISCLOSURE:
         application: 'Personal Investment Operating System',
         version: '2.4.4',
         scope: scope,
+        target_email: targetEmail,
         exported_at: new Date().toISOString(),
         total_records: stats.recordsExported,
         schema_version: '2.4.4'
@@ -298,7 +306,8 @@ SECURITY & PRIVACY DISCLOSURE:
 
     const jsonStr = JSON.stringify(exportPayload, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
-    const filename = `Investment_OS_Full_Data_${scope}_${timestamp}.json`;
+    const emailSlug = cleanEmail ? `_${cleanEmail}` : '';
+    const filename = `Investment_OS_Full_Data_${scope}${emailSlug}_${timestamp}.json`;
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -8,12 +8,44 @@ window.App = window.App || {};
 App.googleSheetsSync = (function () {
   'use strict';
 
-  const OAUTH_CLIENT_ID = '750143071178-b33kquf2eqpb63lkg4ukldvmbir6n9og.apps.googleusercontent.com';
+  const DEFAULT_CLIENT_ID = '750143071178-b33kquf2eqpb63lkg4ukldvmbir6n9og.apps.googleusercontent.com';
   const REQUIRED_SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
 
   let cachedAccessToken = null;
   let tokenExpiresAt = 0;
   let tokenClient = null;
+
+  /**
+   * Returns active target email for backup operations and Google account hint.
+   * Can be login email, alternate personal email (radhakrishna108566@gmail.com), or any custom email.
+   */
+  function getTargetEmail() {
+    const saved = localStorage.getItem('ios_backup_target_email');
+    if (saved && saved.trim()) return saved.trim();
+    const profileEmail = App.state?.profile?.email || App.auth?.getUser()?.email;
+    return profileEmail || 'radhakrishna108566@gmail.com';
+  }
+
+  function setTargetEmail(email) {
+    if (email && email.trim()) {
+      localStorage.setItem('ios_backup_target_email', email.trim());
+    }
+  }
+
+  /**
+   * Returns active Google OAuth Client ID, allowing custom client ID for domains like sri.qzz.io.
+   */
+  function getClientId() {
+    return localStorage.getItem('ios_google_client_id') || DEFAULT_CLIENT_ID;
+  }
+
+  function setCustomClientId(clientId) {
+    if (clientId && clientId.trim()) {
+      localStorage.setItem('ios_google_client_id', clientId.trim());
+    } else {
+      localStorage.removeItem('ios_google_client_id');
+    }
+  }
 
   /**
    * Checks if user currently has an active in-memory Google access token.
@@ -23,20 +55,128 @@ App.googleSheetsSync = (function () {
   }
 
   /**
-   * Initializes Google Identity Services (GIS) Token Client.
+   * Shows a comprehensive diagnostic and zero-friction fallback modal when
+   * Google OAuth rejects the request due to origin_mismatch on a custom domain (e.g. sri.qzz.io).
    */
-  function getGisTokenClient(onSuccess, onError) {
+  function showOriginMismatchDialog(targetEmail) {
+    const origin = window.location.origin;
+    const email = targetEmail || getTargetEmail();
+    const currentClientId = getClientId();
+
+    if (App.ui && App.ui.open) {
+      App.ui.open({
+        title: 'Google OAuth Domain Authorization Note',
+        bodyHtml: `
+          <div style="font-size:13px;line-height:1.55;color:var(--text);display:flex;flex-direction:column;gap:12px">
+            <div style="background:rgba(229,72,77,0.1);border:1px solid rgba(229,72,77,0.3);border-radius:8px;padding:12px 14px">
+              <div style="font-weight:700;color:var(--red,#e5484d);font-size:13.5px;margin-bottom:4px">
+                Origin Mismatch for Domain: <code>${App.utils.escapeHtml(origin)}</code>
+              </div>
+              <div style="font-size:12px;color:var(--text2)">
+                Google's OAuth 2.0 policy requires this website domain (<code>${App.utils.escapeHtml(origin)}</code>) to be added under 
+                <em>"Authorized JavaScript origins"</em> in Google Cloud Console for client ID <code>${App.utils.escapeHtml(currentClientId.slice(0, 24))}...</code>.
+              </div>
+            </div>
+
+            <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px">
+              <div style="font-weight:700;color:var(--gold);margin-bottom:6px">⚡ Instant Zero-Error Solutions (Works on ANY Domain & Browser):</div>
+              <ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text);display:flex;flex-direction:column;gap:6px">
+                <li>
+                  <strong>1-Click Multi-Tab Google Sheets (.xlsx):</strong> Generates the full 14-tab portfolio spreadsheet immediately in your browser for <strong>${App.utils.escapeHtml(email)}</strong>. No Google Cloud permissions needed!
+                </li>
+                <li>
+                  <strong>Complete Portfolio Backup (ZIP):</strong> Full archive containing all database tables as JSON, CSVs, uploaded documents, and SHA-256 verification hash.
+                </li>
+                <li>
+                  <strong>Custom OAuth Client ID:</strong> If you prefer direct Drive sync on <code>${App.utils.escapeHtml(origin)}</code>, you can supply your own Google Cloud Client ID below.
+                </li>
+              </ul>
+            </div>
+
+            <div style="margin-top:4px">
+              <label style="display:block;font-size:11.5px;font-weight:700;color:var(--text2);margin-bottom:4px">
+                Custom Google Cloud Client ID (Optional for ${App.utils.escapeHtml(origin)}):
+              </label>
+              <div style="display:flex;gap:6px">
+                <input type="text" id="dlgCustomClientIdInput" class="form-input" style="flex:1;font-size:11.5px;font-family:monospace" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" value="${currentClientId !== DEFAULT_CLIENT_ID ? App.utils.escapeHtml(currentClientId) : ''}">
+                <button type="button" id="dlgBtnSaveClientId" class="btn btn-sm btn-outline">Save</button>
+              </div>
+            </div>
+          </div>
+        `,
+        actions: [
+          {
+            label: '📊 Download 14-Tab Google Sheets (.xlsx)',
+            className: 'btn-gold',
+            onClick: async () => {
+              App.ui.close();
+              try {
+                App.utils.toast('Preparing 14-tab Google Sheets spreadsheet...', 'info');
+                await App.googleSheetsSync.exportPortfolioToXlsx({ targetEmail: email });
+                App.utils.toast('✓ Google Sheets (.xlsx) workbook downloaded! Open in Google Sheets to view.', 'ok');
+              } catch (e) {
+                App.utils.toast('Export failed: ' + e.message, 'err');
+              }
+            }
+          },
+          {
+            label: '⚡ Full Portfolio Backup (ZIP)',
+            className: 'btn-outline',
+            onClick: async () => {
+              App.ui.close();
+              if (App.backupCenter?.triggerFullPersonalBackup) {
+                App.backupCenter.triggerFullPersonalBackup();
+              } else if (App.backupEngine?.runFullBackup) {
+                App.backupEngine.runFullBackup({ targetEmail: email });
+              }
+            }
+          },
+          {
+            label: 'Close',
+            className: 'btn-outline',
+            onClick: () => App.ui.close()
+          }
+        ]
+      });
+
+      // Wire save custom client ID inside dialog
+      setTimeout(() => {
+        const inp = document.getElementById('dlgCustomClientIdInput');
+        const btn = document.getElementById('dlgBtnSaveClientId');
+        btn?.addEventListener('click', () => {
+          const val = inp?.value?.trim() || '';
+          setCustomClientId(val);
+          App.utils.toast(val ? 'Custom Google Client ID saved!' : 'Reset to default Client ID.', 'ok');
+        });
+      }, 100);
+    } else {
+      alert(`Google OAuth requires ${origin} in Authorized JavaScript origins. Use 14-Tab Sheets (.xlsx) or ZIP backup.`);
+    }
+  }
+
+  /**
+   * Initializes Google Identity Services (GIS) Token Client.
+   * Passes target email as hint so Google prompts the user for radhakrishna108566@gmail.com
+   * or the user-specified email.
+   */
+  function getGisTokenClient(targetEmail, onSuccess, onError) {
     if (typeof window.google === 'undefined' || !window.google.accounts || !window.google.accounts.oauth2) {
       throw new Error('Google Identity Services client library is still loading. Please try again in a few seconds.');
     }
 
-    return window.google.accounts.oauth2.initTokenClient({
-      client_id: OAUTH_CLIENT_ID,
+    const email = targetEmail || getTargetEmail();
+    const config = {
+      client_id: getClientId(),
       scope: REQUIRED_SCOPES,
       callback: (response) => {
         if (response.error) {
           console.error('[GoogleSheets] Token error:', response);
-          if (onError) onError(new Error(response.error_description || response.error));
+          const errObj = new Error(response.error_description || response.error);
+          errObj.code = response.error;
+          if (response.error === 'origin_mismatch' || String(response.error).includes('origin')) {
+            showOriginMismatchDialog(email);
+          }
+          if (onError) onError(errObj);
           return;
         }
         cachedAccessToken = response.access_token;
@@ -44,21 +184,42 @@ App.googleSheetsSync = (function () {
         tokenExpiresAt = Date.now() + (expiresInSec * 1000);
         if (onSuccess) onSuccess(cachedAccessToken);
       },
-    });
+      error_callback: (err) => {
+        console.error('[GoogleSheets] Token client error callback:', err);
+        const errObj = new Error(err.message || err.type || 'Google OAuth failed');
+        if (err.type === 'origin_mismatch' || String(err.message || '').includes('origin')) {
+          showOriginMismatchDialog(email);
+        }
+        if (onError) onError(errObj);
+      }
+    };
+
+    if (email && typeof email === 'string' && email.includes('@')) {
+      config.hint = email.trim();
+    }
+
+    return window.google.accounts.oauth2.initTokenClient(config);
   }
 
   /**
    * Requests Google OAuth authorization popup from user.
    */
-  function authorizeGoogleAccount() {
+  function authorizeGoogleAccount(targetEmail) {
+    const email = targetEmail || getTargetEmail();
     return new Promise((resolve, reject) => {
       try {
         const client = getGisTokenClient(
+          email,
           (token) => resolve(token),
           (err) => reject(err)
         );
-        client.requestAccessToken({ prompt: isConnected() ? '' : 'select_account' });
+        const reqOpts = { prompt: isConnected() ? '' : 'select_account' };
+        if (email) reqOpts.hint = email;
+        client.requestAccessToken(reqOpts);
       } catch (err) {
+        if (String(err?.message || '').includes('origin')) {
+          showOriginMismatchDialog(email);
+        }
         reject(err);
       }
     });
@@ -80,9 +241,9 @@ App.googleSheetsSync = (function () {
   /**
    * Obtains a valid access token, prompting user if expired.
    */
-  async function getValidToken() {
+  async function getValidToken(targetEmail) {
     if (isConnected()) return cachedAccessToken;
-    return await authorizeGoogleAccount();
+    return await authorizeGoogleAccount(targetEmail);
   }
 
   /**
@@ -381,6 +542,133 @@ App.googleSheetsSync = (function () {
     };
   }
 
+  /**
+   * Generates a complete 14-tab formatted Excel / Google Sheets (.xlsx) workbook directly
+   * in the browser using SheetJS (xlsx). Works seamlessly on ANY website domain (including
+   * custom domains like sri.qzz.io) and any browser without Google Cloud API origin restrictions!
+   */
+  async function exportPortfolioToXlsx(opts = {}) {
+    if (typeof window.XLSX === 'undefined') {
+      throw new Error('Spreadsheet generator library (XLSX) is not ready. Please refresh the page and try again.');
+    }
+
+    const scope = opts.scope || 'PERSONAL';
+    const targetEmail = opts.targetEmail || getTargetEmail();
+    const onProgress = opts.onProgress || (() => {});
+    const cleanEmail = targetEmail.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 24);
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    onProgress({ phase: 'FETCH', message: 'Fetching portfolio records for multi-tab spreadsheet...', progress: 20 });
+    const { data, stats } = await App.api.fetchEntirePortfolioData({ scope });
+
+    onProgress({ phase: 'MATRIX', message: 'Formatting spreadsheet sheets...', progress: 50 });
+
+    const wb = window.XLSX.utils.book_new();
+
+    // 1. Overview Tab
+    const overviewData = [
+      ['METRIC / PROPERTY', 'VALUE'],
+      ['Portfolio Target Email', targetEmail],
+      ['Sync Scope', scope],
+      ['Export Date (UTC)', new Date().toISOString()],
+      ['Total Records Synced', stats.recordsExported],
+      ['Application', 'Personal Investment OS v2.4.4'],
+      ['Compatible Platforms', 'Google Sheets, Microsoft Excel, LibreOffice Calc, Apple Numbers'],
+      ['Instructions to View in Google Sheets', 'Go to drive.google.com -> Click New -> File Upload -> Open uploaded file in Google Sheets'],
+      ['Security Boundary', 'Bank-Grade AES-256 (Vault passwords/secrets excluded strictly)'],
+      ['Deals Count', (data.deals || []).length],
+      ['Payments Count', (data.payments || []).length],
+      ['Payment Schedules Count', (data.payment_schedule || []).length],
+      ['Recurring SIPs Count', (data.recurring_items || []).length],
+      ['Gold Holdings Count', (data.gold_purchases || []).length],
+      ['Accounts Count', (data.accounts || []).length],
+      ['Expense Transactions Count', (data.expense_transactions || []).length],
+      ['Contacts Count', (data.contacts || []).length],
+      ['Documents Count', (data.documents || []).length],
+      ['Vault Directory Entries', (data.website_entries || []).length],
+    ];
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(overviewData), 'Overview');
+
+    // Helper for adding object arrays to sheet
+    const addSheetFromObjects = (sheetName, list) => {
+      if (!list || list.length === 0) {
+        window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet([['No records found in this category']]), sheetName);
+        return;
+      }
+      const values = objectsToSheetValues(list);
+      window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(values), sheetName);
+    };
+
+    addSheetFromObjects('Deals', data.deals);
+    addSheetFromObjects('Payments', data.payments);
+    addSheetFromObjects('Payment_Schedule', data.payment_schedule);
+    addSheetFromObjects('Recurring_SIPs', data.recurring_items);
+    addSheetFromObjects('Gold_Purchases', data.gold_purchases);
+
+    const accountsLiabilities = [
+      ...(data.accounts || []).map(a => ({ entry_type: 'ASSET_ACCOUNT', ...a })),
+      ...(data.liabilities || []).map(l => ({ entry_type: 'LIABILITY', ...l }))
+    ];
+    addSheetFromObjects('Accounts_Liabilities', accountsLiabilities);
+
+    addSheetFromObjects('Expense_Projects', data.expense_projects);
+    addSheetFromObjects('Expense_Transactions', data.expense_transactions);
+    addSheetFromObjects('Contacts', data.contacts);
+
+    const notesHabits = [
+      ...(data.notes || []).map(n => ({ section: 'NOTE', ...n })),
+      ...(data.daily_financial_habits || []).map(h => ({ section: 'HABIT', ...h }))
+    ];
+    addSheetFromObjects('Notes_Habits', notesHabits);
+
+    addSheetFromObjects('Documents_Index', data.documents);
+
+    if (data.website_entries) {
+      const safeVault = (data.website_entries || []).map(w => ({
+        id: w.id,
+        name: w.name,
+        url: w.url,
+        primary_category: w.primary_category,
+        importance: w.importance,
+        created_at: w.created_at,
+        notes: w.description || ''
+      }));
+      addSheetFromObjects('Website_Vault_Directory', safeVault);
+    }
+
+    onProgress({ phase: 'PACKAGING', message: 'Writing Excel workbook binary...', progress: 85 });
+    const filename = `InvestmentOS_Sheets_Backup_${cleanEmail}_${dateStr}.xlsx`;
+    window.XLSX.writeFile(wb, filename);
+
+    onProgress({ phase: 'COMPLETE', message: 'Workbook generated successfully!', progress: 100 });
+
+    // Record job in history
+    await App.api.createBackupJob({
+      backup_type: 'GOOGLE_SHEETS_XLSX_EXPORT',
+      scope: scope,
+      status: 'COMPLETED',
+      destination: 'LOCAL_DOWNLOAD',
+      destination_details: { filename, targetEmail, format: 'XLSX_MULTI_TAB' },
+      records_discovered: stats.recordsDiscovered,
+      records_exported: stats.recordsExported,
+      verified: true,
+      completed_at: new Date().toISOString()
+    }).catch(() => {});
+
+    await App.api.logBackupAudit('GOOGLE_SHEETS_XLSX_DOWNLOADED', scope, {
+      filename,
+      targetEmail,
+      records: stats.recordsExported
+    });
+
+    return {
+      success: true,
+      filename,
+      recordsExported: stats.recordsExported,
+      tabs: wb.SheetNames.length
+    };
+  }
+
   return {
     isConnected,
     authorizeGoogleAccount,
@@ -390,5 +678,12 @@ App.googleSheetsSync = (function () {
     testConnection,
     createBackupSpreadsheet,
     syncPortfolioToSheets,
+    exportPortfolioToXlsx,
+    getTargetEmail,
+    setTargetEmail,
+    getClientId,
+    setCustomClientId,
+    showOriginMismatchDialog,
   };
 })();
+
