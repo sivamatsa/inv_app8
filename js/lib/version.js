@@ -9,10 +9,10 @@
 
   window.App = window.App || {};
 
-  const CURRENT_VERSION = '2.4.3';
-  const BUILD_DATE = '2026-10-13';
+  const CURRENT_VERSION = '2.4.4';
+  const BUILD_DATE = '2026-10-18';
   const BUILD_CHANNEL = 'Stable';
-  const BUILD_ID = '20261013.1';
+  const BUILD_ID = '20261018.1';
 
   App.version = CURRENT_VERSION;
   App.buildInfo = {
@@ -38,6 +38,18 @@
 
   // Fallback release notes if offline / disconnected
   const FALLBACK_RELEASES = [
+    {
+      version: '2.4.4',
+      type: 'minor',
+      date: '2026-10-18',
+      title: 'Google Sheets & Drive Integration, Share Target Deduplication & Frictionless Vault',
+      highlights: [
+        'Google Sheets & Google Drive Integration: Full automated portfolio synchronization with dedicated multi-tab backup spreadsheets in Google Drive',
+        'Single-execution Web Share Target: Concurrency mutex & 8-second deduplication lock preventing 3x duplicate link saves from Android sharesheet',
+        'Duplicate URL Confirmation: Interactive confirmation modal allowing users to view existing records or save copies when sharing identical links',
+        'Direct Website Vault Access: Removed redundant locked gate screen so authenticated users enter their credential directory immediately'
+      ]
+    },
     {
       version: '2.4.3',
       type: 'minor',

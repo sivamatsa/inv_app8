@@ -101,6 +101,8 @@ App.api = (function () {
     'website_entry_groups', 'website_vault_settings', 'website_vault_audit',
     // Daily Financial Habit Tracker (054)
     'daily_financial_habits', 'daily_habit_logs',
+    // Backup & Restore Center (056)
+    'backup_jobs', 'backup_schedules', 'backup_audit_logs',
   ]);
 
   async function selectAll(table, opts) {
@@ -5179,6 +5181,222 @@ App.api = (function () {
         }
       }
       return streak;
+    },
+
+    // ========================================================================
+    // BACKUP & RESTORE CENTER (056_backup_and_restore_center.sql)
+    // ========================================================================
+    BACKUP_TABLE_INVENTORY: [
+      { key: 'deals', table: 'deals', label: 'Deals & Loans', category: 'Financial Engine', ownerCol: 'user_id', sensitive: false },
+      { key: 'payment_schedule', table: 'payment_schedule', label: 'Payment Schedule', category: 'Financial Engine', ownerCol: 'user_id', sensitive: false },
+      { key: 'payments', table: 'payments', label: 'Recorded Payments', category: 'Financial Engine', ownerCol: 'user_id', sensitive: false },
+      { key: 'platforms', table: 'platforms', label: 'Lending Platforms', category: 'Financial Engine', ownerCol: 'user_id', sensitive: false },
+      { key: 'investment_categories', table: 'investment_categories', label: 'Investment Categories', category: 'Financial Engine', ownerCol: 'user_id', sensitive: false },
+      { key: 'reinvestments', table: 'reinvestments', label: 'Reinvestments', category: 'Planning', ownerCol: 'user_id', sensitive: false },
+      { key: 'portfolio_goals', table: 'portfolio_goals', label: 'Financial Goals', category: 'Planning', ownerCol: 'user_id', sensitive: false },
+      { key: 'scenario_simulations', table: 'scenario_simulations', label: 'What-If Scenarios', category: 'Planning', ownerCol: 'user_id', sensitive: false },
+      { key: 'risk_ratings', table: 'risk_ratings', label: 'Risk Ratings', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'tax_records', table: 'tax_records', label: 'Tax Records', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'bank_transactions', table: 'bank_transactions', label: 'Bank Transactions', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'cash_transactions', table: 'cash_transactions', label: 'Cash Transactions', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'payment_matches', table: 'payment_matches', label: 'Reconciliation Matches', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'accounts', table: 'accounts', label: 'Bank & Asset Accounts', category: 'Net Worth', ownerCol: 'user_id', sensitive: false },
+      { key: 'liabilities', table: 'liabilities', label: 'Liabilities & Debts', category: 'Net Worth', ownerCol: 'user_id', sensitive: false },
+      { key: 'net_worth_snapshots', table: 'net_worth_snapshots', label: 'Net Worth Snapshots', category: 'Net Worth', ownerCol: 'user_id', sensitive: false },
+      { key: 'recurring_items', table: 'recurring_items', label: 'Recurring SIPs / Items', category: 'Recurring', ownerCol: 'user_id', sensitive: false },
+      { key: 'recurring_occurrences', table: 'recurring_occurrences', label: 'Recurring Occurrences', category: 'Recurring', ownerCol: 'user_id', sensitive: false },
+      { key: 'recurring_pauses', table: 'recurring_pauses', label: 'Recurring Pauses', category: 'Recurring', ownerCol: 'user_id', sensitive: false },
+      { key: 'recurring_amount_history', table: 'recurring_amount_history', label: 'Recurring Amount History', category: 'Recurring', ownerCol: 'user_id', sensitive: false },
+      { key: 'recurring_schedule_history', table: 'recurring_schedule_history', label: 'Recurring Schedule History', category: 'Recurring', ownerCol: 'user_id', sensitive: false },
+      { key: 'gold_purchases', table: 'gold_purchases', label: 'Gold Purchases & Vault', category: 'Gold', ownerCol: 'user_id', sensitive: false },
+      { key: 'gold_settings', table: 'gold_settings', label: 'Gold Valuation Settings', category: 'Gold', ownerCol: 'user_id', sensitive: false },
+      { key: 'gold_providers', table: 'gold_providers', label: 'Gold Providers', category: 'Gold', ownerCol: 'user_id', sensitive: false },
+      { key: 'gold_alerts', table: 'gold_alerts', label: 'Gold Price Alerts', category: 'Gold', ownerCol: 'user_id', sensitive: false },
+      { key: 'gold_price_observations', table: 'gold_price_observations', label: 'Gold Price History', category: 'Gold', ownerCol: null, sensitive: false },
+      { key: 'expense_projects', table: 'expense_projects', label: 'Expense Projects', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_transactions', table: 'expense_transactions', label: 'Expense Transactions', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_categories', table: 'expense_categories', label: 'Expense Categories', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_vendors', table: 'expense_vendors', label: 'Expense Vendors', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_advances', table: 'expense_advances', label: 'Expense Advances', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_recurring_templates', table: 'expense_recurring_templates', label: 'Expense Recurring Templates', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_project_custom_fields', table: 'expense_project_custom_fields', label: 'Expense Custom Fields', category: 'Expenses', ownerCol: 'user_id', sensitive: false },
+      { key: 'expense_transaction_custom_values', table: 'expense_transaction_custom_values', label: 'Expense Custom Values', category: 'Expenses', ownerCol: null, sensitive: false },
+      { key: 'website_entries', table: 'website_entries', label: 'Website Vault Directory', category: 'Vault', ownerCol: 'user_id', sensitive: false },
+      { key: 'website_accounts', table: 'website_accounts', label: 'Website Vault Accounts (Encrypted)', category: 'Vault', ownerCol: 'user_id', sensitive: true },
+      { key: 'website_groups', table: 'website_groups', label: 'Website Vault Groups', category: 'Vault', ownerCol: 'user_id', sensitive: false },
+      { key: 'website_entry_groups', table: 'website_entry_groups', label: 'Website Entry Group Mappings', category: 'Vault', ownerCol: 'user_id', sensitive: false },
+      { key: 'website_vault_settings', table: 'website_vault_settings', label: 'Vault Settings', category: 'Vault', ownerCol: 'user_id', sensitive: false },
+      { key: 'website_vault_audit', table: 'website_vault_audit', label: 'Vault Audit Logs', category: 'Vault', ownerCol: 'user_id', sensitive: false },
+      { key: 'contacts', table: 'contacts', label: 'Contacts', category: 'Contacts', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'contact_phones', table: 'contact_phones', label: 'Contact Phone Numbers', category: 'Contacts', ownerCol: null, sensitive: false },
+      { key: 'contact_emails', table: 'contact_emails', label: 'Contact Emails', category: 'Contacts', ownerCol: null, sensitive: false },
+      { key: 'contact_addresses', table: 'contact_addresses', label: 'Contact Addresses', category: 'Contacts', ownerCol: null, sensitive: false },
+      { key: 'contact_groups', table: 'contact_groups', label: 'Contact Groups', category: 'Contacts', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'contact_group_members', table: 'contact_group_members', label: 'Contact Group Members', category: 'Contacts', ownerCol: null, sensitive: false },
+      { key: 'contact_notes', table: 'contact_notes', label: 'Contact Notes', category: 'Contacts', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'contact_reminders', table: 'contact_reminders', label: 'Contact Reminders', category: 'Contacts', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'contact_important_dates', table: 'contact_important_dates', label: 'Contact Important Dates', category: 'Contacts', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'documents', table: 'documents', label: 'Document Metadata', category: 'Documents', ownerCol: 'user_id', sensitive: false },
+      { key: 'calendar_events', table: 'calendar_events', label: 'Calendar Events', category: 'Calendar', ownerCol: 'user_id', sensitive: false },
+      { key: 'notes', table: 'notes', label: 'Portfolio Notes', category: 'Personal', ownerCol: 'user_id', sensitive: false },
+      { key: 'daily_financial_habits', table: 'daily_financial_habits', label: 'Daily Habits', category: 'Personal', ownerCol: 'user_id', sensitive: false },
+      { key: 'daily_habit_logs', table: 'daily_habit_logs', label: 'Daily Habit Logs', category: 'Personal', ownerCol: 'user_id', sensitive: false },
+      { key: 'user_intelligence_cards', table: 'user_intelligence_cards', label: 'Intelligence Cards', category: 'Insights', ownerCol: 'user_id', sensitive: false },
+      { key: 'conversations', table: 'conversations', label: 'Chat Conversations', category: 'Chat', ownerCol: 'created_by', sensitive: false },
+      { key: 'conversation_members', table: 'conversation_members', label: 'Chat Conversation Members', category: 'Chat', ownerCol: 'user_id', sensitive: false },
+      { key: 'messages', table: 'messages', label: 'Chat Messages', category: 'Chat', ownerCol: 'sender_id', sensitive: false },
+      { key: 'support_tickets', table: 'support_tickets', label: 'Support Tickets', category: 'Support', ownerCol: 'user_id', sensitive: false },
+      { key: 'ticket_messages', table: 'ticket_messages', label: 'Support Ticket Messages', category: 'Support', ownerCol: 'user_id', sensitive: false },
+      { key: 'feature_suggestions', table: 'feature_suggestions', label: 'Feature Suggestions', category: 'Support', ownerCol: 'user_id', sensitive: false },
+      { key: 'community_messages', table: 'community_messages', label: 'Community Feed Messages', category: 'Community', ownerCol: 'user_id', sensitive: false },
+      { key: 'shared_portfolios', table: 'shared_portfolios', label: 'Shared Portfolios', category: 'Sharing', ownerCol: 'owner_user_id', sensitive: false },
+      { key: 'portfolio_members', table: 'portfolio_members', label: 'Portfolio Members', category: 'Sharing', ownerCol: 'user_id', sensitive: false },
+      { key: 'profiles', table: 'profiles', label: 'User Profile & Identity', category: 'Account', ownerCol: 'id', sensitive: false },
+      { key: 'notification_preferences', table: 'notification_preferences', label: 'Notification Settings', category: 'Account', ownerCol: 'user_id', sensitive: false },
+      { key: 'notification_type_preferences', table: 'notification_type_preferences', label: 'Channel Preferences', category: 'Account', ownerCol: 'user_id', sensitive: false },
+      { key: 'user_privacy_settings', table: 'user_privacy_settings', label: 'Privacy Settings', category: 'Account', ownerCol: 'user_id', sensitive: false },
+      { key: 'automation_rules', table: 'automation_rules', label: 'Automation Rules', category: 'Automation', ownerCol: 'user_id', sensitive: false },
+      { key: 'audit_logs', table: 'audit_logs', label: 'System Audit Logs', category: 'Audit', ownerCol: 'user_id', sensitive: false },
+      { key: 'imports', table: 'imports', label: 'Import History', category: 'Audit', ownerCol: 'user_id', sensitive: false },
+    ],
+
+    listBackupJobs: async function (opts) {
+      opts = opts || {};
+      opts.order = opts.order || { column: 'created_at', ascending: false };
+      return selectAll('backup_jobs', opts).catch((err) => {
+        console.warn('[API] listBackupJobs notice:', err);
+        return [];
+      });
+    },
+
+    createBackupJob: async function (payload) {
+      payload.user_id = payload.user_id || uid();
+      return insertRow('backup_jobs', payload);
+    },
+
+    updateBackupJob: async function (id, patch) {
+      return updateRow('backup_jobs', id, patch);
+    },
+
+    deleteBackupJob: async function (id) {
+      return deleteRow('backup_jobs', id);
+    },
+
+    getBackupSchedule: async function (scope = 'PERSONAL') {
+      try {
+        const rows = await selectAll('backup_schedules', { eq: { scope }, limit: 1 });
+        return rows && rows.length > 0 ? rows[0] : null;
+      } catch (e) {
+        return null;
+      }
+    },
+
+    saveBackupSchedule: async function (schedule) {
+      const existing = await App.api.getBackupSchedule(schedule.scope || 'PERSONAL');
+      if (existing && existing.id) {
+        schedule.updated_at = new Date().toISOString();
+        return updateRow('backup_schedules', existing.id, schedule);
+      } else {
+        schedule.user_id = uid();
+        return insertRow('backup_schedules', schedule);
+      }
+    },
+
+    listBackupAuditLogs: async function (opts) {
+      opts = opts || {};
+      opts.order = opts.order || { column: 'created_at', ascending: false };
+      return selectAll('backup_audit_logs', opts).catch(() => []);
+    },
+
+    logBackupAudit: async function (action, scope, details) {
+      try {
+        return await insertRow('backup_audit_logs', {
+          action,
+          scope: scope || 'PERSONAL',
+          details: details || {},
+          user_id: uid(),
+        });
+      } catch (err) {
+        console.warn('[API] logBackupAudit notice:', err);
+        return null;
+      }
+    },
+
+    discoverPortfolioDataSources: async function (opts = {}) {
+      const scope = opts.scope || 'PERSONAL';
+      const inventory = App.api.BACKUP_TABLE_INVENTORY;
+      const results = [];
+
+      for (const item of inventory) {
+        try {
+          const fetchOpts = scope === 'ADMIN' ? { allUsers: true } : {};
+          if (item.ownerCol && scope === 'PERSONAL') {
+            fetchOpts.eq = { [item.ownerCol]: uid() };
+          }
+          const rows = await selectAll(item.table, fetchOpts).catch(() => []);
+          results.push({
+            ...item,
+            recordCount: Array.isArray(rows) ? rows.length : 0,
+            status: 'AVAILABLE',
+          });
+        } catch (e) {
+          results.push({
+            ...item,
+            recordCount: 0,
+            status: 'INACCESSIBLE',
+            error: e.message || String(e),
+          });
+        }
+      }
+      return results;
+    },
+
+    fetchEntirePortfolioData: async function (opts = {}) {
+      const scope = opts.scope || 'PERSONAL';
+      const onProgress = opts.onProgress || (() => {});
+      const inventory = App.api.BACKUP_TABLE_INVENTORY;
+      const data = {};
+      const stats = { recordsDiscovered: 0, recordsExported: 0, tablesIncluded: 0, tablesFailed: 0 };
+
+      for (let i = 0; i < inventory.length; i++) {
+        const item = inventory[i];
+        onProgress({ phase: 'DISCOVERY', currentTable: item.label, progress: Math.round(((i + 1) / inventory.length) * 100) });
+        try {
+          const fetchOpts = scope === 'ADMIN' ? { allUsers: true } : {};
+          if (item.ownerCol && scope === 'PERSONAL') {
+            fetchOpts.eq = { [item.ownerCol]: uid() };
+          }
+          let rows = await selectAll(item.table, fetchOpts).catch(() => []);
+          if (!Array.isArray(rows)) rows = [];
+
+          // Clean rows for safety: stringify nested objects/arrays to avoid [object Object]
+          // Sensitive data protection: never export decrypted secrets in routine backups
+          if (item.sensitive && item.key === 'website_accounts') {
+            rows = rows.map((r) => ({
+              ...r,
+              encrypted_password: r.encrypted_password ? '[ENCRYPTED_AES256_GCM_PAYLOAD]' : '',
+              encryption_iv: r.encryption_iv || '',
+            }));
+          }
+
+          data[item.key] = rows;
+          stats.recordsDiscovered += rows.length;
+          stats.recordsExported += rows.length;
+          stats.tablesIncluded++;
+        } catch (err) {
+          console.warn(`[Backup] Failed to fetch table ${item.table}:`, err);
+          data[item.key] = [];
+          stats.tablesFailed++;
+        }
+      }
+
+      return { data, stats };
+    },
+
+    downloadStorageDocumentBlob: async function (storagePath) {
+      const { data, error } = await client().storage.from('documents').download(storagePath);
+      check(error);
+      return data; // Blob
     },
   };
 

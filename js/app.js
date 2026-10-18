@@ -47,6 +47,7 @@ const NAV_STRUCTURE = [
   { group: 'Records', items: [
     { key: 'import', label: 'Import', icon: '&#128228;' },
     { key: 'documents', label: 'Documents', icon: '&#128193;' },
+    { key: 'backup', label: 'Backup & Cloud Sync', icon: '&#128190;' },
   ] },
   { group: 'Personal', items: [
     { key: 'notes', label: 'Notes', icon: '&#128221;' },

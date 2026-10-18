@@ -22,8 +22,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="stylesheet" href="css/app.css?v=2.4.4">
 </head>
 <body>
@@ -113,7 +115,7 @@
     <div class="sidebar-footer" id="sidebarFooter">
       <button type="button" class="sidebar-version-btn" id="sidebarVersionBtn" title="Click to view What's New & Release Notes">
         <span class="version-pulse-dot"></span>
-        <span class="version-label">v2.4.3 &middot; Stable</span>
+        <span class="version-label">v2.4.4 &middot; Stable</span>
       </button>
     </div>
   </nav>
@@ -135,7 +137,7 @@
         <button type="button" class="icon-btn topbar-menu-btn" id="mobileMenuBtn" title="Toggle Navigation Menu (Ctrl+B)" aria-label="Toggle Navigation">☰</button>
         <div style="display:flex;align-items:center;gap:8px">
           <div class="topbar-title" id="topbarTitle">Dashboard</div>
-          <button type="button" class="topbar-version-badge" id="topbarVersionBadge" title="Click to view What's New & Release Notes">v2.4.3</button>
+          <button type="button" class="topbar-version-badge" id="topbarVersionBadge" title="Click to view What's New & Release Notes">v2.4.4</button>
         </div>
       </div>
       <div class="topbar-search-wrap" id="topbarSearchWrap">
@@ -262,8 +264,11 @@
 <script src="js/lib/tapeCalculator.js?v=2.4.3"></script>
 <script src="js/lib/chatbot.js?v=2.4.3"></script>
 <script src="js/lib/telegramClientPoller.js?v=2.4.3"></script>
-<script src="js/lib/version.js?v=2.4.3"></script>
-<script src="js/app.js?v=2.4.3"></script>
+<script src="js/lib/backupEngine.js?v=2.4.4"></script>
+<script src="js/lib/googleSheetsSync.js?v=2.4.4"></script>
+<script src="js/views/backupCenter.js?v=2.4.4"></script>
+<script src="js/lib/version.js?v=2.4.4"></script>
+<script src="js/app.js?v=2.4.4"></script>
 <script>
   // Service Worker Registration + PWA Update Engine wiring
   if ('serviceWorker' in navigator) {
