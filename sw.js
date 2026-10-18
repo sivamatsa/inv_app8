@@ -93,16 +93,6 @@ self.addEventListener('fetch', (event) => {
           if (sharedText) redirectUrl.searchParams.set('text', String(sharedText));
           if (sharedUrl) redirectUrl.searchParams.set('url', String(sharedUrl));
 
-          // Broadcast to active clients so open PWA instances immediately save and navigate
-          self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-            clients.forEach((c) => {
-              c.postMessage({
-                type: 'SHARE_TARGET_RECEIVED',
-                payload: { title: sharedTitle, text: sharedText, url: sharedUrl },
-              });
-            });
-          }).catch(() => {});
-
           return Response.redirect(redirectUrl.href, 303);
         } catch (err) {
           return Response.redirect('./index.html?share_target=1', 303);
@@ -110,21 +100,6 @@ self.addEventListener('fetch', (event) => {
       })()
     );
     return;
-  }
-
-  // Web Share Target GET Interception: broadcast to open PWA windows
-  if (req.method === 'GET' && (url.searchParams.has('share_target') || (url.searchParams.has('url') && url.searchParams.get('url').trim() !== '') || (url.searchParams.has('text') && url.searchParams.get('text').includes('http')))) {
-    const sTitle = url.searchParams.get('title') || url.searchParams.get('subject') || '';
-    const sText = url.searchParams.get('text') || url.searchParams.get('body') || '';
-    const sUrl = url.searchParams.get('url') || url.searchParams.get('link') || '';
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      clients.forEach((c) => {
-        c.postMessage({
-          type: 'SHARE_TARGET_RECEIVED',
-          payload: { title: sTitle, text: sText, url: sUrl },
-        });
-      });
-    }).catch(() => {});
   }
 
   if (req.method !== 'GET') return;

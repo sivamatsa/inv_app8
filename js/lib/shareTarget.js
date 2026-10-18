@@ -13,6 +13,12 @@ App.shareTarget = (function () {
   const STORAGE_KEY_PENDING = 'pending_shared_vault_item';
   const URL_REGEX = /https?:\/\/[^\s"'<>()[\]{}|\\^`]+/i;
 
+  // Concurrency & Debounce state across multi-trigger share events
+  let isProcessingShare = false;
+  let lastProcessedSignature = '';
+  let lastProcessedTimestamp = 0;
+  const DEBOUNCE_WINDOW_MS = 8000;
+
   // Domain to Title mapping for clean fallback
   const KNOWN_DOMAINS = {
     'hdfc': 'HDFC Bank',
@@ -249,10 +255,117 @@ App.shareTarget = (function () {
   }
 
   /**
-   * Persists a shared link to Supabase website_entries and triggers highlight navigation.
-   * Strict compliance with user directive: Identical URLs create separate, independent rows.
+   * Normalizes a URL for canonical matching (lowercasing host, stripping trailing slash).
    */
-  async function saveSharedEntry(extractedData) {
+  function normalizeUrlForComparison(rawUrl) {
+    if (!rawUrl) return '';
+    try {
+      const u = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
+      const host = u.hostname.toLowerCase().replace(/^www\./, '');
+      const path = u.pathname.replace(/\/+$/, '') || '/';
+      return `${u.protocol}//${host}${path}`;
+    } catch (_) {
+      return String(rawUrl).toLowerCase().trim().replace(/\/+$/, '');
+    }
+  }
+
+  /**
+   * Checks whether the target URL already exists in the user's Website Vault.
+   */
+  async function findExistingVaultEntry(targetUrl) {
+    if (!targetUrl) return null;
+    const normalizedTarget = normalizeUrlForComparison(targetUrl);
+    try {
+      let sites = [];
+      if (App.views && App.views.vault && typeof App.views.vault.getState === 'function') {
+        sites = App.views.vault.getState().websites || [];
+      }
+      if (!sites || sites.length === 0) {
+        sites = await App.api.listWebsites({ limit: 500 }).catch(() => []);
+      }
+      if (!Array.isArray(sites)) return null;
+
+      return sites.find((s) => {
+        if (!s || !s.url) return false;
+        return normalizeUrlForComparison(s.url) === normalizedTarget;
+      }) || null;
+    } catch (err) {
+      console.warn('[ShareTarget] Error checking existing website entry:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Displays an interactive confirmation modal when a shared link already exists in the vault.
+   */
+  function showDuplicateConfirmationModal(extractedData, existingSite) {
+    const favUrl = App.vaultCrypto ? App.vaultCrypto.getFaviconUrl(existingSite.url) : '';
+    const dateFormatted = existingSite.created_at ? App.utils.fmtDate(existingSite.created_at) : 'Saved previously';
+    let host = '';
+    try { host = new URL(existingSite.url).hostname; } catch (_) { host = existingSite.url; }
+
+    const bodyHtml = `
+      <div style="font-size:13.5px;color:var(--text);line-height:1.5">
+        <div style="margin-bottom:12px;color:var(--text2)">
+          This website is already saved in your <b>Website Vault</b>:
+        </div>
+        <div style="background:var(--card2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+          <div style="width:36px;height:36px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid var(--border);flex-shrink:0">
+            ${favUrl ? `<img src="${App.utils.escapeHtml(favUrl)}" alt="" style="width:20px;height:20px;object-fit:contain" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">` : ''}
+            <span style="${favUrl ? 'display:none;' : ''}font-weight:700;color:var(--gold);font-size:15px">${(existingSite.name || 'W').charAt(0).toUpperCase()}</span>
+          </div>
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:600;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${App.utils.escapeHtml(existingSite.name || host)}</div>
+            <div style="font-size:12px;color:var(--gold);margin-top:2px">${App.utils.escapeHtml(existingSite.primary_category || 'General')} &middot; <span style="color:var(--text3)">${dateFormatted}</span></div>
+            <div style="font-size:11.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${App.utils.escapeHtml(existingSite.url)}</div>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:var(--text2);margin-bottom:6px">
+          Would you like to open the existing entry, or save this as a separate record?
+        </div>
+      </div>
+    `;
+
+    App.ui.open({
+      title: 'Website Already in Vault',
+      bodyHtml: bodyHtml,
+      actions: [
+        {
+          label: 'Cancel',
+          className: 'btn-outline',
+          onClick: () => {
+            clearPendingShare();
+            App.ui.close();
+          }
+        },
+        {
+          label: '➕ Save New Copy',
+          className: 'btn-outline',
+          onClick: async () => {
+            App.ui.close();
+            await persistWebsiteEntry(extractedData);
+          }
+        },
+        {
+          label: '👁️ View Existing',
+          className: 'btn-gold',
+          onClick: () => {
+            clearPendingShare();
+            App.ui.close();
+            navigateToVaultAndHighlight(existingSite.id);
+            if (App.utils && App.utils.toast) {
+              App.utils.toast('Opened existing vault entry', 'info');
+            }
+          }
+        }
+      ]
+    });
+  }
+
+  /**
+   * Persists a website entry to Supabase database once confirmed/validated.
+   */
+  async function persistWebsiteEntry(extractedData) {
     if (!extractedData || !extractedData.url) return null;
 
     const category = extractedData.category || autoDetectCategory(extractedData.url, extractedData.title);
@@ -275,7 +388,6 @@ App.shareTarget = (function () {
       createdSite = await App.api.createWebsite(payload);
     } catch (err) {
       console.error('[ShareTarget] Failed to save website entry:', err);
-      // Keep stashed so the link is never lost if auth/network was transiently unavailable
       stashPendingShare(extractedData);
       if (App.utils && App.utils.toast) {
         App.utils.toast('Failed to save shared link: ' + (err.message || err), 'err');
@@ -283,18 +395,53 @@ App.shareTarget = (function () {
       return null;
     }
 
-    // Success: safely remove pending share now that it's persisted in the database
     clearPendingShare();
 
-    // Feedback toast
     if (App.utils && App.utils.toast) {
       App.utils.toast(`✓ Saved to Website Vault: ${createdSite.name}`, 'ok');
     }
 
-    // Navigate to Vault view and trigger highlight
     navigateToVaultAndHighlight(createdSite.id);
-
     return createdSite;
+  }
+
+  /**
+   * Main save pipeline: enforces concurrency mutex, debounces identical shares within 8s,
+   * checks for duplicates, and prompts user confirmation or persists directly.
+   */
+  async function saveSharedEntry(extractedData) {
+    if (!extractedData || !extractedData.url) return null;
+
+    const signature = normalizeUrlForComparison(extractedData.url);
+    const now = Date.now();
+
+    // Concurrency Lock & Debounce guard:
+    // If another share is currently in-flight or identical signature was processed within cooldown window, ignore
+    if (isProcessingShare) {
+      console.log('[ShareTarget] In-flight save in progress, ignoring duplicate call:', signature);
+      return null;
+    }
+    if (now - lastProcessedTimestamp < DEBOUNCE_WINDOW_MS && lastProcessedSignature === signature) {
+      console.log('[ShareTarget] Debounced identical share within cooldown window:', signature);
+      return null;
+    }
+
+    isProcessingShare = true;
+    lastProcessedSignature = signature;
+    lastProcessedTimestamp = now;
+
+    try {
+      // Check if URL already exists in user's vault
+      const existingSite = await findExistingVaultEntry(extractedData.url);
+      if (existingSite) {
+        showDuplicateConfirmationModal(extractedData, existingSite);
+        return existingSite;
+      }
+
+      return await persistWebsiteEntry(extractedData);
+    } finally {
+      isProcessingShare = false;
+    }
   }
 
   /**
@@ -618,27 +765,10 @@ App.shareTarget = (function () {
     // 3. Render notice if any stashed item exists
     renderPendingNoticeOnAuth();
 
-    // 4. Listen for warm navigation or visibility changes
-    window.addEventListener('pageshow', () => {
-      if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
-        processIncomingShare();
-      }
-    });
-
+    // 4. Check for pending share stashed when returning to foreground
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
-          processIncomingShare();
-        } else {
-          // If returning to foreground, check for any pending share stashed
-          handlePendingShare();
-        }
-      }
-    });
-
-    window.addEventListener('popstate', () => {
-      if (window.location.search || (window.location.hash && window.location.hash.includes('?'))) {
-        processIncomingShare();
+        handlePendingShare();
       }
     });
 

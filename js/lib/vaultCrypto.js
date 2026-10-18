@@ -404,7 +404,7 @@ App.vaultCrypto = (function () {
     }
   }
 
-  async function unlockVault() {
+  async function unlockVault(opts) {
     isVaultLocked = false;
     resetActivityTimer();
     startAutoLockTimer();
@@ -412,7 +412,7 @@ App.vaultCrypto = (function () {
     lockListeners.forEach((fn) => {
       try { fn(false, 'Vault unlocked'); } catch (e) { console.error(e); }
     });
-    if (App.utils && App.utils.toast) {
+    if (opts && opts.notify && App.utils && App.utils.toast) {
       App.utils.toast('Vault unlocked.', 'ok');
     }
     return true;
@@ -435,11 +435,13 @@ App.vaultCrypto = (function () {
     window.addEventListener('scroll', resetActivityTimer, { passive: true });
     startAutoLockTimer();
 
-    // Lock on logout if App.auth fires
+    // Sync vault lock with user session lifecycle
     if (App.auth && App.auth.onChange) {
       App.auth.onChange((user) => {
         if (!user) {
           lockVault('Logged out');
+        } else {
+          unlockVault({ notify: false });
         }
       });
     }
@@ -469,7 +471,13 @@ App.vaultCrypto = (function () {
     copyToClipboard,
     lockVault,
     unlockVault,
-    isLocked: () => isVaultLocked,
+    isLocked: () => {
+      const user = App.auth && typeof App.auth.getUser === 'function' ? App.auth.getUser() : null;
+      if (user || (App.auth && App.auth.isDemoMode && App.auth.isDemoMode())) {
+        return false;
+      }
+      return isVaultLocked;
+    },
     onLockChange,
     setAutoLockMinutes,
     getAutoLockMinutes: () => autoLockMinutes,

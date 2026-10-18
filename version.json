@@ -1,11 +1,23 @@
 {
-  "version": "2.4.3",
+  "version": "2.4.4",
   "name": "Personal Investment Operating System",
-  "releaseDate": "2026-10-13",
+  "releaseDate": "2026-10-18",
   "channel": "Stable",
-  "build": "20261013.1",
+  "build": "20261018.1",
   "minSupportedVersion": "2.0.0",
   "releases": [
+    {
+      "version": "2.4.4",
+      "type": "minor",
+      "date": "2026-10-18",
+      "title": "Share Target Single-Save Mutex & Direct Website Vault Unlocking",
+      "highlights": [
+        "Fixed 3x duplicate link saving when sharing URLs from Android Chrome and external apps via Web Share Target",
+        "Added multi-trigger concurrency mutex and signature debouncing in Share Target pipeline",
+        "Added interactive Duplicate URL confirmation modal with 'View Existing' and 'Save New Copy' choices",
+        "Removed redundant lock screen on Website Vault so authenticated users open the credentials directory directly"
+      ]
+    },
     {
       "version": "2.4.3",
       "type": "minor",

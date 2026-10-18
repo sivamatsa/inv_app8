@@ -94,10 +94,9 @@ App.views.vault = (function () {
     const pane = App.utils.qs('.view-pane[data-view="vault"]');
     if (!pane) return;
 
-    // Check if vault is locked
+    // Auto-unlock vault with active user login session (no redundant lock screen)
     if (App.vaultCrypto && App.vaultCrypto.isLocked()) {
-      renderLockedState(pane);
-      return;
+      await App.vaultCrypto.unlockVault({ notify: false });
     }
 
     await loadData();
@@ -188,9 +187,6 @@ App.views.vault = (function () {
             </button>
             <button id="btnVaultSettingsTop" class="btn btn-outline btn-sm" title="Vault auto-lock & preferences">
               ⚙️ Settings
-            </button>
-            <button id="btnLockVaultNow" class="btn btn-outline btn-sm" style="border-color:var(--red);color:var(--red)" title="Lock vault immediately">
-              🔒 Lock
             </button>
           </div>
         </div>
@@ -885,14 +881,6 @@ App.views.vault = (function () {
     pane.querySelector('#btnVaultAuditTop')?.addEventListener('click', () => openAuditTrailModal());
     pane.querySelector('#btnVaultSettingsTop')?.addEventListener('click', () => openVaultSettingsModal());
     pane.querySelector('#btnManageGroups')?.addEventListener('click', () => openManageGroupsModal());
-
-    // Manual lock button
-    pane.querySelector('#btnLockVaultNow')?.addEventListener('click', () => {
-      if (App.vaultCrypto) {
-        App.vaultCrypto.lockVault('User manual lock');
-        renderLockedState(pane);
-      }
-    });
 
     attachCardActions(pane);
   }
