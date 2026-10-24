@@ -622,11 +622,18 @@ window.App = window.App || {};
         App.utils.toast('Google Account connected successfully!', 'ok');
         drawActiveTabContent();
       } catch (err) {
-        console.warn('Google connect notice:', err);
-        if (err && (err.type === 'origin_mismatch' || String(err.message || '').includes('origin') || String(err.code || '').includes('origin'))) {
-          App.googleSheetsSync.showOriginMismatchDialog(targetEmail);
-        } else if (err && err.message && !err.message.includes('closed')) {
-          App.utils.toast('Google login: ' + err.message, 'err');
+        console.info('Google connect notice:', err?.message || err);
+        const msg = String(err?.message || err?.type || err || '');
+        const isClosed = err?.isDismissed || msg.toLowerCase().includes('closed') || err?.type === 'popup_closed';
+        const isOrigin = err?.isOriginMismatch || err?.type === 'origin_mismatch' || msg.toLowerCase().includes('origin') || String(err?.code || '').includes('origin');
+        const isAccessDenied = err?.isAccessDenied || msg.toLowerCase().includes('access_denied') || String(err?.code || '').includes('access_denied');
+
+        if (isOrigin || isAccessDenied) {
+          App.googleSheetsSync.showOriginMismatchDialog(targetEmail, isAccessDenied ? 'access_denied' : 'origin_mismatch');
+        } else if (isClosed) {
+          App.utils.toast('Google sign-in window closed. You can export 14-tab sheets or full ZIP anytime.', 'info');
+        } else if (err && err.message) {
+          App.utils.toast('Google login notice: ' + err.message, 'err');
         }
       }
     };

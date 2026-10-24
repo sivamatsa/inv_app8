@@ -1195,11 +1195,292 @@ App.api = (function () {
       .subscribe();
   }
 
-  // ---- notes ----
-  const listNotes = (opts) => selectAll('notes', Object.assign({ order: { column: 'updated_at', ascending: false } }, opts));
-  const createNote = (row) => insertRow('notes', row);
-  const updateNote = (id, patch) => updateRow('notes', id, patch);
-  const deleteNote = (id) => deleteRow('notes', id);
+  // ---- notes & knowledge hub ----
+  function getLocalNoteExt(id) {
+    try { return JSON.parse(localStorage.getItem(`ios_note_ext_${id}`) || '{}'); } catch (_) { return {}; }
+  }
+  function setLocalNoteExt(id, ext) {
+    try {
+      const existing = getLocalNoteExt(id);
+      localStorage.setItem(`ios_note_ext_${id}`, JSON.stringify(Object.assign({}, existing, ext)));
+    } catch (_) {}
+  }
+
+  async function listNotes(opts) {
+    let rows = [];
+    try {
+      rows = await selectAll('notes', Object.assign({ order: { column: 'updated_at', ascending: false } }, opts));
+    } catch (e) {
+      console.warn('listNotes database notice, using fallback cache:', e);
+      try { rows = JSON.parse(localStorage.getItem('ios_notes_cache') || '[]'); } catch (_) { rows = []; }
+    }
+    // Merge local extended metadata if columns were not in schema
+    return rows.map((r) => {
+      const ext = getLocalNoteExt(r.id);
+      return Object.assign({
+        content_html: r.content_html || r.content || '',
+        tags: r.tags || ext.tags || [],
+        folder_id: r.folder_id || ext.folder_id || null,
+        is_pinned: r.is_pinned !== undefined ? r.is_pinned : !!ext.is_pinned,
+        is_favorite: r.is_favorite !== undefined ? r.is_favorite : !!ext.is_favorite,
+        is_archived: r.is_archived !== undefined ? r.is_archived : !!ext.is_archived,
+        in_trash: r.in_trash !== undefined ? r.in_trash : !!ext.in_trash,
+        trashed_at: r.trashed_at || ext.trashed_at || null,
+        color: r.color || ext.color || null,
+        reminder_at: r.reminder_at || ext.reminder_at || null,
+        due_at: r.due_at || ext.due_at || null,
+        priority: r.priority || ext.priority || 'NORMAL',
+        linked_entities: r.linked_entities || ext.linked_entities || [],
+        version: r.version || ext.version || 1
+      }, r, ext);
+    });
+  }
+
+  async function createNote(row) {
+    const extFields = {
+      content_html: row.content_html,
+      folder_id: row.folder_id,
+      tags: row.tags,
+      is_pinned: row.is_pinned,
+      is_favorite: row.is_favorite,
+      is_archived: row.is_archived,
+      in_trash: row.in_trash,
+      trashed_at: row.trashed_at,
+      color: row.color,
+      reminder_at: row.reminder_at,
+      due_at: row.due_at,
+      priority: row.priority,
+      linked_entities: row.linked_entities,
+      version: row.version
+    };
+
+    if (!row.content && row.content_html && App.notesEditor) {
+      row.content = App.notesEditor.htmlToPlainText(row.content_html);
+    }
+
+    try {
+      const res = await insertRow('notes', row);
+      if (res && res.id) setLocalNoteExt(res.id, extFields);
+      return Object.assign({}, res, extFields);
+    } catch (err) {
+      console.warn('createNote schema notice, falling back to base fields:', err?.message || err);
+      const baseRow = {
+        title: row.title || 'Untitled',
+        content: row.content || (row.content_html ? (App.notesEditor ? App.notesEditor.htmlToPlainText(row.content_html) : row.content_html) : '')
+      };
+      const res = await insertRow('notes', baseRow);
+      if (res && res.id) setLocalNoteExt(res.id, extFields);
+      return Object.assign({}, res, extFields);
+    }
+  }
+
+  async function updateNote(id, patch) {
+    const extFields = {};
+    const extKeys = ['content_html', 'folder_id', 'tags', 'is_pinned', 'is_favorite', 'is_archived', 'in_trash', 'trashed_at', 'color', 'reminder_at', 'due_at', 'priority', 'linked_entities', 'version'];
+    extKeys.forEach(k => {
+      if (patch[k] !== undefined) extFields[k] = patch[k];
+    });
+
+    if (patch.content_html && !patch.content && App.notesEditor) {
+      patch.content = App.notesEditor.htmlToPlainText(patch.content_html);
+    }
+
+    try {
+      const res = await updateRow('notes', id, patch);
+      setLocalNoteExt(id, extFields);
+      return Object.assign({}, res, extFields);
+    } catch (err) {
+      console.warn('updateNote schema notice, updating base fields:', err?.message || err);
+      const basePatch = {};
+      if (patch.title !== undefined) basePatch.title = patch.title;
+      if (patch.content !== undefined) basePatch.content = patch.content;
+      if (patch.content_html && !basePatch.content && App.notesEditor) {
+        basePatch.content = App.notesEditor.htmlToPlainText(patch.content_html);
+      }
+      const res = Object.keys(basePatch).length ? await updateRow('notes', id, basePatch) : { id };
+      setLocalNoteExt(id, extFields);
+      return Object.assign({}, res, extFields);
+    }
+  }
+
+  async function deleteNote(id) {
+    try { localStorage.removeItem(`ios_note_ext_${id}`); } catch (_) {}
+    return await deleteRow('notes', id);
+  }
+
+  // ---- note folders ----
+  async function listNoteFolders() {
+    try {
+      const rows = await selectAll('note_folders', { order: { column: 'name', ascending: true } });
+      if (rows && rows.length) {
+        try { localStorage.setItem('ios_note_folders', JSON.stringify(rows)); } catch (_) {}
+        return rows;
+      }
+    } catch (_) {}
+
+    const isInitialized = localStorage.getItem('ios_note_folders_initialized');
+    try {
+      const localRaw = localStorage.getItem('ios_note_folders');
+      if (localRaw !== null) {
+        const local = JSON.parse(localRaw);
+        if (Array.isArray(local) && (local.length > 0 || isInitialized)) return local;
+      }
+    } catch (_) {}
+
+    const defaults = [
+      { id: 1, name: 'Investment Theses', color: '#c9a84c', icon: '📈' },
+      { id: 2, name: 'Due Diligence', color: '#16c9a3', icon: '🔍' },
+      { id: 3, name: 'Meeting Minutes', color: '#38bdf8', icon: '🤝' },
+      { id: 4, name: 'Personal Journal', color: '#a855f7', icon: '📓' }
+    ];
+    try {
+      localStorage.setItem('ios_note_folders', JSON.stringify(defaults));
+      localStorage.setItem('ios_note_folders_initialized', 'true');
+    } catch (_) {}
+    return defaults;
+  }
+
+  async function createNoteFolder(row) {
+    try {
+      const saved = await insertRow('note_folders', row);
+      const local = await listNoteFolders();
+      local.push(saved);
+      try {
+        localStorage.setItem('ios_note_folders', JSON.stringify(local));
+        localStorage.setItem('ios_note_folders_initialized', 'true');
+      } catch (_) {}
+      return saved;
+    } catch (_) {
+      const local = await listNoteFolders();
+      const newFolder = Object.assign({ id: Date.now(), created_at: new Date().toISOString() }, row);
+      local.push(newFolder);
+      try {
+        localStorage.setItem('ios_note_folders', JSON.stringify(local));
+        localStorage.setItem('ios_note_folders_initialized', 'true');
+      } catch (_) {}
+      return newFolder;
+    }
+  }
+
+  async function updateNoteFolder(id, patch) {
+    const normId = String(id);
+    try {
+      await updateRow('note_folders', !isNaN(Number(normId)) ? Number(normId) : id, patch);
+    } catch (_) {}
+
+    const local = await listNoteFolders();
+    const idx = local.findIndex(f => String(f.id) === normId);
+    if (idx !== -1) {
+      local[idx] = Object.assign({}, local[idx], patch, { updated_at: new Date().toISOString() });
+      try { localStorage.setItem('ios_note_folders', JSON.stringify(local)); } catch (_) {}
+      return local[idx];
+    }
+    return { id, ...patch };
+  }
+
+  async function deleteNoteFolder(id) {
+    const normId = String(id);
+
+    // 1. Unassign folder from any existing notes first (both remote & local)
+    try {
+      const notes = await listNotes();
+      for (const n of notes) {
+        if (String(n.folder_id || '') === normId) {
+          n.folder_id = null;
+          await updateNote(n.id, { folder_id: null });
+        }
+      }
+    } catch (e) {
+      console.warn('Unassigning notes before folder delete notice:', e);
+    }
+
+    // 2. Delete from Supabase if present
+    try {
+      if (!isNaN(Number(normId))) {
+        await deleteRow('note_folders', Number(normId));
+      } else {
+        await deleteRow('note_folders', id);
+      }
+    } catch (e) {
+      console.warn('deleteRow note_folders notice:', e);
+    }
+
+    // 3. Delete from localStorage with String comparison
+    try {
+      const local = await listNoteFolders();
+      const filtered = local.filter(f => String(f.id) !== normId);
+      localStorage.setItem('ios_note_folders', JSON.stringify(filtered));
+      localStorage.setItem('ios_note_folders_initialized', 'true');
+    } catch (_) {}
+
+    return { id };
+  }
+
+  // ---- note templates ----
+  async function listNoteTemplates() {
+    try {
+      const rows = await selectAll('note_templates', { order: { column: 'created_at', ascending: true } });
+      if (rows && rows.length) return rows;
+    } catch (_) {}
+    try {
+      const local = JSON.parse(localStorage.getItem('ios_note_templates') || '[]');
+      if (local && local.length) return local;
+    } catch (_) {}
+    return [];
+  }
+
+  async function createNoteTemplate(tmpl) {
+    try {
+      return await insertRow('note_templates', tmpl);
+    } catch (_) {
+      const local = await listNoteTemplates();
+      const item = Object.assign({ id: Date.now(), created_at: new Date().toISOString() }, tmpl);
+      local.push(item);
+      try { localStorage.setItem('ios_note_templates', JSON.stringify(local)); } catch (_) {}
+      return item;
+    }
+  }
+
+  async function deleteNoteTemplate(id) {
+    try {
+      return await deleteRow('note_templates', id);
+    } catch (_) {
+      const local = await listNoteTemplates();
+      const filtered = local.filter(t => t.id !== id);
+      try { localStorage.setItem('ios_note_templates', JSON.stringify(filtered)); } catch (_) {}
+      return { id };
+    }
+  }
+
+  // ---- note history ----
+  async function listNoteHistory(noteId) {
+    try {
+      const { data, error } = await client().from('note_history').select('*').eq('note_id', noteId).order('created_at', { ascending: false }).limit(25);
+      if (!error && data) return data;
+    } catch (_) {}
+    try {
+      return JSON.parse(localStorage.getItem(`ios_note_history_${noteId}`) || '[]');
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function createNoteHistory(snapshot) {
+    try {
+      return await insertRow('note_history', snapshot);
+    } catch (_) {
+      try {
+        const key = `ios_note_history_${snapshot.note_id}`;
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        const row = Object.assign({ id: Date.now(), created_at: new Date().toISOString() }, snapshot);
+        existing.unshift(row);
+        localStorage.setItem(key, JSON.stringify(existing.slice(0, 30)));
+        return row;
+      } catch (_) {
+        return snapshot;
+      }
+    }
+  }
 
   // ---- support tickets ----
   const listTickets = (opts) => selectAll('support_tickets', Object.assign({ order: { column: 'created_at', ascending: false } }, opts));
@@ -4161,6 +4442,9 @@ App.api = (function () {
     listPaymentMatches, createPaymentMatch, updatePaymentMatch,
     listCommunityMessages, postCommunityMessage, subscribeToCommunityMessages,
     listNotes, createNote, updateNote, deleteNote,
+    listNoteFolders, createNoteFolder, updateNoteFolder, deleteNoteFolder,
+    listNoteTemplates, createNoteTemplate, deleteNoteTemplate,
+    listNoteHistory, createNoteHistory,
     listTickets, getTicket, createTicket, updateTicketStatus, listTicketMessages, postTicketMessage, subscribeToTicketMessages,
     updateTicketCategory, updateTicketPriority, updateTicketAssignment, rateTicketResolution, submitGuestTicket,
     listTicketInternalNotes, createTicketInternalNote,

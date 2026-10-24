@@ -71,9 +71,9 @@ Your mission:
 
 // Candidate models normalization and selection
 function normalizeModelName(m) {
-  if (!m) return 'gemini-3.8-flash';
-  if (m === 'gemini-flash-latest' || m.startsWith('gemini-1.5') || m.startsWith('gemini-2.0') || m.startsWith('gemini-2.5') || m.startsWith('gemini-3.6') || m.startsWith('gemini-3.7')) {
-    return 'gemini-3.8-flash';
+  if (!m) return 'gemini-3.5-flash-lite';
+  if (m === 'gemini-flash-latest' || m.startsWith('gemini-1.5') || m.startsWith('gemini-2.0') || m.startsWith('gemini-2.5')) {
+    return 'gemini-3.5-flash-lite';
   }
   return m;
 }
@@ -122,10 +122,16 @@ app.all(['/api/chat', '/api/chat/'], async (req, res) => {
       });
     }
 
-    const { messages, model = 'gemini-3.8-flash', systemInstruction, portfolioContext } = (req.body || {});
+    let { messages, message, prompt, model = 'gemini-3.5-flash-lite', systemInstruction, portfolioContext } = (req.body || {});
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Messages array is required.' });
+      if (typeof message === 'string' && message.trim()) {
+        messages = [{ role: 'user', content: message.trim() }];
+      } else if (typeof prompt === 'string' && prompt.trim()) {
+        messages = [{ role: 'user', content: prompt.trim() }];
+      } else {
+        return res.status(400).json({ error: 'Messages array is required.' });
+      }
     }
 
     const ai = getAiClient();
@@ -145,6 +151,8 @@ app.all(['/api/chat', '/api/chat/'], async (req, res) => {
 
     // Candidate models in priority order of attempt
     const modelCandidates = [
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
       requestedModel,
       'gemini-3.8-flash',
       'gemini-3.1-flash-lite',

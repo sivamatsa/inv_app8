@@ -56,30 +56,38 @@ App.googleSheetsSync = (function () {
 
   /**
    * Shows a comprehensive diagnostic and zero-friction fallback modal when
-   * Google OAuth rejects the request due to origin_mismatch on a custom domain (e.g. sri.qzz.io).
+   * Google OAuth rejects the request due to origin_mismatch or access_denied (e.g. unlisted test user).
    */
-  function showOriginMismatchDialog(targetEmail) {
+  function showOriginMismatchDialog(targetEmail, errorReason) {
     const origin = window.location.origin;
     const email = targetEmail || getTargetEmail();
     const currentClientId = getClientId();
+    const isAccessDenied = errorReason === 'access_denied' || String(errorReason || '').toLowerCase().includes('access_denied');
+
+    const errorTitle = isAccessDenied
+      ? `Google OAuth 403: Access Denied for ${App.utils.escapeHtml(email)}`
+      : `Origin Mismatch for Domain: ${App.utils.escapeHtml(origin)}`;
+
+    const errorExplanation = isAccessDenied
+      ? `Google Cloud project <code>${App.utils.escapeHtml(currentClientId.slice(0, 24))}...</code> is in <em>Testing</em> mode. Google's policy requires <code>${App.utils.escapeHtml(email)}</code> to be added under <strong>"OAuth consent screen &rarr; Test users"</strong> in Google Cloud Console.`
+      : `Google's OAuth 2.0 policy requires this website domain (<code>${App.utils.escapeHtml(origin)}</code>) to be added under <em>"Authorized JavaScript origins"</em> in Google Cloud Console for client ID <code>${App.utils.escapeHtml(currentClientId.slice(0, 24))}...</code>.`;
 
     if (App.ui && App.ui.open) {
       App.ui.open({
-        title: 'Google OAuth Domain Authorization Note',
+        title: isAccessDenied ? 'Google Account Access Authorization Note' : 'Google OAuth Domain Authorization Note',
         bodyHtml: `
           <div style="font-size:13px;line-height:1.55;color:var(--text);display:flex;flex-direction:column;gap:12px">
             <div style="background:rgba(229,72,77,0.1);border:1px solid rgba(229,72,77,0.3);border-radius:8px;padding:12px 14px">
               <div style="font-weight:700;color:var(--red,#e5484d);font-size:13.5px;margin-bottom:4px">
-                Origin Mismatch for Domain: <code>${App.utils.escapeHtml(origin)}</code>
+                ${errorTitle}
               </div>
               <div style="font-size:12px;color:var(--text2)">
-                Google's OAuth 2.0 policy requires this website domain (<code>${App.utils.escapeHtml(origin)}</code>) to be added under 
-                <em>"Authorized JavaScript origins"</em> in Google Cloud Console for client ID <code>${App.utils.escapeHtml(currentClientId.slice(0, 24))}...</code>.
+                ${errorExplanation}
               </div>
             </div>
 
             <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px">
-              <div style="font-weight:700;color:var(--gold);margin-bottom:6px">⚡ Instant Zero-Error Solutions (Works on ANY Domain & Browser):</div>
+              <div style="font-weight:700;color:var(--gold);margin-bottom:6px">⚡ Instant Zero-Error Solution (Works Immediately Without Google Setup):</div>
               <ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text);display:flex;flex-direction:column;gap:6px">
                 <li>
                   <strong>1-Click Multi-Tab Google Sheets (.xlsx):</strong> Generates the full 14-tab portfolio spreadsheet immediately in your browser for <strong>${App.utils.escapeHtml(email)}</strong>. No Google Cloud permissions needed!
@@ -87,20 +95,7 @@ App.googleSheetsSync = (function () {
                 <li>
                   <strong>Complete Portfolio Backup (ZIP):</strong> Full archive containing all database tables as JSON, CSVs, uploaded documents, and SHA-256 verification hash.
                 </li>
-                <li>
-                  <strong>Custom OAuth Client ID:</strong> If you prefer direct Drive sync on <code>${App.utils.escapeHtml(origin)}</code>, you can supply your own Google Cloud Client ID below.
-                </li>
               </ul>
-            </div>
-
-            <div style="margin-top:4px">
-              <label style="display:block;font-size:11.5px;font-weight:700;color:var(--text2);margin-bottom:4px">
-                Custom Google Cloud Client ID (Optional for ${App.utils.escapeHtml(origin)}):
-              </label>
-              <div style="display:flex;gap:6px">
-                <input type="text" id="dlgCustomClientIdInput" class="form-input" style="flex:1;font-size:11.5px;font-family:monospace" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" value="${currentClientId !== DEFAULT_CLIENT_ID ? App.utils.escapeHtml(currentClientId) : ''}">
-                <button type="button" id="dlgBtnSaveClientId" class="btn btn-sm btn-outline">Save</button>
-              </div>
             </div>
           </div>
         `,
@@ -170,12 +165,26 @@ App.googleSheetsSync = (function () {
       scope: REQUIRED_SCOPES,
       callback: (response) => {
         if (response.error) {
-          console.error('[GoogleSheets] Token error:', response);
-          const errObj = new Error(response.error_description || response.error);
-          errObj.code = response.error;
-          if (response.error === 'origin_mismatch' || String(response.error).includes('origin')) {
-            showOriginMismatchDialog(email);
+          const errCode = response.error;
+          const errDesc = response.error_description || errCode;
+          const isOrigin = errCode === 'origin_mismatch' || String(errDesc).toLowerCase().includes('origin');
+          const isAccessDenied = errCode === 'access_denied' || String(errDesc).toLowerCase().includes('access_denied');
+          const isClosed = String(errDesc).toLowerCase().includes('closed') || errCode === 'popup_closed';
+
+          if (isOrigin || isAccessDenied) {
+            console.warn('[GoogleSheets] Google OAuth rejected auth:', errCode, errDesc);
+            showOriginMismatchDialog(email, isAccessDenied ? 'access_denied' : 'origin_mismatch');
+          } else if (isClosed) {
+            console.info('[GoogleSheets] Google sign-in window closed.');
+          } else {
+            console.warn('[GoogleSheets] Token response notice:', errCode, errDesc);
           }
+
+          const errObj = new Error(errDesc || errCode);
+          errObj.code = errCode;
+          errObj.isDismissed = isClosed;
+          errObj.isOriginMismatch = isOrigin;
+          errObj.isAccessDenied = isAccessDenied;
           if (onError) onError(errObj);
           return;
         }
@@ -185,11 +194,24 @@ App.googleSheetsSync = (function () {
         if (onSuccess) onSuccess(cachedAccessToken);
       },
       error_callback: (err) => {
-        console.error('[GoogleSheets] Token client error callback:', err);
-        const errObj = new Error(err.message || err.type || 'Google OAuth failed');
-        if (err.type === 'origin_mismatch' || String(err.message || '').includes('origin')) {
-          showOriginMismatchDialog(email);
+        const msg = String(err?.message || err?.type || err || '');
+        const isClosed = msg.toLowerCase().includes('closed') || err?.type === 'popup_closed' || err?.type === 'popup_blocked_by_browser';
+        const isOrigin = err?.type === 'origin_mismatch' || msg.toLowerCase().includes('origin');
+        const isAccessDenied = msg.toLowerCase().includes('access_denied') || err?.type === 'access_denied';
+
+        if (isOrigin || isAccessDenied) {
+          console.warn('[GoogleSheets] Google OAuth rejected:', msg);
+          showOriginMismatchDialog(email, isAccessDenied ? 'access_denied' : 'origin_mismatch');
+        } else if (isClosed) {
+          console.info('[GoogleSheets] Google OAuth popup was closed or dismissed.');
+        } else {
+          console.warn('[GoogleSheets] Token client notice:', msg);
         }
+
+        const errObj = new Error(msg || 'Google sign-in was not completed');
+        errObj.isDismissed = isClosed;
+        errObj.isOriginMismatch = isOrigin;
+        errObj.isAccessDenied = isAccessDenied;
         if (onError) onError(errObj);
       }
     };
