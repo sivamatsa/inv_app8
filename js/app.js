@@ -1,0 +1,962 @@
+/* Bootstraps auth, sidebar nav, and the router. Loaded last, after every
+   view module has registered itself with App.router. */
+window.App = window.App || {};
+
+const NAV_STRUCTURE = [
+  { group: 'Overview', items: [
+    { key: 'dashboard', label: 'Dashboard', icon: '&#9670;' },
+  ] },
+  { group: 'Vault & Portals', items: [
+    { key: 'vault', label: 'Website Vault', icon: '&#128272;' },
+  ] },
+  { group: 'Financial Engine', items: [
+    { key: 'deals', label: 'Deals', icon: '&#128188;' },
+    { key: 'payments', label: 'Payments', icon: '&#128179;' },
+    { key: 'calendar', label: 'Calendar', icon: '&#128197;' },
+  ] },
+  { group: 'Recurring', items: [
+    { key: 'recurring', label: 'Recurring Investments', icon: '&#128257;' },
+  ] },
+  { group: 'Gold', items: [
+    { key: 'gold', label: 'Gold Intelligence', icon: '&#129689;' },
+  ] },
+  { group: 'Expenses', items: [
+    { key: 'expenses', label: 'Expenses & Projects', icon: '&#128184;' },
+  ] },
+  { group: 'Contacts & Chat', items: [
+    { key: 'contacts', label: 'Contacts', icon: '&#128101;' },
+    { key: 'chat', label: 'Chat', icon: '&#128488;' },
+  ] },
+  { group: 'Planning', items: [
+    { key: 'maturity', label: 'Maturity Planner', icon: '&#8987;' },
+    { key: 'reinvestments', label: 'Reinvestments', icon: '&#128260;' },
+    { key: 'goals', label: 'Goals', icon: '&#127919;' },
+    { key: 'whatif', label: 'What-If & Compare', icon: '&#128202;' },
+  ] },
+  { group: 'Insights', items: [
+    { key: 'networth', label: 'Net Worth', icon: '&#128181;' },
+    { key: 'cashflow', label: 'Cash Flow', icon: '&#128260;' },
+    { key: 'reconciliation', label: 'Reconciliation Center', icon: '&#9989;' },
+    { key: 'automation', label: 'Automation Center', icon: '&#9881;' },
+    { key: 'aicopilot', label: 'AI Portfolio Copilot', icon: '&#129504;' },
+    { key: 'analytics', label: 'Analytics', icon: '&#128200;' },
+    { key: 'earnings', label: 'Earnings', icon: '&#128176;' },
+    { key: 'risk', label: 'Risk Analysis', icon: '&#9888;' },
+    { key: 'reports', label: 'Reports (Tax / FY)', icon: '&#128203;' },
+  ] },
+  { group: 'Records', items: [
+    { key: 'import', label: 'Import', icon: '&#128228;' },
+    { key: 'documents', label: 'Documents', icon: '&#128193;' },
+    { key: 'backup', label: 'Backup & Cloud Sync', icon: '&#128190;' },
+  ] },
+  { group: 'Personal', items: [
+    { key: 'notes', label: 'Notes', icon: '&#128221;' },
+    { key: 'calculator', label: 'Calculators', icon: '&#128202;' },
+  ] },
+  { group: 'Community', items: [
+    { key: 'community', label: 'Community', icon: '&#128172;' },
+    { key: 'support', label: 'Help & Support', icon: '&#129302;' },
+    { key: 'blog', label: 'Blog', icon: '&#128220;' },
+  ] },
+  { group: 'Account', items: [
+    { key: 'settings', label: 'Settings', icon: '&#9881;' },
+  ] },
+];
+
+// Explicit App.* export, not just the bare top-level const above - settings.js
+// (Customize Sidebar panel) needs to read the full leaf-item list to build
+// its reorder/hide UI, and it's loaded as a separate <script> tag BEFORE
+// app.js in index.html. A bare top-level `const` is still technically
+// visible across non-module <script> tags sharing one global scope by the
+// time a later function actually runs, but that's a fragile thing to rely
+// on implicitly - this makes the dependency explicit and unambiguous.
+App.NAV_STRUCTURE = NAV_STRUCTURE;
+
+function currentNavStructure() {
+  // Admin & Developer is only added to the nav when the signed-in profile is an
+  // admin or developer, AND the app is NOT running in Demo Mode.
+  const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
+  const isAdminOrDev = !isDemo && App.utils.isAdminOrDev(App.state.profile);
+  let structure = NAV_STRUCTURE;
+  if (App.state.sharedWithMeCount > 0) {
+    structure = structure.concat([{ group: 'Shared', items: [{ key: 'sharedWithMe', label: 'Shared With Me', icon: '&#128101;' }] }]);
+  }
+  if (isAdminOrDev) {
+    const isDev = App.utils.isDeveloper(App.state.profile);
+    structure = structure.concat([{
+      group: 'Admin & Dev',
+      items: [{
+        key: 'admin',
+        label: isDev ? 'Admin & Developer' : 'Admin & Developer',
+        icon: '&#128081;'
+      }]
+    }]);
+  }
+  return structure;
+}
+
+// Tracks the last set of pane keys #viewContainer was built from, so
+// renderSidebar() only wipes it when the set genuinely needs to change.
+let lastPaneKeys = null;
+
+// Reorders (within a group) and hides individual leaf nav items per the
+// signed-in user's own saved preference (profiles.ui_preferences,
+// 032_ui_and_notification_preferences.sql) - display-only. This must NEVER
+// be applied to the pane-building side of renderSidebar() below: every
+// view's pane has to stay reachable by hash regardless of what's hidden
+// here, or a deep link (a notification click-through, a bookmark) into a
+// hidden section hits a pane that was never built and throws. Groups
+// themselves are never reordered or hidden - only their leaf items.
+function applySidebarPrefs(structure, prefs) {
+  prefs = prefs || {};
+  const order = prefs.sidebarOrder || {};
+  const hidden = new Set(prefs.sidebarHidden || []);
+  return structure
+    .map((g) => {
+      let items = g.items.filter((it) => !hidden.has(it.key));
+      const groupOrder = order[g.group];
+      if (groupOrder && groupOrder.length) {
+        const idx = new Map(groupOrder.map((k, i) => [k, i]));
+        items = items.slice().sort((a, b) => (idx.has(a.key) ? idx.get(a.key) : 999) - (idx.has(b.key) ? idx.get(b.key) : 999));
+      }
+      return { group: g.group, items };
+    })
+    .filter((g) => g.items.length);
+}
+
+function closeMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  const backdrop = App.utils.qs('#sidebarBackdrop');
+  if (sidebar) sidebar.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+  document.body.classList.remove('mobile-drawer-open');
+}
+
+function openMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  const backdrop = App.utils.qs('#sidebarBackdrop');
+  if (sidebar) sidebar.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+  document.body.classList.add('mobile-drawer-open');
+}
+
+function toggleMobileSidebar() {
+  const sidebar = App.utils.qs('#appSidebar') || App.utils.qs('.sidebar');
+  if (sidebar && sidebar.classList.contains('open')) {
+    closeMobileSidebar();
+  } else {
+    openMobileSidebar();
+  }
+}
+
+App.closeMobileSidebar = closeMobileSidebar;
+App.openMobileSidebar = openMobileSidebar;
+App.toggleMobileSidebar = toggleMobileSidebar;
+
+  function renderSidebar() {
+  const structure = currentNavStructure();
+  const prefs = App.state.profile && App.state.profile.ui_preferences;
+  const displayStructure = applySidebarPrefs(structure, prefs);
+  const nav = App.utils.qs('#sidebarNav');
+  const activeKey = App.router.currentName();
+  const savedMode = localStorage.getItem('ios_desktop_sidebar_mode') || (prefs && prefs.sidebarCompact ? 'compact' : 'expanded');
+  const isCompact = savedMode === 'compact';
+  const isHidden = savedMode === 'hidden';
+
+  if (window.innerWidth > 900) {
+    document.body.classList.toggle('sidebar-compact', isCompact);
+    document.body.classList.toggle('sidebar-hidden', isHidden);
+    if (nav) nav.classList.toggle('compact', isCompact);
+  }
+  nav.innerHTML = displayStructure.map((g) => `
+    <div class="nav-group-label">${g.group}</div>
+    ${g.items.map((it) => `
+      <div class="nav-link${it.key === activeKey ? ' active' : ''}" data-nav="${it.key}" data-label="${it.label}" title="${it.label}">
+        <span class="ic">${it.icon}</span><span class="nav-label-text">${it.label}</span><span class="nav-badge" id="badge-${it.key}" style="display:none"></span>
+      </div>`).join('')}
+  `).join('');
+  App.utils.qsa('.nav-link', nav).forEach((link) => {
+    link.addEventListener('click', () => {
+      App.router.navigate(link.dataset.nav);
+      closeMobileSidebar();
+    });
+  });
+
+  // enterApp() calls this every time App.auth's onAuthStateChange fires -
+  // not just at sign-in, but on an extra INITIAL_SESSION event and on
+  // every periodic TOKEN_REFRESHED for a long-lived session (visible in
+  // practice as: switch tabs, minimize the window, come back). Rebuilding
+  // #viewContainer unconditionally on every one of those re-fires wiped
+  // whatever view was currently showing back to an empty pane - a real,
+  // reported "blank/black screen" bug. Only rebuild it when the actual
+  // SET of panes needs to change (admin/Shared With Me visibility
+  // toggling, or the very first render); otherwise leave existing panes
+  // and their already-rendered content alone entirely.
+  const paneKeys = structure.flatMap((g) => g.items).map((it) => it.key).join(',');
+  if (paneKeys === lastPaneKeys) return;
+  lastPaneKeys = paneKeys;
+  App.utils.qs('#viewContainer').innerHTML = structure.flatMap((g) => g.items).map((it) =>
+    `<div class="view-pane" data-view="${it.key}" id="pane-${it.key}"></div>`).join('');
+  // The pane that was showing just got wiped back to empty - on the very
+  // first call there's nothing showing yet (App.router.init(), called
+  // right after this, handles that first render itself); on a later
+  // structural change, whatever was showing needs to be redrawn into its
+  // fresh pane.
+  if (activeKey) App.router.refreshCurrent();
+}
+App.renderSidebar = renderSidebar; // called from settings.js after a Customize Sidebar change
+
+// Admin's own notification bell defaults to admin's own notifications only
+// (App.api.listNotifications self-scopes 'notifications' for every caller
+// now, admin included - see api.js's SELF_SCOPED_TABLES). This toggle is
+// the deliberate, admin-only opt-in to also pull every other user's
+// notifications into the same bell/panel - a per-browser display
+// preference (like dark mode), not a security setting, since RLS already
+// allows admin to read them either way.
+const ADMIN_NOTIF_PREF_KEY = 'admin_show_all_notifications';
+function adminShowsAllNotifications() {
+  return App.state.profile && App.state.profile.is_admin && localStorage.getItem(ADMIN_NOTIF_PREF_KEY) === 'true';
+}
+
+// Do Not Disturb (020_notification_snooze.sql) - a display-layer mute only.
+// Every notification still gets generated and inserted server-side exactly
+// as before; this just decides whether the badge count and realtime toast
+// show up while snoozed_until is in the future. Cached here (refreshed each
+// time refreshNotificationBadge runs, on the same 60s poll/realtime-event
+// cadence it already uses) so the realtime toast callback below doesn't
+// need its own extra round-trip just to check snooze state.
+let notificationsSnoozed = false;
+
+async function refreshNotificationBadge() {
+  try {
+    const prefs = await App.api.getPreferences();
+    notificationsSnoozed = !!(prefs && prefs.snoozed_until && new Date(prefs.snoozed_until) > new Date());
+    if (App.state) App.state.notificationsSnoozed = notificationsSnoozed;
+    const scope = adminShowsAllNotifications() ? { allUsers: true } : {};
+    const allUnread = notificationsSnoozed ? [] : await App.api.listNotifications(Object.assign({ eq: { status: 'Pending' } }, scope));
+    const unread = allUnread.filter((n) => App.notifPrefs.isEnabled(n.type, 'in_app'));
+    ['badge-dashboard', 'bellBadge'].forEach((id) => {
+      const el = App.utils.qs('#' + id);
+      if (!el) return;
+      if (unread.length) { el.style.display = 'inline-block'; el.textContent = unread.length > 99 ? '99+' : unread.length; }
+      else el.style.display = 'none';
+    });
+
+    // Automatically trigger push delivery if there are active notifications and push is enabled
+    if (!notificationsSnoozed && prefs && prefs.push_enabled && App.push && typeof App.push.triggerAutoPush === 'function') {
+      App.push.triggerAutoPush(800);
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+/* Notification center (spec Section 11) - a bell in the topbar rather than
+   its own nav item, since it's a cross-cutting inbox, not a distinct
+   feature area with its own filters/charts. */
+async function openNotificationPanel() {
+  const isAdmin = App.state.profile && App.state.profile.is_admin;
+  const scope = adminShowsAllNotifications() ? { allUsers: true } : {};
+  const allNotifications = await App.api.listNotifications(Object.assign({ limit: 100 }, scope));
+  const notifications = allNotifications.filter((n) => App.notifPrefs.isEnabled(n.type, 'in_app'));
+  const rowHtml = (n) => `
+    <div class="risk-item" style="${n.read_at ? 'opacity:.5' : ''}">
+      <div class="risk-dot" style="background:${n.priority === 'Urgent' || n.priority === 'High' ? 'var(--red)' : n.priority === 'Medium' ? 'var(--gold)' : 'var(--blue)'}"></div>
+      <div style="flex:1"><div class="risk-name">${App.utils.escapeHtml(n.title)}</div><div class="risk-desc">${App.utils.escapeHtml(n.message)}</div>
+        <div class="risk-desc" style="margin-top:2px">${App.utils.fmtDateTime(n.scheduled_at)}</div></div>
+      ${n.read_at ? '' : `<button class="icon-btn" data-mark-read="${n.id}" title="Mark read">&#10003;</button>`}
+    </div>`;
+  App.ui.open({
+    title: 'Notifications',
+    bodyHtml: `
+      ${notificationsSnoozed ? `<div class="hint" style="color:var(--gold);margin-bottom:10px">Do Not Disturb is on - the bell and toast pop-ups are silenced, but everything below is still real and up to date. Turn it off in Settings.</div>` : ''}
+      ${isAdmin ? `<label class="hint" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;cursor:pointer">
+        <input type="checkbox" id="adminAllNotifsToggle" ${adminShowsAllNotifications() ? 'checked' : ''}>
+        Also show other users' notifications here (admin only - off by default so your own deal/recurring alerts don't get lost in everyone else's)
+      </label>` : ''}
+      <div style="max-height:60vh;overflow:auto">${notifications.map(rowHtml).join('') || '<div class="empty-note">No notifications yet.</div>'}</div>`,
+    actions: [
+      { label: 'Mark All Read', className: 'btn-outline', onClick: async () => { await App.api.markAllNotificationsRead(); App.ui.close(); refreshNotificationBadge(); } },
+      { label: 'Close', className: 'btn-gold', onClick: App.ui.close },
+    ],
+    onMount: (body) => {
+      App.utils.qsa('[data-mark-read]', body).forEach((b) => b.addEventListener('click', async () => {
+        await App.api.markNotificationRead(Number(b.dataset.markRead));
+        refreshNotificationBadge();
+        openNotificationPanel();
+      }));
+      const toggle = App.utils.qs('#adminAllNotifsToggle', body);
+      if (toggle) toggle.addEventListener('change', () => {
+        localStorage.setItem(ADMIN_NOTIF_PREF_KEY, toggle.checked ? 'true' : 'false');
+        refreshNotificationBadge();
+        openNotificationPanel();
+      });
+    },
+  });
+}
+
+let notificationChannel = null;
+let portfolioChannel = null;
+
+// One-time consent prompt for login/traffic analytics (admin-only visibility,
+// 027_login_analytics.sql). Declining is fully respected - see log-login's
+// own header comment for the exact scope decision (no IP/device/location
+// on a decline, ever, contrary to how this was originally requested).
+function showAnalyticsConsentModal() {
+  App.ui.open({
+    title: 'Sign-in Activity',
+    bodyHtml: `<div class="hint">This app can log basic sign-in activity - approximate location (from your IP) and device/browser type - visible only to the admin, to understand who's using the app and from where. Declining still logs that a sign-in happened (so "logins today" stays accurate for admin), but never your IP, location, or device. You can change this later in Settings.</div>`,
+    actions: [
+      { label: 'Allow', className: 'btn-gold', onClick: async () => {
+        try { await App.api.updateProfile({ analytics_consent: true }); App.state.profile.analytics_consent = true; await App.api.logLogin(true); } catch (e) { console.warn('logLogin failed - is the log-login Edge Function deployed?', e); }
+        App.ui.close();
+      } },
+      { label: 'Decline', className: 'btn-outline', onClick: async () => {
+        try { await App.api.updateProfile({ analytics_consent: false }); App.state.profile.analytics_consent = false; await App.api.logLogin(false); } catch (e) { console.warn('logLogin failed - is the log-login Edge Function deployed?', e); }
+        App.ui.close();
+      } },
+    ],
+  });
+}
+
+function updateTopBarUserInfo() {
+  const isDemo = App.auth && App.auth.isDemoMode && App.auth.isDemoMode();
+  const isBackup = App.auth && App.auth.isBackupMode && App.auth.isBackupMode();
+  const user = App.auth ? App.auth.getUser() : null;
+  const profile = (App.state && App.state.profile) || {};
+
+  let fullEmail = (user && user.email) || (profile && profile.email) || '';
+  let displayName = '';
+
+  if (isDemo) {
+    displayName = 'Demo User';
+  } else if (profile.full_name && profile.full_name.trim()) {
+    const parts = profile.full_name.trim().split(/\s+/);
+    displayName = parts[0]; // First name
+  } else if (profile.username && profile.username.trim()) {
+    displayName = profile.username.trim();
+  } else if (fullEmail) {
+    const raw = fullEmail.split('@')[0];
+    displayName = raw.charAt(0).toUpperCase() + raw.slice(1);
+  } else {
+    displayName = 'Investor';
+  }
+
+  const initial = (displayName.charAt(0) || 'U').toUpperCase();
+
+  const userChipEmail = App.utils.qs('#userChipEmail');
+  if (userChipEmail) {
+    userChipEmail.textContent = isDemo ? 'Demo Mode' : (fullEmail + (isBackup ? ' (Backup)' : ''));
+  }
+
+  const signOutBtn = App.utils.qs('#signOutBtn');
+  if (signOutBtn) {
+    const fullNameDisplay = profile.full_name || displayName;
+    const tooltip = isDemo
+      ? 'Demo Mode • Click to Exit Demo'
+      : `Logged in as ${fullNameDisplay}${fullEmail ? ' (' + fullEmail + ')' : ''} • Click to Sign Out`;
+    signOutBtn.setAttribute('title', tooltip);
+    signOutBtn.setAttribute('aria-label', tooltip);
+
+    signOutBtn.innerHTML = `
+      <span class="user-avatar-badge">${App.utils.escapeHtml(initial)}</span>
+      <span class="signout-logged-prefix">Logged as</span>
+      <span class="signout-user-name">${App.utils.escapeHtml(displayName)}</span>
+      <span class="signout-ic" title="${isDemo ? 'Exit Demo' : 'Sign Out'}">&#10132;</span>
+    `;
+  }
+}
+App.updateTopBarUserInfo = updateTopBarUserInfo;
+
+async function enterApp() {
+  App.utils.qs('#authScreen').style.display = 'none';
+  App.utils.qs('#appShell').classList.add('active');
+  const user = App.auth.getUser();
+  const isDemo = App.auth.isDemoMode();
+  updateTopBarUserInfo();
+  App.utils.qs('#demoBanner').style.display = isDemo ? 'flex' : 'none';
+  try {
+    await App.lookups.loadAll();
+    updateTopBarUserInfo();
+    if (!isDemo && App.state.profile && App.state.profile.is_active === false) {
+      App.utils.toast('This account has been deactivated. Please contact your portfolio administrator.', 'err');
+      App.auth.signOut();
+      return;
+    }
+  } catch (e) {
+    App.utils.toast('Could not load account data: ' + (e.message || e), 'err');
+  }
+  renderSidebar();
+  App.router.init();
+  refreshNotificationBadge();
+  setInterval(refreshNotificationBadge, 60000);
+
+  // Login and visit analytics (027 & 040) - captures user device, location,
+  // browser, OS, and visit timestamp for admin insights.
+  if (!isDemo && App.state.profile) {
+    App.api.logLogin().catch((e) => console.warn('Login analytics notice:', e));
+    if (App.push && typeof App.push.triggerAutoPush === 'function') {
+      App.push.triggerAutoPush(1200);
+    }
+  }
+
+  // Realtime push (Supabase Postgres Changes, RLS-scoped to this user - see
+  // 014_community_notes_tickets.sql) rather than waiting for the 60s poll
+  // above to notice a new row. The poll stays as a backstop in case a
+  // websocket drops silently.
+  if (notificationChannel) { App.api.unsubscribe(notificationChannel); notificationChannel = null; }
+  try {
+    notificationChannel = App.api.subscribeToNotifications(async (row) => {
+      await refreshNotificationBadge(); // also refreshes the cached snooze state used right below
+      if (notificationsSnoozed) return;
+
+      // 1. In-app UI Toast
+      if (App.notifPrefs.isEnabled(row.type, 'in_app')) {
+        App.utils.toast(row.title, row.priority === 'Urgent' || row.priority === 'High' ? 'err' : 'info');
+      }
+
+      // 2. Native OS / Browser Push Notification on this device
+      if (App.notifPrefs.isEnabled(row.type, 'push') && App.push && typeof App.push.showNotification === 'function') {
+        App.push.showNotification(row);
+      }
+
+      // 3. Automatic remote push delivery to all registered user devices via Web Push
+      if (App.push && typeof App.push.triggerAutoPush === 'function') {
+        App.push.triggerAutoPush(300);
+      }
+    });
+  } catch (e) { /* realtime is a nice-to-have; polling above still works without it */ }
+
+  // Incoming-call listener (Contacts/Chat/Calling module) - same
+  // realtime-on-INSERT idiom as notifications above.
+  try { App.callingView.listenForIncomingCalls(); } catch (e) { /* calling is best-effort; app works without it */ }
+
+  // Live Cross-Device Portfolio Sync - a change to deals/payment_schedule/
+  // payments/recurring_items/recurring_occurrences/gold_purchases/
+  // expense_transactions from ANY session (this one or another device/tab)
+  // soft-refreshes whatever view is currently open. The toast is skipped
+  // for this session's own recent writes (isEcho, see api.js's
+  // isRecentLocalWrite()) so saving a change doesn't show its own toast a
+  // second time as if it happened elsewhere - the refresh itself always
+  // runs regardless, since a redundant refresh is harmless.
+  if (portfolioChannel) { App.api.unsubscribe(portfolioChannel); portfolioChannel = null; }
+  try {
+    portfolioChannel = App.api.subscribeToPortfolioChanges(({ isEcho }) => {
+      App.router.refreshCurrent();
+      if (!isEcho) App.utils.toast('Your data was updated elsewhere', 'info');
+    });
+  } catch (e) { /* realtime is a nice-to-have; the app works fine without cross-device sync */ }
+
+  // Check and commit any pending shared link stashed while unauthenticated
+  if (App.shareTarget && typeof App.shareTarget.handlePendingShare === 'function') {
+    App.shareTarget.handlePendingShare().catch((e) => console.warn('[ShareTarget] Pending commit notice:', e));
+  }
+}
+
+function showAuthScreen() {
+  if (notificationChannel) { App.api.unsubscribe(notificationChannel); notificationChannel = null; }
+  if (portfolioChannel) { App.api.unsubscribe(portfolioChannel); portfolioChannel = null; }
+  if (App.callingView) App.callingView.stopListening();
+  App.utils.qs('#appShell').classList.remove('active');
+  App.utils.qs('#authScreen').style.display = 'flex';
+  const formsPane = App.utils.qs('#authFormsPane');
+  if (formsPane) formsPane.style.display = 'block';
+  const passPane = App.utils.qs('#setNewPasswordPane');
+  if (passPane) passPane.style.display = 'none';
+
+  // Render pending share status notice if a link was shared while unauthenticated
+  if (App.shareTarget && typeof App.shareTarget.renderPendingNoticeOnAuth === 'function') {
+    App.shareTarget.renderPendingNoticeOnAuth();
+  }
+
+  // Check if a registered user with Biometrics or PIN is remembered on this device
+  const quickUnlockWrap = App.utils.qs('#authQuickUnlockWrap');
+  if (quickUnlockWrap && App.security) {
+    const lastUser = App.security.getLastRegisteredUser ? App.security.getLastRegisteredUser() : null;
+    const bioEnabled = lastUser && App.biometrics && App.biometrics.isEnabled && App.biometrics.isEnabled(lastUser.id);
+    const pinEnabled = lastUser && App.security.isPinEnabled && App.security.isPinEnabled(lastUser.id);
+
+    if (lastUser && (bioEnabled || pinEnabled)) {
+      quickUnlockWrap.style.display = 'block';
+      quickUnlockWrap.innerHTML = `
+        <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.3);border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:11px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">⚡ Quick Device Unlock</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
+            <span>👤</span>
+            <span>${App.utils.escapeHtml(lastUser.email)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${bioEnabled ? `<button class="btn btn-gold" id="btnQuickAuthBio" style="width:100%;justify-content:center;padding:10px;font-size:13px;font-weight:700">👆 Unlock with Face ID / Fingerprint</button>` : ''}
+            ${pinEnabled ? `<button class="btn ${bioEnabled ? 'btn-outline' : 'btn-gold'}" id="btnQuickAuthPin" style="width:100%;justify-content:center;padding:9px;font-size:12.5px;font-weight:600">🔢 Unlock with 4-Digit PIN</button>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px">No password required on this registered device.</div>
+        </div>
+      `;
+
+      quickUnlockWrap.querySelector('#btnQuickAuthBio')?.addEventListener('click', () => {
+        App.security.tryEnterProtectedApp(
+          lastUser,
+          async () => {
+            if (App.auth && App.auth.restoreQuickAuthSession) {
+              await App.auth.restoreQuickAuthSession(lastUser);
+            }
+            enterApp();
+          },
+          () => { App.utils.toast('Biometric verification cancelled.'); }
+        );
+      });
+
+      quickUnlockWrap.querySelector('#btnQuickAuthPin')?.addEventListener('click', () => {
+        App.security.openPinUnlockModal(
+          lastUser,
+          async () => {
+            App.security.markUnlocked();
+            if (App.auth && App.auth.restoreQuickAuthSession) {
+              await App.auth.restoreQuickAuthSession(lastUser);
+            }
+            enterApp();
+          },
+          () => {
+            switchAuthTab('signin');
+            if (App.utils.qs('#signInEmail')) App.utils.qs('#signInEmail').value = lastUser.email;
+          },
+          bioEnabled ? () => {
+            App.security.tryEnterProtectedApp(lastUser, async () => {
+              if (App.auth && App.auth.restoreQuickAuthSession) {
+                await App.auth.restoreQuickAuthSession(lastUser);
+              }
+              enterApp();
+            });
+          } : null
+        );
+      });
+
+      // Pre-fill email in sign-in form for convenience
+      if (App.utils.qs('#signInEmail') && !App.utils.qs('#signInEmail').value) {
+        App.utils.qs('#signInEmail').value = lastUser.email;
+      }
+    } else {
+      quickUnlockWrap.style.display = 'none';
+      quickUnlockWrap.innerHTML = '';
+    }
+  }
+}
+
+function showSetNewPasswordScreen() {
+  App.utils.qs('#appShell').classList.remove('active');
+  App.utils.qs('#authScreen').style.display = 'flex';
+  const formsPane = App.utils.qs('#authFormsPane');
+  if (formsPane) formsPane.style.display = 'none';
+  const passPane = App.utils.qs('#setNewPasswordPane');
+  if (passPane) passPane.style.display = 'block';
+}
+
+function wireAuthScreen() {
+  const formsPane = App.utils.qs('#authFormsPane');
+
+  function refreshSetupVisibility() {
+    if (formsPane) formsPane.style.display = 'block';
+    if (App.auth.isConfigured()) App.auth.init();
+  }
+
+  App.utils.qs('#authTabSignIn')?.addEventListener('click', () => switchAuthTab('signin'));
+  App.utils.qs('#authTabSignUp')?.addEventListener('click', () => switchAuthTab('signup'));
+  App.utils.qs('#tryDemoBtn')?.addEventListener('click', () => App.auth.enterDemoMode());
+
+  function switchAuthTab(tab) {
+    App.utils.qs('#authTabSignIn')?.classList.toggle('active', tab === 'signin');
+    App.utils.qs('#authTabSignUp')?.classList.toggle('active', tab === 'signup');
+    const signInForm = App.utils.qs('#signInForm');
+    const signUpForm = App.utils.qs('#signUpForm');
+    if (signInForm) signInForm.style.display = tab === 'signin' ? 'block' : 'none';
+    if (signUpForm) signUpForm.style.display = tab === 'signup' ? 'block' : 'none';
+    const signInErr = App.utils.qs('#signInError');
+    const signUpErr = App.utils.qs('#signUpError');
+    if (signInErr) signInErr.textContent = '';
+    if (signUpErr) signUpErr.textContent = '';
+  }
+
+  async function handleSignIn() {
+    const emailInput = App.utils.qs('#signInEmail');
+    const passwordInput = App.utils.qs('#signInPassword');
+    const btn = App.utils.qs('#signInBtn');
+    const errEl = App.utils.qs('#signInError');
+    if (!emailInput || !passwordInput || !btn || !errEl) return;
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    errEl.textContent = '';
+
+    if (!email) {
+      errEl.textContent = 'Please enter your email address.';
+      emailInput.focus();
+      return;
+    }
+    if (!password) {
+      errEl.textContent = 'Please enter your password.';
+      passwordInput.focus();
+      return;
+    }
+
+    const origBtnText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Signing in...';
+
+    try {
+      const res = await App.auth.signIn(email, password);
+      const user = (res && res.user) || (res && res.data && res.data.user) || App.auth.getUser() || { email, id: email };
+      if (res && (res.user || res.data || App.auth.getUser())) {
+        try {
+          localStorage.setItem('ios_last_auth_cred', JSON.stringify({ email, password, timestamp: Date.now() }));
+        } catch (_) {}
+        if (App.security) {
+          if (App.security.markUnlocked) App.security.markUnlocked();
+          if (App.security.saveLastRegisteredUser) App.security.saveLastRegisteredUser(user);
+        }
+        App.utils.toast('Signed in successfully', 'ok');
+        await enterApp();
+      }
+    } catch (e) {
+      console.warn('Sign in error:', e);
+      errEl.style.color = 'var(--red, #e74c3c)';
+      errEl.textContent = e.message || 'Could not sign in with these credentials.';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+
+  async function handleSignUp() {
+    const nameInput = App.utils.qs('#signUpName');
+    const emailInput = App.utils.qs('#signUpEmail');
+    const passwordInput = App.utils.qs('#signUpPassword');
+    const btn = App.utils.qs('#signUpBtn');
+    const errEl = App.utils.qs('#signUpError');
+    if (!emailInput || !passwordInput || !btn || !errEl) return;
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const name = (nameInput?.value || '').trim();
+    errEl.textContent = '';
+
+    if (!email) {
+      errEl.textContent = 'Please enter your email address.';
+      emailInput.focus();
+      return;
+    }
+    if (password.length < 6) {
+      errEl.textContent = 'Password must be at least 6 characters.';
+      passwordInput.focus();
+      return;
+    }
+
+    const origBtnText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Creating account...';
+
+    try {
+      const res = await App.auth.signUp(email, password, name);
+      const user = (res && res.user) || (res && res.session && res.session.user) || App.auth.getUser() || { email, id: email, user_metadata: { full_name: name } };
+      if (App.security) {
+        if (App.security.markUnlocked) App.security.markUnlocked();
+        if (App.security.saveLastRegisteredUser) App.security.saveLastRegisteredUser(user);
+      }
+      if (res && res.isBackupMode) {
+        App.utils.toast('Account created and signed in!', 'ok');
+        await enterApp();
+      } else if (res && res.session) {
+        App.utils.toast('Account created and signed in successfully!', 'ok');
+        await enterApp();
+      } else {
+        App.utils.toast('Account registered! Signing you in...', 'ok');
+        try {
+          await App.auth.signIn(email, password);
+          await enterApp();
+        } catch (subErr) {
+          errEl.style.color = 'var(--teal, #0d9488)';
+          errEl.textContent = 'Account created. You can now sign in with your password.';
+          switchAuthTab('signin');
+          if (App.utils.qs('#signInEmail')) App.utils.qs('#signInEmail').value = email;
+        }
+      }
+    } catch (e) {
+      errEl.style.color = 'var(--red, #e74c3c)';
+      errEl.textContent = e.message || 'Could not create account.';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+
+  App.utils.qs('#signInBtn')?.addEventListener('click', handleSignIn);
+  App.utils.qs('#signUpBtn')?.addEventListener('click', handleSignUp);
+
+  // Wire Enter key in sign-in inputs
+  App.utils.qs('#signInEmail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signInPassword')?.focus();
+    }
+  });
+  App.utils.qs('#signInPassword')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSignIn();
+    }
+  });
+
+  // Wire Enter key in sign-up inputs
+  App.utils.qs('#signUpName')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signUpEmail')?.focus();
+    }
+  });
+  App.utils.qs('#signUpEmail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      App.utils.qs('#signUpPassword')?.focus();
+    }
+  });
+  App.utils.qs('#signUpPassword')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSignUp();
+    }
+  });
+
+  App.utils.qs('#needHelpLink')?.addEventListener('click', (e) => { e.preventDefault(); App.needHelp.openNeedHelpModal(); });
+
+  // Password visibility toggle for Sign In & Sign Up
+  function bindPasswordToggle(toggleBtnId, inputId) {
+    const btn = App.utils.qs(toggleBtnId);
+    const input = App.utils.qs(inputId);
+    if (!btn || !input) return;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isPass = input.type === 'password';
+      input.type = isPass ? 'text' : 'password';
+      btn.textContent = isPass ? '🙈' : '👁️';
+      btn.title = isPass ? 'Hide password' : 'Show password';
+    });
+  }
+  bindPasswordToggle('#toggleSignInPassword', '#signInPassword');
+  bindPasswordToggle('#toggleSignUpPassword', '#signUpPassword');
+
+  // Check and display Last Sign In button
+  function checkAndDisplayLastSignIn() {
+    try {
+      const raw = localStorage.getItem('ios_last_auth_cred');
+      if (!raw) return;
+      const cred = JSON.parse(raw);
+      if (cred && cred.email) {
+        const wrap = App.utils.qs('#lastSignInWrap');
+        const userLabel = App.utils.qs('#lastSignInUserLabel');
+        const btn = App.utils.qs('#btnLastSignIn');
+        if (wrap && userLabel && btn) {
+          wrap.style.display = 'flex';
+          userLabel.textContent = cred.email;
+          btn.onclick = (e) => {
+            e.preventDefault();
+            const emailInput = App.utils.qs('#signInEmail');
+            const passInput = App.utils.qs('#signInPassword');
+            if (emailInput) emailInput.value = cred.email;
+            if (passInput) passInput.value = cred.password || '';
+            handleSignIn();
+          };
+        }
+      }
+    } catch (_) {}
+  }
+  checkAndDisplayLastSignIn();
+
+  const handleGlobalSignOut = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (App.security && App.security.lockSession) App.security.lockSession();
+    try {
+      if (App.auth && App.auth.signOut) await App.auth.signOut();
+    } catch (err) {
+      console.warn('SignOut err:', err);
+    }
+    showAuthScreen();
+  };
+
+  const signOutEl = App.utils.qs('#signOutBtn');
+  if (signOutEl) {
+    signOutEl.addEventListener('click', handleGlobalSignOut);
+    signOutEl.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      handleGlobalSignOut(e);
+    });
+  }
+
+  App.utils.qs('#setNewPasswordBtn')?.addEventListener('click', async () => {
+    const pw = App.utils.qs('#newPasswordInput').value;
+    const confirm = App.utils.qs('#confirmNewPasswordInput').value;
+    const errEl = App.utils.qs('#setNewPasswordError');
+    errEl.textContent = '';
+    if (pw.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+    if (pw !== confirm) { errEl.textContent = 'Passwords do not match.'; return; }
+    try {
+      await App.auth.updatePassword(pw);
+      App.utils.toast('Password updated');
+      const user = App.auth.getUser();
+      if (user) enterApp(); else showAuthScreen();
+    } catch (e) { errEl.textContent = e.message || 'Could not update password.'; }
+  });
+
+  refreshSetupVisibility();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  App.theme.init();
+  if (App.privacyMode) App.privacyMode.init();
+  wireAuthScreen();
+  App.utils.qs('#notifBell').addEventListener('click', openNotificationPanel);
+  App.utils.qs('#btnExitSharedPortfolio')?.addEventListener('click', () => {
+    if (App.clearActivePortfolioContext) App.clearActivePortfolioContext();
+  });
+  App.globalSearch.wire();
+
+  // Desktop Sidebar Toggle & Full View Maximization
+  const DESKTOP_SIDEBAR_STATE_KEY = 'ios_desktop_sidebar_mode'; // 'expanded' | 'compact' | 'hidden'
+  function getDesktopSidebarMode() {
+    return localStorage.getItem(DESKTOP_SIDEBAR_STATE_KEY) || 'expanded';
+  }
+  function setDesktopSidebarMode(mode) {
+    localStorage.setItem(DESKTOP_SIDEBAR_STATE_KEY, mode);
+    applyDesktopSidebarMode(mode);
+  }
+  function applyDesktopSidebarMode(mode) {
+    if (window.innerWidth <= 900) return; // Don't interfere with mobile drawer
+    document.body.classList.remove('sidebar-compact', 'sidebar-hidden');
+    const nav = App.utils.qs('#sidebarNav');
+    if (mode === 'compact') {
+      document.body.classList.add('sidebar-compact');
+      if (nav) nav.classList.add('compact');
+    } else if (mode === 'hidden') {
+      document.body.classList.add('sidebar-hidden');
+      if (nav) nav.classList.remove('compact');
+    } else {
+      if (nav) nav.classList.remove('compact');
+    }
+  }
+
+  function cycleDesktopSidebar() {
+    const current = getDesktopSidebarMode();
+    // Cycle: expanded -> compact (icon-only) -> hidden (maximized canvas) -> expanded
+    let next = 'compact';
+    if (current === 'expanded') next = 'compact';
+    else if (current === 'compact') next = 'hidden';
+    else next = 'expanded';
+
+    setDesktopSidebarMode(next);
+    const msg = next === 'expanded' ? 'Sidebar Expanded' : (next === 'compact' ? 'Sidebar Compact (Icons Only)' : 'Canvas Maximized (Sidebar Hidden)');
+    App.utils.toast(msg, 'info');
+  }
+
+  App.cycleDesktopSidebar = cycleDesktopSidebar;
+
+  const handleTopbarMenuClick = (e) => {
+    if (e) e.preventDefault();
+    if (window.innerWidth <= 900) {
+      toggleMobileSidebar();
+    } else {
+      cycleDesktopSidebar();
+    }
+  };
+
+  App.utils.qs('#mobileMenuBtn')?.addEventListener('click', handleTopbarMenuClick);
+  App.utils.qs('#desktopSidebarToggle')?.addEventListener('click', handleTopbarMenuClick);
+  App.utils.qs('#mobileBottomMenuBtn')?.addEventListener('click', toggleMobileSidebar);
+  App.utils.qs('#sidebarCloseBtn')?.addEventListener('click', closeMobileSidebar);
+  App.utils.qs('#sidebarBackdrop')?.addEventListener('click', closeMobileSidebar);
+  App.utils.qs('#sidebarVersionBtn')?.addEventListener('click', closeMobileSidebar);
+
+  // Mobile Search Toggle
+  const searchWrap = App.utils.qs('#topbarSearchWrap');
+  const searchInput = App.utils.qs('#globalSearchInput');
+  App.utils.qs('#mobileSearchBtn')?.addEventListener('click', () => {
+    if (searchWrap) {
+      searchWrap.classList.toggle('mobile-open');
+      if (searchWrap.classList.contains('mobile-open') && searchInput) {
+        searchInput.focus();
+      }
+    }
+  });
+
+  // Close mobile drawer on Escape key & shortcut for Desktop sidebar toggle (Ctrl+B / ⌘B)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeMobileSidebar();
+      if (searchWrap) searchWrap.classList.remove('mobile-open');
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+      if (window.innerWidth > 900) {
+        e.preventDefault();
+        cycleDesktopSidebar();
+      }
+    }
+  });
+
+  // Wire Arcade Game Button
+  App.utils.qs('#btnLaunchArcadeGame')?.addEventListener('click', () => {
+    if (App.offlineGame) App.offlineGame.open();
+  });
+
+  // Initialize Floating Gemini AI Chatbot
+  if (App.chatbot) {
+    App.chatbot.init();
+  }
+
+  // Initialize PWA Web Share Target handler for Android Sharesheet
+  if (App.shareTarget && typeof App.shareTarget.init === 'function') {
+    App.shareTarget.init();
+  }
+
+  // Re-render views on global currency change
+  document.addEventListener('currency-changed', () => {
+    App.router.refreshCurrent();
+  });
+
+  function tryEnterApp(user) {
+    if (!user) {
+      showAuthScreen();
+      return;
+    }
+    if (App.security && App.security.isUnlocked && App.security.isUnlocked()) {
+      enterApp();
+      return;
+    }
+    if (App.security && App.security.tryEnterProtectedApp) {
+      App.security.tryEnterProtectedApp(
+        user,
+        () => { enterApp(); },
+        () => { showAuthScreen(); }
+      );
+      return;
+    }
+    enterApp();
+  }
+
+  App.auth.onChange((user, session, event) => {
+    // A password-reset email link logs the visitor into a real, valid
+    // session (recovery flow) - entering the app straight away would
+    // silently skip the "set a new password" step.
+    if (event === 'PASSWORD_RECOVERY') { showSetNewPasswordScreen(); return; }
+    if (event === 'SIGNED_IN') {
+      if (App.security && App.security.markUnlocked) App.security.markUnlocked();
+    }
+    if (user) {
+      tryEnterApp(user);
+      if (App.shareTarget && typeof App.shareTarget.handlePendingShare === 'function') {
+        App.shareTarget.handlePendingShare().catch(() => {});
+      }
+    } else {
+      if (App.security && App.security.lockSession) App.security.lockSession();
+      showAuthScreen();
+    }
+  });
+  if (App.auth.isConfigured()) App.auth.init();
+});

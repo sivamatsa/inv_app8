@@ -1,0 +1,6 @@
+{
+  "summary":  "Architectural implementation plan for upgrading Investment OS Notes into a premium Notes & Knowledge Hub. Features a responsive 3-pane workspace (Folders & Filters sidebar, Search & Notes list with quick filter chips, and a live Rich-Text editor with debounced autosave), full-text search, multi-tagging, custom folders, color coding, pinned & favorites, archive & trash recovery, note version history, pre-built & custom templates, reminders & follow-up tracking, cross-linking to all Investment OS entities (Deals, SIPs, Gold, Contacts, Documents, Goals, Calendar events), safe import/export (HTML, Markdown, JSON, TXT), productivity shortcuts, and secure server-side AI assistant integration via /api/chat.",
+  "updatedAt":  "2026-10-24T13:08:08.746629256Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
