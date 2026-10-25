@@ -98,6 +98,13 @@ window.App = window.App || {};
     return String(content || '').replace(/<[^>]+>/g, '').trim();
   }
 
+  // Preview text for lists and cards. Same extraction as getNotePlainText, but block boundaries
+  // become spaces so a heading and the paragraph after it no longer run together.
+  function getSnippetText(content, max) {
+    const spaced = String(content || '').replace(/<\/(p|div|h[1-6]|li|blockquote|tr|pre)>|<br\s*\/?>/gi, ' ');
+    return getNotePlainText(spaced).replace(/\s+/g, ' ').trim().slice(0, max);
+  }
+
   // ---- Helper: Relative Date Formatting ----
   function formatRelativeDate(isoStr) {
     if (!isoStr) return '';
@@ -123,6 +130,270 @@ window.App = window.App || {};
   function getActiveNote() {
     if (!state.activeNoteId) return null;
     return state.notes.find((n) => String(n.id) === String(state.activeNoteId)) || null;
+  }
+
+  // ---- Presentation helpers (icons, small fragments, menus, navigation drawer) ----
+  // Inline SVG icons: stroke inherits currentColor, decorative only (aria-hidden).
+  const ICON_PATHS = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    download: '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/>',
+    layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="7.5" r="1"/>',
+    pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/>',
+    star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
+    archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+    expand: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+    more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+    back: '<path d="M19 12H5m6-6-6 6 6 6"/>',
+    bold: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
+    italic: '<path d="M19 4h-9M14 20H5M15 4 9 20"/>',
+    strike: '<path d="M4 12h16M16 6.5C15 5.5 13.6 5 12 5c-2.5 0-4 1.2-4 3 0 1.2.8 2 2 2.5M8.5 17.5c1 1 2.300 1.500 3.900 1.500 2.500 0 4-1.200 4-3 0-.6-.2-1.100-.6-1.500"/>',
+    ul: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    ol: '<path d="M10 6h10M10 12h10M10 18h10M4 5l1.500-1v5M3.500 14.500c.4-.8 2.500-.9 2.500.4 0 1-2.500 1.800-2.500 2.800h3"/>',
+    checksq: '<rect x="3.500" y="3.500" width="17" height="17" rx="3"/><path d="m8 12 3 3 5-6"/>',
+    check: '<path d="m5 12 5 5L20 7"/>',
+    quote: '<path d="M9 7H5v6h4M9 13c0 2-1 3-3 4M19 7h-4v6h4M19 13c0 2-1 3-3 4"/>',
+    code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1"/>',
+    undo: '<path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>',
+    redo: '<path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/>',
+    sparkles: '<path d="M12 3l1.800 4.700L18.500 9.500 13.800 11.300 12 16l-1.800-4.700L5.500 9.500l4.700-1.800zM19 15l.8 2.200L22 18l-2.200.8L19 21l-.8-2.200L16 18l2.200-.8z"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.700L3 8"/><path d="M3 3v5h5M12 8v4l3 2"/>',
+    restore: '<path d="M3 12a9 9 0 1 0 3-6.700L3 8"/><path d="M3 3v5h5"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    chevR: '<path d="m9 6 6 6-6 6"/>',
+    panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+    grid: '<rect x="4" y="4" width="7" height="7" rx="1.500"/><rect x="13" y="4" width="7" height="7" rx="1.500"/><rect x="4" y="13" width="7" height="7" rx="1.500"/><rect x="13" y="13" width="7" height="7" rx="1.500"/>',
+    rows: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    alert: '<path d="M12 4 2.500 20h19z"/><path d="M12 10v4M12 17v.01"/>',
+    inbox: '<path d="M3 13h5l1 3h6l1-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
+    json: '<path d="M8 4c-2 0-3 1-3 3v2c0 1-.8 2-2 3 1.200 1 2 2 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1 .8 2 2 3-1.200 1-2 2-2 3v2c0 2-1 3-3 3"/>',
+    text: '<path d="M5 6h14M12 6v13M9 19h6"/>',
+    html: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',
+  };
+
+  function ic(name, extraClass) {
+    return `<svg class="n-ic${extraClass ? ' ' + extraClass : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICON_PATHS[name] || ''}</svg>`;
+  }
+
+  function findFolder(note) {
+    return state.folders.find((f) => String(f.id) === String(note.folder_id));
+  }
+
+  // Only the non-default priorities earn a badge (the API default is 'NORMAL'/'medium').
+  function priorityBadge(note) {
+    const p = String(note.priority || '').toLowerCase();
+    if (p === 'high') return '<span class="n-badge n-badge--high">High</span>';
+    if (p === 'low') return '<span class="n-badge n-badge--low">Low</span>';
+    return '';
+  }
+
+  // Pin / star toggle used by the library table and cards (handlers bind to data-simple-pin / data-simple-fav).
+  function noteToggleButtons(n) {
+    const pinLabel = n.is_pinned ? 'Unpin note' : 'Pin note to top';
+    const favLabel = n.is_favorite ? 'Remove star' : 'Star note';
+    return `
+      <button type="button" class="n-icon-btn n-icon-btn--xs ${n.is_pinned ? 'is-on' : ''}" data-simple-pin="${n.id}" aria-pressed="${n.is_pinned ? 'true' : 'false'}" title="${pinLabel}" aria-label="${pinLabel}">${ic('pin')}</button>
+      <button type="button" class="n-icon-btn n-icon-btn--xs ${n.is_favorite ? 'is-on' : ''}" data-simple-fav="${n.id}" aria-pressed="${n.is_favorite ? 'true' : 'false'}" title="${favLabel}" aria-label="${favLabel}">${ic('star')}</button>
+    `;
+  }
+
+  function checklistProgress(taskStats) {
+    if (!taskStats) return '';
+    return `<span class="nl-progress ${taskStats.pct === 100 ? 'is-done' : ''}" title="${taskStats.checked} of ${taskStats.total} tasks done"><span class="nl-progress-bar"><i style="width:${taskStats.pct}%"></i></span>${taskStats.checked}/${taskStats.total} tasks</span>`;
+  }
+
+  function entityChips(note, limit) {
+    const list = Array.isArray(note.linked_entities) ? note.linked_entities : [];
+    if (!list.length) return '';
+    const label = (ent) => App.utils.escapeHtml(ent.label || 'Entity');
+    return list.slice(0, limit).map((ent) => `
+      <span class="n-chip n-chip--accent notes-simple-entity-chip" data-entity-type="${App.utils.escapeHtml(ent.type)}" data-entity-id="${App.utils.escapeHtml(ent.id)}" title="Open ${label(ent)}">${ic('link')}<span>${label(ent)}</span></span>
+    `).join('') + (list.length > limit ? `<span class="n-chip">+${list.length - limit}</span>` : '');
+  }
+
+  function tagChips(note, limit) {
+    const list = Array.isArray(note.tags) ? note.tags : [];
+    if (!list.length) return '';
+    return list.slice(0, limit).map((t) => `<span class="n-chip">#${App.utils.escapeHtml(t)}</span>`).join('') + (list.length > limit ? `<span class="n-chip">+${list.length - limit}</span>` : '');
+  }
+
+  // ---- Popover menus (delegated once; markup uses data-menu-trigger + aria-controls) ----
+  let notesGlobalsBound = false;
+
+  function closeNotesMenus(except) {
+    document.querySelectorAll('#pane-notes .n-menu').forEach((menu) => {
+      if (menu === except || menu.hidden) return;
+      menu.hidden = true;
+      const trigger = document.querySelector(`#pane-notes [aria-controls="${menu.id}"]`);
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function bindNotesGlobals() {
+    if (notesGlobalsBound) return;
+    notesGlobalsBound = true;
+
+    document.addEventListener('click', (e) => {
+      const trigger = e.target.closest ? e.target.closest('[data-menu-trigger]') : null;
+      if (trigger && trigger.closest('#pane-notes')) {
+        const menu = document.getElementById(trigger.getAttribute('aria-controls'));
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        closeNotesMenus(willOpen ? menu : null);
+        menu.hidden = !willOpen;
+        trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        if (willOpen) {
+          const first = menu.querySelector('[role="menuitem"]');
+          if (first) first.focus();
+        }
+        return;
+      }
+      // Item clicks run their own handler first, then the menu closes.
+      if (e.target.closest && e.target.closest('#pane-notes .n-menu')) {
+        setTimeout(() => closeNotesMenus(null), 0);
+        return;
+      }
+      closeNotesMenus(null);
+    });
+
+    // Quick capture shortcut (Ctrl/Cmd + Shift + N) - bound once instead of on every visit to Notes.
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
+        if (App.utils.qs('#pane-notes.active')) {
+          e.preventDefault();
+          createNewNoteModal();
+        }
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      const openMenu = document.querySelector('#pane-notes .n-menu:not([hidden])');
+      if (openMenu) {
+        const items = Array.from(openMenu.querySelectorAll('[role="menuitem"]'));
+        const idx = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          const trigger = document.querySelector(`#pane-notes [aria-controls="${openMenu.id}"]`);
+          closeNotesMenus(null);
+          if (trigger) trigger.focus();
+        } else if (e.key === 'ArrowDown' && items.length) {
+          e.preventDefault();
+          items[(idx + 1) % items.length].focus();
+        } else if (e.key === 'ArrowUp' && items.length) {
+          e.preventDefault();
+          items[(idx - 1 + items.length) % items.length].focus();
+        } else if (e.key === 'Tab') {
+          closeNotesMenus(null);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        const ws = document.querySelector('#notesWorkspace.nav-open');
+        if (ws) {
+          setNavDrawerOpen(false);
+          const toggle = document.querySelector('#notesNavToggleBtn');
+          if (toggle) toggle.focus();
+        }
+      }
+    });
+  }
+
+  // ---- Navigation: persistent collapse on wide screens, drawer on narrow ones ----
+  const NAV_PREF_KEY = 'investmentOS_notesNavCollapsed';
+  const NAV_WIDE_PX = 1040; // keep in sync with the container query in css/notes.css
+
+  function loadNavCollapsedPref() {
+    try { return localStorage.getItem(NAV_PREF_KEY) === '1'; } catch (_) { return false; }
+  }
+
+  function saveNavCollapsedPref(collapsed) {
+    try { localStorage.setItem(NAV_PREF_KEY, collapsed ? '1' : '0'); } catch (_) { /* storage unavailable */ }
+  }
+
+  function syncNavToggleState() {
+    const ws = App.utils.qs('#notesWorkspace');
+    const btn = App.utils.qs('#notesNavToggleBtn');
+    if (!ws || !btn) return;
+    const wide = ws.clientWidth >= NAV_WIDE_PX;
+    const expanded = wide ? !ws.classList.contains('nav-collapsed') : ws.classList.contains('nav-open');
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+
+  function setNavDrawerOpen(open) {
+    const ws = App.utils.qs('#notesWorkspace');
+    if (!ws) return;
+    ws.classList.toggle('nav-open', !!open);
+    if (open) {
+      const first = App.utils.qs('#notesNavPane .notes-nav-btn.active') || App.utils.qs('#notesNavPane .notes-nav-btn');
+      if (first) first.focus();
+    }
+    syncNavToggleState();
+  }
+
+  function toggleNotesNav() {
+    const ws = App.utils.qs('#notesWorkspace');
+    if (!ws) return;
+    if (ws.clientWidth >= NAV_WIDE_PX) {
+      const collapsed = ws.classList.toggle('nav-collapsed');
+      saveNavCollapsedPref(collapsed);
+      syncNavToggleState();
+    } else {
+      setNavDrawerOpen(!ws.classList.contains('nav-open'));
+    }
+  }
+
+  function closeNavDrawer() {
+    const ws = App.utils.qs('#notesWorkspace');
+    if (ws && ws.classList.contains('nav-open')) setNavDrawerOpen(false);
+  }
+
+  // Panes re-render by replacing their HTML, which drops focus. Remember what was focused
+  // (typing in search, changing a select, pressing a filter) and put it back afterwards.
+  function captureFocus(root) {
+    const el = document.activeElement;
+    if (!el || !root || el === document.body || !root.contains(el)) return null;
+    let selector = '';
+    if (el.id) selector = '#' + el.id;
+    else if (el.dataset && el.dataset.pillFilter) selector = `[data-pill-filter="${el.dataset.pillFilter}"]`;
+    else if (el.dataset && el.dataset.viewMode) selector = `[data-view-mode="${el.dataset.viewMode}"]`;
+    else if (el.dataset && el.dataset.filter) selector = `[data-filter="${el.dataset.filter}"]`;
+    return selector ? { selector } : null;
+  }
+
+  function restoreFocus(saved, root) {
+    if (!saved || !root) return;
+    const el = root.querySelector(saved.selector);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    if (el.tagName === 'INPUT' && el.type === 'text') {
+      try { const n = el.value.length; el.setSelectionRange(n, n); } catch (_) { /* not selectable */ }
+    }
+  }
+
+  function getActiveViewLabel() {
+    const f = state.activeFilter;
+    if (f === 'all') return 'All notes';
+    if (f === 'pinned') return 'Pinned';
+    if (f === 'favorites') return 'Favorites';
+    if (f === 'reminders') return 'Reminders & due';
+    if (f === 'archive') return 'Archive';
+    if (f === 'trash') return 'Trash';
+    if (f.startsWith('folder:')) {
+      const folder = state.folders.find((x) => String(x.id) === f.replace('folder:', ''));
+      return folder ? folder.name : 'Folder';
+    }
+    if (f.startsWith('tag:')) return '#' + f.replace('tag:', '');
+    return 'Notes';
   }
 
   // ---- Load Data from API / DB ----
@@ -242,8 +513,9 @@ window.App = window.App || {};
     const mainTabs = App.utils.qs('#notesMainTabs');
     if (mainTabs) {
       mainTabs.querySelectorAll('.tab-btn').forEach((b) => {
-        if (b.dataset.notesTab === 'workspace') b.classList.add('active');
-        else b.classList.remove('active');
+        const isWorkspace = b.dataset.notesTab === 'workspace';
+        b.classList.toggle('active', isWorkspace);
+        b.setAttribute('aria-selected', isWorkspace ? 'true' : 'false');
       });
     }
     const tabAllNotes = App.utils.qs('#notesTabAllNotes');
@@ -261,59 +533,59 @@ window.App = window.App || {};
     const pane = App.utils.qs('#pane-notes');
     if (!pane) return;
 
+    bindNotesGlobals();
+
+    // Loading state is tied to the real request: it is replaced as soon as the data arrives.
+    pane.innerHTML = `
+      <div class="notes-hub-container" aria-busy="true">
+        <div class="n-skel" role="status" aria-label="Loading notes"><i></i><i></i><i></i><i></i></div>
+      </div>
+    `;
+
     await loadNotesData();
 
     const activeCount = state.notes.filter((n) => !n.in_trash).length;
 
     pane.innerHTML = `
       <div class="notes-hub-container">
-        <!-- Hub Top Header -->
-        <div class="notes-hub-header">
+        <header class="notes-hub-header">
           <div class="notes-hub-title">
-            <h1>Notes & Knowledge Hub</h1>
-            <span class="notes-badge">Executive PKM</span>
+            <h1>Notes</h1>
+            <p class="notes-hub-sub">Capture ideas, meeting minutes and research, and link them to your deals, SIPs and goals.</p>
           </div>
           <div class="notes-hub-actions">
-            <button class="btn btn-outline btn-sm" id="notesExportAllBtn" title="Export Notes (Markdown / JSON / CSV)">
-              <span>&#8595;</span> Export
-            </button>
-            <button class="btn btn-outline btn-sm" id="notesTemplatesBtn" title="New Note from Executive Template">
-              <span>&#9881;</span> Templates
-            </button>
-            <button class="btn btn-gold btn-sm" id="notesNewNoteTopBtn" title="Create New Note">
-              <span>+</span> New Note
-            </button>
+            <button type="button" class="n-btn" id="notesTemplatesBtn" title="New note from a template" aria-label="Templates">${ic('layout')}<span class="n-btn-label">Templates</span></button>
+            <button type="button" class="n-btn" id="notesExportAllBtn" title="Export notes (JSON, Markdown, spreadsheet)" aria-label="Export notes">${ic('download')}<span class="n-btn-label">Export</span></button>
+            <button type="button" class="n-btn n-btn--primary" id="notesNewNoteTopBtn" title="Quick capture a new note (Ctrl+Shift+N)">${ic('plus')}<span>New note</span></button>
           </div>
+        </header>
+
+        <div class="tabbar notes-main-tabs" id="notesMainTabs" role="tablist" aria-label="Notes views">
+          <button type="button" role="tab" aria-selected="${state.activeTab === 'all_notes'}" class="tab-btn ${state.activeTab === 'all_notes' ? 'active' : ''}" data-notes-tab="all_notes">
+            ${ic('file')}<span>All notes</span><span class="n-tab-count" id="allNotesTabCount">${activeCount}</span>
+          </button>
+          <button type="button" role="tab" aria-selected="${state.activeTab === 'workspace'}" class="tab-btn ${state.activeTab === 'workspace' ? 'active' : ''}" data-notes-tab="workspace">
+            ${ic('panel')}<span>Workspace</span>
+          </button>
         </div>
 
-        <!-- Main Tab Switcher: All Notes vs 3-Pane Workspace -->
-        <div class="tabbar notes-main-tabs" id="notesMainTabs">
-          <button class="tab-btn ${state.activeTab === 'all_notes' ? 'active' : ''}" data-notes-tab="all_notes">
-            <span>&#128196;</span> All Notes (<span id="allNotesTabCount">${activeCount}</span>)
-          </button>
-          <button class="tab-btn ${state.activeTab === 'workspace' ? 'active' : ''}" data-notes-tab="workspace">
-            <span>&#128450;</span> 3-Pane Workspace
-          </button>
-        </div>
+        <div id="notesTabAllNotes" class="notes-tab-content notes-cq" role="tabpanel" style="${state.activeTab === 'all_notes' ? '' : 'display:none'}"></div>
 
-        <!-- Tab 1: Simple All Notes Directory -->
-        <div id="notesTabAllNotes" class="notes-tab-content" style="${state.activeTab === 'all_notes' ? '' : 'display:none'}"></div>
-
-        <!-- Tab 2: 3-Pane Executive Workspace -->
-        <div id="notesTabWorkspace" class="notes-tab-content" style="${state.activeTab === 'workspace' ? '' : 'display:none'}">
+        <div id="notesTabWorkspace" class="notes-tab-content notes-cq" role="tabpanel" style="${state.activeTab === 'workspace' ? '' : 'display:none'}">
           <div class="notes-workspace-3pane" id="notesWorkspace" data-mobile-view="${state.mobileView}">
-            <!-- Pane 1: Navigation Sidebar (Folders, Tags, Smart Views, Metrics) -->
-            <div class="notes-nav-pane" id="notesNavPane"></div>
-
-            <!-- Pane 2: Notes List & Search (Supports List and Folder View) -->
-            <div class="notes-list-pane" id="notesListPane"></div>
-
-            <!-- Pane 3: Active Rich-Text Note Editor -->
-            <div class="notes-editor-pane" id="notesEditorPane"></div>
+            <aside class="notes-nav-pane" id="notesNavPane" aria-label="Folders, tags and views"></aside>
+            <div class="notes-nav-scrim" id="notesNavScrim" aria-hidden="true"></div>
+            <section class="notes-list-pane" id="notesListPane" aria-label="Notes list"></section>
+            <section class="notes-editor-pane" id="notesEditorPane" aria-label="Note editor"></section>
           </div>
         </div>
       </div>
     `;
+
+    if (loadNavCollapsedPref()) {
+      App.utils.qs('#notesWorkspace', pane)?.classList.add('nav-collapsed');
+    }
+    App.utils.qs('#notesNavScrim', pane)?.addEventListener('click', closeNavDrawer);
 
     bindWorkspaceHeader(pane);
     drawAllNotesTab();
@@ -342,8 +614,12 @@ window.App = window.App || {};
         const tab = tabBtn.dataset.notesTab;
         state.activeTab = tab;
 
-        App.utils.qsa('[data-notes-tab]', pane).forEach((b) => b.classList.remove('active'));
+        App.utils.qsa('[data-notes-tab]', pane).forEach((b) => {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
         tabBtn.classList.add('active');
+        tabBtn.setAttribute('aria-selected', 'true');
 
         const tabAllNotes = App.utils.qs('#notesTabAllNotes', pane);
         const tabWorkspace = App.utils.qs('#notesTabWorkspace', pane);
@@ -364,19 +640,7 @@ window.App = window.App || {};
         }
       });
     });
-
-    // Keyboard shortcut: Ctrl/Cmd + Shift + N for quick capture
-    window.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
-        const paneActive = App.utils.qs('#pane-notes.active');
-        if (paneActive) {
-          e.preventDefault();
-          createNewNoteModal();
-        }
-      }
-    });
   }
-
   // ==========================================================================
   // TAB 1: ALL NOTES DIRECTORY (Simple, Executive-Grade User Interface)
   // ==========================================================================
@@ -448,356 +712,241 @@ window.App = window.App || {};
       }
     });
 
+    const savedFocus = captureFocus(container);
+
+    const scopeTotal = state.allNotesFilter === 'trash' ? trashCount : state.notes.filter((n) => !n.in_trash).length;
+    const hasActiveFilters = !!state.allNotesSearch.trim() || state.allNotesFilter !== 'all' || state.allNotesFolder !== 'all';
+    const filterLabels = { pinned: 'Pinned', favorites: 'Starred', reminders: 'Due', trash: 'Trash', archived: 'Archived' };
+    const sortLabels = { updated_desc: 'recently updated', created_desc: 'date created', title_asc: 'title (A-Z)', priority_desc: 'priority' };
+    const folderChipName = state.allNotesFolder === 'unorganized'
+      ? 'Unorganized'
+      : (state.folders.find((f) => String(f.id) === String(state.allNotesFolder))?.name || 'Folder');
+
     // Build Folder Select Options
     const folderOptionsHtml = `
-      <option value="all" ${state.allNotesFolder === 'all' ? 'selected' : ''}>📁 All Folders (${allActive.length})</option>
-      <option value="unorganized" ${state.allNotesFolder === 'unorganized' ? 'selected' : ''}>📁 Unorganized (${allActive.filter((n) => !n.folder_id).length})</option>
+      <option value="all" ${state.allNotesFolder === 'all' ? 'selected' : ''}>All folders (${allActive.length})</option>
+      <option value="unorganized" ${state.allNotesFolder === 'unorganized' ? 'selected' : ''}>Unorganized (${allActive.filter((n) => !n.folder_id).length})</option>
       ${state.folders.map((f) => {
         const count = allActive.filter((n) => String(n.folder_id) === String(f.id)).length;
-        return `<option value="${f.id}" ${String(state.allNotesFolder) === String(f.id) ? 'selected' : ''}>📁 ${App.utils.escapeHtml(f.name)} (${count})</option>`;
+        return `<option value="${f.id}" ${String(state.allNotesFolder) === String(f.id) ? 'selected' : ''}>${App.utils.escapeHtml(f.name)} (${count})</option>`;
       }).join('')}
     `;
 
-    // Render Grid vs ALV Table
+    const pills = [
+      ['all', 'All', allActive.length],
+      ['pinned', 'Pinned', pinnedCount],
+      ['favorites', 'Starred', favCount],
+      ['reminders', 'Due', reminderCount],
+      ['trash', 'Trash', trashCount],
+    ];
+
+    const removableChip = (text, key, label) => `
+      <span class="n-chip n-chip--accent"><span>${text}</span><button type="button" class="n-chip-x" data-clear-filter="${key}" aria-label="Remove ${label} filter">${ic('x')}</button></span>
+    `;
+
+    // Render Table vs Cards
     let contentHtml = '';
     if (filtered.length === 0) {
+      const inTrash = state.allNotesFilter === 'trash' && !state.allNotesSearch.trim() && state.allNotesFolder === 'all';
       contentHtml = `
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:48px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center">
-          <div style="font-size:36px;margin-bottom:12px;opacity:0.6">&#128196;</div>
-          <h3 style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">No Records Found</h3>
-          <p style="font-size:12.5px;color:var(--text3);max-width:340px;margin-bottom:16px">
-            ${state.allNotesSearch ? `No notes matched "${App.utils.escapeHtml(state.allNotesSearch)}". Try a different search query or reset filters.` : 'Your personal knowledge repository is ready. Create a note or pick an executive template.'}
-          </p>
-          <div style="display:flex;gap:8px">
-            <button class="alv-new-btn" id="simpleEmptyNewBtn"><span>+</span><span>New Note</span></button>
-            ${state.allNotesSearch || state.allNotesFilter !== 'all' || state.allNotesFolder !== 'all' ? `
-              <button class="btn btn-outline btn-sm" id="simpleResetFiltersBtn">Reset Filters</button>
-            ` : ''}
+        <div class="n-empty">
+          <div class="n-empty-ic">${ic(hasActiveFilters ? 'search' : 'file')}</div>
+          <h3>${inTrash ? 'Trash is empty' : hasActiveFilters ? 'No matching notes' : 'No notes yet'}</h3>
+          <p>${state.allNotesSearch ? `Nothing matched "${App.utils.escapeHtml(state.allNotesSearch)}". Try a different search or reset the filters.` : inTrash ? 'Notes you move to the trash will wait here until you restore or delete them.' : hasActiveFilters ? 'No notes fit the current filters.' : 'Capture your first thought, or start from a ready-made template.'}</p>
+          <div class="n-empty-actions">
+            <button type="button" class="n-btn n-btn--primary" id="simpleEmptyNewBtn">${ic('plus')}<span>New note</span></button>
+            ${hasActiveFilters
+              ? `<button type="button" class="n-btn" id="simpleResetFiltersBtn">Reset filters</button>`
+              : `<button type="button" class="n-btn" id="simpleEmptyTemplatesBtn">${ic('layout')}<span>Browse templates</span></button>`}
           </div>
         </div>
       `;
     } else if (state.allNotesView === 'grid') {
       contentHtml = `
-        <div class="notes-simple-grid">
+        <div class="nl-grid">
           ${filtered.map((n) => renderSimpleNoteCard(n)).join('')}
         </div>
       `;
     } else {
       contentHtml = `
-        <div class="alv-grid-wrapper">
-          <div class="alv-table-scroll">
-            <table class="alv-table">
+        <div class="nl-table-card">
+          <div class="nl-table-scroll">
+            <table class="nl-table">
               <thead>
                 <tr>
-                  <th style="width:36px;text-align:center">#</th>
-                  <th style="width:44px;text-align:center">Flag</th>
-                  <th style="min-width:240px">Title & Outline</th>
-                  <th style="width:140px">Folder</th>
-                  <th style="width:110px">Checklist</th>
-                  <th style="width:140px">Portfolio Entity</th>
-                  <th style="width:110px">Tags</th>
-                  <th style="width:110px">Due Date</th>
-                  <th style="width:100px">Modified</th>
-                  <th style="width:140px;text-align:right">Actions</th>
+                  <th scope="col">Note</th>
+                  <th scope="col">Folder</th>
+                  <th scope="col">Links &amp; tags</th>
+                  <th scope="col">Due</th>
+                  <th scope="col">Updated</th>
+                  <th scope="col"><span class="n-sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                ${filtered.map((n, idx) => renderAlvTableRow(n, idx + 1)).join('')}
+                ${filtered.map((n) => renderAlvTableRow(n)).join('')}
               </tbody>
             </table>
           </div>
-          <div class="alv-status-footer">
-            <span>Showing <strong>${filtered.length}</strong> of <strong>${allActive.length}</strong> records</span>
-            <span>Filter: <strong>${state.allNotesFilter.toUpperCase()}</strong> · Folder: <strong>${state.allNotesFolder === 'all' ? 'ALL' : state.allNotesFolder}</strong></span>
-            <span>Mode: <strong>Excel ALV Grid</strong></span>
+          <div class="nl-footer">
+            <span>Showing <strong>${filtered.length}</strong> of <strong>${scopeTotal}</strong> notes</span>
+            <span>Sorted by ${sortLabels[state.allNotesSort] || 'recently updated'}</span>
           </div>
         </div>
       `;
     }
 
     container.innerHTML = `
-      <div class="alv-container">
-        <!-- 1. Sequential Metrics Ribbon (Excel Status / KPI Bar in exact horizontal sequence) -->
-        <div class="alv-metrics-ribbon">
-          <div class="alv-metric-item ${state.allNotesFilter === 'all' && state.allNotesFolder === 'all' ? 'active' : ''}" data-kpi-filter="all" title="View all active notes">
-            <span class="alv-metric-icon">&#128196;</span>
-            <span class="alv-metric-value">${allActive.length}</span>
-            <span class="alv-metric-label">All Active Notes</span>
+      <div class="nl-wrap">
+        <div class="nl-toolbar">
+          <div class="n-search">
+            ${ic('search')}
+            <input type="text" id="simpleSearchInput" class="n-field" placeholder="Search notes, text or #tag" aria-label="Search notes" autocomplete="off" value="${App.utils.escapeHtml(state.allNotesSearch)}">
           </div>
-          <div class="alv-metric-item ${state.allNotesFilter === 'pinned' ? 'active' : ''}" data-kpi-filter="pinned" title="View pinned notes">
-            <span class="alv-metric-icon">&#128204;</span>
-            <span class="alv-metric-value">${pinnedCount}</span>
-            <span class="alv-metric-label">Pinned Memos</span>
+          <div class="n-select-wrap">
+            <select id="simpleFolderSelect" class="n-field" aria-label="Filter by folder">${folderOptionsHtml}</select>
           </div>
-          <div class="alv-metric-item ${state.allNotesFilter === 'favorites' ? 'active' : ''}" data-kpi-filter="favorites" title="View starred notes">
-            <span class="alv-metric-icon">&#9733;</span>
-            <span class="alv-metric-value">${favCount}</span>
-            <span class="alv-metric-label">Starred Notes</span>
-          </div>
-          <div class="alv-metric-item ${state.allNotesFilter === 'reminders' ? 'active' : ''}" data-kpi-filter="reminders" title="View due & scheduled notes">
-            <span class="alv-metric-icon">&#9200;</span>
-            <span class="alv-metric-value">${reminderCount}</span>
-            <span class="alv-metric-label">Due & Reminders</span>
-          </div>
-          <div class="alv-metric-item" id="kpiManageFoldersBtn" title="Manage Custom Folders">
-            <span class="alv-metric-icon">&#128194;</span>
-            <span class="alv-metric-value">${state.folders.length}</span>
-            <span class="alv-metric-label">Folders Configured</span>
-          </div>
-        </div>
-
-        <!-- 2. ALV Command Ribbon (Toolbar) -->
-        <div class="alv-toolbar">
-          <div class="alv-toolbar-left">
-            <div class="alv-search-box">
-              <span class="alv-search-icon">&#128269;</span>
-              <input type="text" id="simpleSearchInput" placeholder="Search notes, text, #tag..." value="${App.utils.escapeHtml(state.allNotesSearch)}">
-            </div>
-
-            <select id="simpleFolderSelect" class="alv-select">
-              ${folderOptionsHtml}
-            </select>
-
-            <div class="alv-segmented-group">
-              <button class="alv-seg-btn ${state.allNotesFilter === 'all' ? 'active' : ''}" data-pill-filter="all">All</button>
-              <button class="alv-seg-btn ${state.allNotesFilter === 'pinned' ? 'active' : ''}" data-pill-filter="pinned">&#128204; Pinned</button>
-              <button class="alv-seg-btn ${state.allNotesFilter === 'favorites' ? 'active' : ''}" data-pill-filter="favorites">&#9733; Starred</button>
-              <button class="alv-seg-btn ${state.allNotesFilter === 'reminders' ? 'active' : ''}" data-pill-filter="reminders">&#9200; Due</button>
-              <button class="alv-seg-btn ${state.allNotesFilter === 'trash' ? 'active' : ''}" data-pill-filter="trash" style="${trashCount > 0 ? 'color:var(--red)' : ''}">&#128465; Trash (${trashCount})</button>
-            </div>
-          </div>
-
-          <div class="alv-toolbar-right">
-            <select id="simpleSortSelect" class="alv-select">
-              <option value="updated_desc" ${state.allNotesSort === 'updated_desc' ? 'selected' : ''}>Recently Updated</option>
-              <option value="created_desc" ${state.allNotesSort === 'created_desc' ? 'selected' : ''}>Date Created</option>
+          <div class="n-select-wrap">
+            <select id="simpleSortSelect" class="n-field" aria-label="Sort notes">
+              <option value="updated_desc" ${state.allNotesSort === 'updated_desc' ? 'selected' : ''}>Recently updated</option>
+              <option value="created_desc" ${state.allNotesSort === 'created_desc' ? 'selected' : ''}>Date created</option>
               <option value="title_asc" ${state.allNotesSort === 'title_asc' ? 'selected' : ''}>Title (A-Z)</option>
-              <option value="priority_desc" ${state.allNotesSort === 'priority_desc' ? 'selected' : ''}>Priority (High-Low)</option>
+              <option value="priority_desc" ${state.allNotesSort === 'priority_desc' ? 'selected' : ''}>Priority (high-low)</option>
             </select>
-
-            <div class="alv-segmented-group">
-              <button class="alv-seg-btn ${state.allNotesView === 'table' ? 'active' : ''}" id="switchViewTableBtn" title="Excel ALV Grid Table view">&#9776; ALV Grid</button>
-              <button class="alv-seg-btn ${state.allNotesView === 'grid' ? 'active' : ''}" id="switchViewGridBtn" title="Cards view">&#8862; Cards</button>
-            </div>
-
-            <button class="alv-new-btn" id="simpleNewNoteBtn" title="Create New Note">
-              <span>+</span><span>New Note</span>
-            </button>
+          </div>
+          <div class="n-seg" role="group" aria-label="Layout">
+            <button type="button" class="n-seg-btn ${state.allNotesView === 'table' ? 'active' : ''}" id="switchViewTableBtn" aria-pressed="${state.allNotesView === 'table'}" title="Table view">${ic('rows')}<span>Table</span></button>
+            <button type="button" class="n-seg-btn ${state.allNotesView === 'grid' ? 'active' : ''}" id="switchViewGridBtn" aria-pressed="${state.allNotesView === 'grid'}" title="Card view">${ic('grid')}<span>Cards</span></button>
           </div>
         </div>
 
-        <!-- 3. ALV Content Area -->
+        <div class="nl-filterbar">
+          <div class="n-seg" role="group" aria-label="Filter notes">
+            ${pills.map(([key, label, count]) => `
+              <button type="button" class="n-seg-btn ${state.allNotesFilter === key ? 'active' : ''}" data-pill-filter="${key}" aria-pressed="${state.allNotesFilter === key}">${label} <span class="n-count">${count}</span></button>
+            `).join('')}
+          </div>
+          <button type="button" class="n-btn n-btn--sm" id="kpiManageFoldersBtn" title="Create a folder">${ic('folder')}<span>New folder</span></button>
+        </div>
+
+        ${hasActiveFilters ? `
+          <div class="nl-active" role="group" aria-label="Active filters">
+            <span class="nl-active-label">Filtered by</span>
+            ${state.allNotesSearch.trim() ? removableChip(`&ldquo;${App.utils.escapeHtml(state.allNotesSearch.trim())}&rdquo;`, 'search', 'search') : ''}
+            ${state.allNotesFilter !== 'all' ? removableChip(App.utils.escapeHtml(filterLabels[state.allNotesFilter] || state.allNotesFilter), 'filter', 'status') : ''}
+            ${state.allNotesFolder !== 'all' ? removableChip(App.utils.escapeHtml(folderChipName), 'folder', 'folder') : ''}
+            <button type="button" class="nl-reset" id="simpleChipsResetBtn">Reset all</button>
+          </div>
+        ` : ''}
+
         ${contentHtml}
       </div>
     `;
 
     bindAllNotesEvents(container);
+    restoreFocus(savedFocus, container);
 
     // Update count in tab header
     const tabCountEl = App.utils.qs('#allNotesTabCount');
     if (tabCountEl) tabCountEl.textContent = allActive.length;
   }
 
-  // ---- Render Simple Note Card ----
+  // ---- Render Library Note Card ----
   function renderSimpleNoteCard(n) {
-    const folder = state.folders.find((f) => String(f.id) === String(n.folder_id));
-    const folderColor = folder?.color || 'var(--gold)';
+    const folder = findFolder(n);
+    const folderColor = folder?.color || 'var(--text3)';
     const folderName = folder?.name || 'Unorganized';
-    const snippet = getNotePlainText(n.content_html || n.content || '').slice(0, 160);
+    const snippet = getSnippetText(n.content_html || n.content || '', 180);
     const stats = getNoteStats(n.content_html || n.content || '');
     const isOverdue = n.reminder_at && new Date(n.reminder_at) < new Date();
     const taskStats = getChecklistStats(n.content_html || '');
+    const chips = entityChips(n, 3) + tagChips(n, 4);
 
     return `
-      <div class="notes-simple-card ${n.is_pinned ? 'pinned' : ''}" data-note-id="${n.id}">
-        <!-- Top Row: Folder, Priority, Pin/Star Toggles -->
-        <div class="notes-simple-card-header">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="notes-simple-card-folder">
-              <span class="notes-folder-dot" style="background:${folderColor}"></span>
-              ${App.utils.escapeHtml(folderName)}
-            </span>
-            ${n.priority && n.priority !== 'medium' ? `
-              <span class="badge ${n.priority === 'high' ? 'badge-red' : 'badge-teal'}" style="font-size:9.5px;padding:1px 5px">
-                ${n.priority.toUpperCase()}
-              </span>
-            ` : ''}
+      <article class="notes-simple-card ${n.is_pinned ? 'pinned' : ''}" data-note-id="${n.id}">
+        <div class="nl-card-head">
+          <div class="nl-card-meta">
+            <span class="n-chip"><span class="notes-folder-dot" style="background:${folderColor}"></span><span>${App.utils.escapeHtml(folderName)}</span></span>
+            ${priorityBadge(n)}
           </div>
-          <div class="notes-simple-card-toggles">
-            <button class="notes-icon-toggle-btn ${n.is_pinned ? 'active' : ''}" data-simple-pin="${n.id}" title="${n.is_pinned ? 'Unpin' : 'Pin to top'}">
-              ${n.is_pinned ? '&#128204;' : '&#9675;'}
-            </button>
-            <button class="notes-icon-toggle-btn ${n.is_favorite ? 'active' : ''}" data-simple-fav="${n.id}" title="${n.is_favorite ? 'Remove star' : 'Star note'}">
-              ${n.is_favorite ? '&#9733;' : '&#9734;'}
-            </button>
-          </div>
+          <div class="nl-note-toggles">${noteToggleButtons(n)}</div>
         </div>
 
-        <!-- Note Title & Excerpt -->
         <div>
-          <h3 class="notes-simple-card-title" data-simple-view="${n.id}" title="Click to view note">
-            ${App.utils.escapeHtml(n.title || 'Untitled Note')}
-          </h3>
-          <div class="notes-simple-card-snippet" style="margin-top:6px" data-simple-view="${n.id}">
-            ${App.utils.escapeHtml(snippet) || '<span style="color:var(--text3);font-style:italic">Empty note...</span>'}
-          </div>
+          <h3 class="nl-card-title"><button type="button" class="nl-title" data-simple-view="${n.id}" title="Open note">${App.utils.escapeHtml(n.title || 'Untitled Note')}</button></h3>
+          <div class="nl-card-snippet ${snippet ? '' : 'is-empty'}" data-simple-view="${n.id}">${App.utils.escapeHtml(snippet) || 'Empty note'}</div>
         </div>
 
-        <!-- Checklist progress preview if tasks exist -->
-        ${taskStats ? `
-          <div style="background:var(--fill-1);border-radius:4px;padding:5px 8px;font-size:11px;display:flex;align-items:center;justify-content:space-between;color:var(--text2);border:1px solid var(--border2)">
-            <span style="display:flex;align-items:center;gap:4px">
-              <span style="color:var(--gold)">&#9745;</span>
-              <span>Tasks: <strong>${taskStats.checked}/${taskStats.total}</strong></span>
-            </span>
-            <span style="font-weight:600;color:${taskStats.pct === 100 ? 'var(--teal)' : 'var(--gold)'}">${taskStats.pct}%</span>
+        <div class="nl-card-foot">
+          ${taskStats ? `<div>${checklistProgress(taskStats)}</div>` : ''}
+          ${chips ? `<div class="nl-stack">${chips}</div>` : ''}
+          <div class="nl-card-info">
+            <span>${formatRelativeDate(n.updated_at || n.created_at)}</span>
+            <span>${stats.words} words</span>
+            ${n.reminder_at ? `<span class="nl-date ${isOverdue ? 'is-overdue' : 'is-due'}" title="Due ${new Date(n.reminder_at).toLocaleString()}">${ic('clock')} ${isOverdue ? 'Overdue' : 'Due ' + new Date(n.reminder_at).toLocaleDateString()}</span>` : ''}
           </div>
-        ` : ''}
-
-        <!-- Linked Entities & Tags -->
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${Array.isArray(n.linked_entities) && n.linked_entities.length > 0 ? `
-            <div class="notes-simple-card-entities">
-              ${n.linked_entities.slice(0, 3).map((ent) => `
-                <span class="alv-entity-tag" data-entity-type="${ent.type}" data-entity-id="${ent.id}" title="Open ${App.utils.escapeHtml(ent.label || '')}">
-                  <strong>[${App.utils.escapeHtml(ent.type.toUpperCase())}]</strong>
-                  <span>${App.utils.escapeHtml(ent.label || 'Entity')}</span>
-                </span>
-              `).join('')}
-              ${n.linked_entities.length > 3 ? `<span style="font-size:10px;color:var(--text3)">+${n.linked_entities.length - 3}</span>` : ''}
+          <div class="nl-card-actions">
+            <div class="nl-card-actions-l">
+              <button type="button" class="n-btn n-btn--sm" data-simple-view="${n.id}" title="View note">${ic('eye')}<span>View</span></button>
+              <button type="button" class="n-btn n-btn--sm" data-simple-edit="${n.id}" title="Edit note">${ic('edit')}<span>Edit</span></button>
+              <button type="button" class="n-btn n-btn--sm" data-simple-studio="${n.id}" title="Open in workspace">${ic('panel')}<span>Workspace</span></button>
             </div>
-          ` : ''}
-
-          ${Array.isArray(n.tags) && n.tags.length > 0 ? `
-            <div class="notes-simple-card-tags">
-              ${n.tags.slice(0, 4).map((t) => `<span class="notes-simple-tag">#${App.utils.escapeHtml(t)}</span>`).join('')}
-              ${n.tags.length > 4 ? `<span style="font-size:10px;color:var(--text3)">+${n.tags.length - 4}</span>` : ''}
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Card Meta Info -->
-        <div class="notes-simple-card-meta">
-          <span>${formatRelativeDate(n.updated_at || n.created_at)}</span>
-          <span>·</span>
-          <span>${stats.words} words</span>
-          ${n.reminder_at ? `
-            <span>·</span>
-            <span style="color:${isOverdue ? 'var(--red)' : 'var(--teal)'};font-weight:600" title="Due ${new Date(n.reminder_at).toLocaleString()}">
-              &#9200; ${isOverdue ? 'Overdue' : 'Due ' + new Date(n.reminder_at).toLocaleDateString()}
-            </span>
-          ` : ''}
-        </div>
-
-        <!-- Differentiated Action Buttons -->
-        <div class="notes-simple-card-actions">
-          <div class="notes-simple-card-btns">
-            <button class="notes-simple-btn" data-simple-view="${n.id}" title="View note">
-              <span>&#128065;</span> View
-            </button>
-            <button class="notes-simple-btn btn-gold-subtle" data-simple-edit="${n.id}" title="Edit note directly">
-              <span>&#9998;</span> Edit
-            </button>
-            <button class="notes-simple-btn" data-simple-studio="${n.id}" title="Open in 3-Pane Workspace">
-              <span>&#128450;</span> Studio
-            </button>
-          </div>
-          <div>
-            <button class="notes-simple-btn btn-del-subtle" data-simple-del="${n.id}" title="${n.in_trash ? 'Delete Permanently' : 'Move to Trash'}">
-              &#128465;
-            </button>
+            <button type="button" class="n-icon-btn n-icon-btn--danger" data-simple-del="${n.id}" title="${n.in_trash ? 'Delete permanently' : 'Move to trash'}" aria-label="${n.in_trash ? 'Delete permanently' : 'Move to trash'}">${ic('trash')}</button>
           </div>
         </div>
-      </div>
+      </article>
     `;
   }
 
-  // ---- Render Excel ALV Table Row ----
-  function renderAlvTableRow(n, index) {
-    const folder = state.folders.find((f) => String(f.id) === String(n.folder_id));
-    const folderColor = folder?.color || 'var(--gold)';
+  // ---- Render Library Table Row ----
+  function renderAlvTableRow(n) {
+    const folder = findFolder(n);
+    const folderColor = folder?.color || 'var(--text3)';
     const folderName = folder?.name || 'Unorganized';
-    const snippet = getNotePlainText(n.content_html || n.content || '').slice(0, 90);
+    const snippet = getSnippetText(n.content_html || n.content || '', 120);
     const isOverdue = n.reminder_at && new Date(n.reminder_at) < new Date();
     const taskStats = getChecklistStats(n.content_html || '');
+    const links = entityChips(n, 2) + tagChips(n, 3);
+    const trashTitle = n.in_trash ? 'Delete permanently' : 'Move to trash';
 
     return `
       <tr data-note-id="${n.id}">
-        <td class="alv-cell-index">${index}</td>
-        <td class="alv-cell-status">
-          <div style="display:flex;align-items:center;justify-content:center;gap:3px">
-            <span data-simple-pin="${n.id}" style="cursor:pointer;color:${n.is_pinned ? 'var(--gold)' : 'var(--text3)'};font-size:11px" title="${n.is_pinned ? 'Unpin' : 'Pin to top'}">&#128204;</span>
-            <span data-simple-fav="${n.id}" style="cursor:pointer;color:${n.is_favorite ? 'var(--gold)' : 'var(--text3)'};font-size:11px" title="${n.is_favorite ? 'Starred' : 'Star note'}">${n.is_favorite ? '&#9733;' : '&#9734;'}</span>
+        <td class="nl-c-note">
+          <div class="nl-note">
+            <div class="nl-note-toggles">${noteToggleButtons(n)}</div>
+            <div class="nl-note-body">
+              <div class="nl-note-titleline">
+                <button type="button" class="nl-title" data-simple-view="${n.id}">${App.utils.escapeHtml(n.title || 'Untitled Note')}</button>
+                ${priorityBadge(n)}
+              </div>
+              <div class="nl-snippet ${snippet ? '' : 'is-empty'}">${App.utils.escapeHtml(snippet) || 'Empty note'}</div>
+              ${taskStats ? `<div>${checklistProgress(taskStats)}</div>` : ''}
+            </div>
           </div>
         </td>
-        <td>
-          <div style="display:flex;flex-direction:column;gap:2px">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span class="alv-cell-title" data-simple-view="${n.id}">${App.utils.escapeHtml(n.title || 'Untitled Note')}</span>
-              ${n.priority && n.priority !== 'medium' ? `<span class="badge ${n.priority === 'high' ? 'badge-red' : 'badge-teal'}" style="font-size:9px;padding:1px 4px">${n.priority.toUpperCase()}</span>` : ''}
-            </div>
-            <div class="alv-cell-snippet">${App.utils.escapeHtml(snippet) || '<span style="color:var(--text3);font-style:italic">Empty note...</span>'}</div>
-          </div>
+        <td class="nl-c-folder">
+          <span class="n-chip"><span class="notes-folder-dot" style="background:${folderColor}"></span><span>${App.utils.escapeHtml(folderName)}</span></span>
         </td>
-        <td>
-          <span class="alv-folder-tag">
-            <span class="notes-folder-dot" style="background:${folderColor}"></span>
-            ${App.utils.escapeHtml(folderName)}
-          </span>
+        <td class="nl-c-links ${links ? '' : 'is-blank'}">${links ? `<div class="nl-stack">${links}</div>` : '<span class="nl-empty-cell">&mdash;</span>'}</td>
+        <td class="nl-c-due ${n.reminder_at ? '' : 'is-blank'}">
+          ${n.reminder_at
+            ? `<span class="nl-date ${isOverdue ? 'is-overdue' : 'is-due'}" title="${new Date(n.reminder_at).toLocaleString()}">${isOverdue ? 'Overdue' : new Date(n.reminder_at).toLocaleDateString()}</span>`
+            : '<span class="nl-empty-cell">&mdash;</span>'}
         </td>
-        <td>
-          ${taskStats ? `<span class="alv-task-badge">&#9745; ${taskStats.checked}/${taskStats.total}</span>` : '<span style="color:var(--text3);font-size:11px">—</span>'}
-        </td>
-        <td>
-          ${Array.isArray(n.linked_entities) && n.linked_entities.length > 0 ? `
-            <div style="display:flex;flex-wrap:wrap;gap:3px">
-              ${n.linked_entities.slice(0, 2).map((ent) => `<span class="alv-entity-tag" data-entity-type="${ent.type}" data-entity-id="${ent.id}" title="Open ${App.utils.escapeHtml(ent.label || '')}">[${App.utils.escapeHtml(ent.type.toUpperCase())}] ${App.utils.escapeHtml(ent.label || '')}</span>`).join('')}
-              ${n.linked_entities.length > 2 ? `<span style="font-size:10px;color:var(--text3)">+${n.linked_entities.length - 2}</span>` : ''}
-            </div>
-          ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
-        </td>
-        <td>
-          ${Array.isArray(n.tags) && n.tags.length > 0 ? `
-            <div style="display:flex;flex-wrap:wrap;gap:3px">
-              ${n.tags.slice(0, 2).map((t) => `<span class="notes-simple-tag">#${App.utils.escapeHtml(t)}</span>`).join('')}
-            </div>
-          ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
-        </td>
-        <td style="white-space:nowrap">
-          ${n.reminder_at ? `
-            <span style="font-size:11px;color:${isOverdue ? 'var(--red)' : 'var(--teal)'};font-weight:600">
-              ${isOverdue ? 'Overdue' : new Date(n.reminder_at).toLocaleDateString()}
-            </span>
-          ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
-        </td>
-        <td style="font-size:11px;color:var(--text3);white-space:nowrap">
-          ${formatRelativeDate(n.updated_at || n.created_at)}
-        </td>
-        <td style="text-align:right;white-space:nowrap">
-          <div style="display:inline-flex;align-items:center;gap:3px">
-            <button class="alv-action-btn" data-simple-view="${n.id}" title="View">👁 View</button>
-            <button class="alv-action-btn edit-btn" data-simple-edit="${n.id}" title="Edit">✎ Edit</button>
-            <button class="alv-action-btn" data-simple-studio="${n.id}" title="Open in 3-Pane">🗂</button>
-            <button class="alv-action-btn del-btn" data-simple-del="${n.id}" title="${n.in_trash ? 'Delete Permanently' : 'Move to Trash'}">🗑</button>
+        <td class="nl-c-updated"><span class="nl-date">${formatRelativeDate(n.updated_at || n.created_at)}</span></td>
+        <td class="nl-c-actions">
+          <div class="nl-actions">
+            <button type="button" class="n-icon-btn" data-simple-view="${n.id}" title="View" aria-label="View note">${ic('eye')}</button>
+            <button type="button" class="n-icon-btn" data-simple-edit="${n.id}" title="Edit" aria-label="Edit note">${ic('edit')}</button>
+            <button type="button" class="n-icon-btn" data-simple-studio="${n.id}" title="Open in workspace" aria-label="Open in workspace">${ic('panel')}</button>
+            <button type="button" class="n-icon-btn n-icon-btn--danger" data-simple-del="${n.id}" title="${trashTitle}" aria-label="${trashTitle}">${ic('trash')}</button>
           </div>
         </td>
       </tr>
     `;
   }
-
   // ---- Bind All Notes Directory Events ----
   function bindAllNotesEvents(container) {
-    // KPI card clicks
-    App.utils.qsa('[data-kpi-filter]', container).forEach((card) => {
-      card.addEventListener('click', () => {
-        const f = card.dataset.kpiFilter;
-        state.allNotesFilter = f;
-        state.allNotesFolder = 'all';
-        drawAllNotesTab();
-      });
-    });
-
-    // KPI Manage Folders button
+    // New folder button
     App.utils.qs('#kpiManageFoldersBtn', container)?.addEventListener('click', () => {
       openFolderModal();
     });
@@ -845,13 +994,26 @@ window.App = window.App || {};
     });
 
     // + New Note buttons
-    App.utils.qs('#simpleNewNoteBtn', container)?.addEventListener('click', () => createNewNoteModal());
     App.utils.qs('#simpleEmptyNewBtn', container)?.addEventListener('click', () => createNewNoteModal());
-    App.utils.qs('#simpleResetFiltersBtn', container)?.addEventListener('click', () => {
+    App.utils.qs('#simpleEmptyTemplatesBtn', container)?.addEventListener('click', () => openTemplatesModal());
+    const resetLibraryFilters = () => {
       state.allNotesSearch = '';
       state.allNotesFilter = 'all';
       state.allNotesFolder = 'all';
       drawAllNotesTab();
+    };
+    App.utils.qs('#simpleResetFiltersBtn', container)?.addEventListener('click', resetLibraryFilters);
+    App.utils.qs('#simpleChipsResetBtn', container)?.addEventListener('click', resetLibraryFilters);
+
+    // Active-filter chips: remove one filter at a time
+    App.utils.qsa('[data-clear-filter]', container).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.clearFilter;
+        if (key === 'search') state.allNotesSearch = '';
+        else if (key === 'filter') state.allNotesFilter = 'all';
+        else if (key === 'folder') state.allNotesFolder = 'all';
+        drawAllNotesTab();
+      });
     });
 
     // Note actions: View
@@ -963,72 +1125,55 @@ window.App = window.App || {};
 
   // ---- Modal: Simple Direct Note Viewer ----
   function openSimpleViewModal(note) {
-    const folder = state.folders.find((f) => String(f.id) === String(note.folder_id));
-    const folderColor = folder?.color || 'var(--gold)';
+    const folder = findFolder(note);
+    const folderColor = folder?.color || 'var(--text3)';
     const folderName = folder?.name || 'Unorganized';
     const initialHtml = note.content_html || (note.content ? App.utils.escapeHtml(note.content).replace(/\n/g, '<br>') : '<p style="color:var(--text3);font-style:italic">Empty note</p>');
     const stats = getNoteStats(initialHtml);
+    const entities = entityChips(note, 99);
 
     App.ui.open({
       title: note.title || 'Untitled Note',
       bodyHtml: `
-        <div style="display:flex;flex-direction:column;gap:14px;max-height:70vh;overflow-y:auto;padding-right:4px">
-          <!-- Metadata Bar -->
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--border2);font-size:12px;color:var(--text2)">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span class="notes-simple-card-folder">
-                <span class="notes-folder-dot" style="background:${folderColor}"></span>
-                ${App.utils.escapeHtml(folderName)}
-              </span>
-              ${note.priority && note.priority !== 'medium' ? `<span class="badge ${note.priority === 'high' ? 'badge-red' : 'badge-teal'}" style="font-size:10px;padding:2px 6px">${note.priority.toUpperCase()}</span>` : ''}
-              ${note.is_pinned ? '<span title="Pinned" style="color:var(--gold)">&#128204; Pinned</span>' : ''}
-              ${note.is_favorite ? '<span title="Favorite" style="color:var(--gold)">&#9733; Starred</span>' : ''}
-            </div>
-            <div style="font-size:11.5px;color:var(--text3)">
-              <span>${stats.words} words</span> · <span>${stats.readingTimeMinutes} min read</span> · <span>Updated ${formatRelativeDate(note.updated_at || note.created_at)}</span>
-            </div>
-          </div>
-
-          <!-- Note Content Body -->
-          <div id="simpleViewBody" class="notes-content-editable" style="min-height:120px;line-height:1.7;color:var(--text);font-size:14px">
-            ${initialHtml}
-          </div>
-
-          <!-- Linked Entities -->
-          ${Array.isArray(note.linked_entities) && note.linked_entities.length > 0 ? `
-            <div style="padding-top:12px;border-top:1px solid var(--border2)">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Linked Portfolio Entities</div>
-              <div class="notes-simple-card-entities">
-                ${note.linked_entities.map((ent) => `
-                  <span class="notes-simple-entity-chip" data-entity-type="${ent.type}" data-entity-id="${ent.id}" title="Go to ${App.utils.escapeHtml(ent.label || '')}">
-                    <strong>[${App.utils.escapeHtml(ent.type.toUpperCase())}]</strong>
-                    <span>${App.utils.escapeHtml(ent.label || '')}</span>
-                  </span>
-                `).join('')}
+        <div class="notes-dlg">
+          <div class="nd-view">
+            <div class="nd-view-meta">
+              <div>
+                <span class="n-chip"><span class="notes-folder-dot" style="background:${folderColor}"></span><span>${App.utils.escapeHtml(folderName)}</span></span>
+                ${priorityBadgeDialog(note)}
+                ${note.is_pinned ? `<span class="nd-pill" title="Pinned">${ic('pin', 'is-filled')} Pinned</span>` : ''}
+                ${note.is_favorite ? `<span class="nd-pill" title="Favorite">${ic('star', 'is-filled')} Starred</span>` : ''}
+              </div>
+              <div>
+                <span>${stats.words} words</span><span>&middot;</span><span>${stats.readingTimeMinutes} min read</span><span>&middot;</span><span>Updated ${formatRelativeDate(note.updated_at || note.created_at)}</span>
               </div>
             </div>
-          ` : ''}
 
-          <!-- Tags -->
-          ${Array.isArray(note.tags) && note.tags.length > 0 ? `
-            <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text3)">
-              <span>Tags:</span>
-              <div class="notes-simple-card-tags">
-                ${note.tags.map((t) => `<span class="notes-simple-tag">#${App.utils.escapeHtml(t)}</span>`).join('')}
+            <div id="simpleViewBody" class="notes-content-editable">${initialHtml}</div>
+
+            ${Array.isArray(note.linked_entities) && note.linked_entities.length > 0 ? `
+              <div>
+                <div class="nd-section-label">Linked portfolio records</div>
+                <div class="nd-inline">${entities}</div>
               </div>
-            </div>
-          ` : ''}
+            ` : ''}
 
-          ${note.reminder_at ? `
-            <div style="font-size:12px;color:var(--teal);display:flex;align-items:center;gap:6px">
-              <span>&#9200;</span> Reminder: Due ${new Date(note.reminder_at).toLocaleString()}
-            </div>
-          ` : ''}
+            ${Array.isArray(note.tags) && note.tags.length > 0 ? `
+              <div>
+                <div class="nd-section-label">Tags</div>
+                <div class="nd-inline">${note.tags.map((t) => `<span class="n-chip">#${App.utils.escapeHtml(t)}</span>`).join('')}</div>
+              </div>
+            ` : ''}
+
+            ${note.reminder_at ? `
+              <div class="nd-reminder">${ic('clock')} Reminder due ${new Date(note.reminder_at).toLocaleString()}</div>
+            ` : ''}
+          </div>
         </div>
       `,
       actions: [
         {
-          label: '📋 Copy Text',
+          label: 'Copy text',
           className: 'btn-outline',
           onClick: () => {
             const plain = getNotePlainText(note.content_html || note.content || '');
@@ -1036,7 +1181,7 @@ window.App = window.App || {};
           },
         },
         {
-          label: '🗂️ Open in 3-Pane',
+          label: 'Open in workspace',
           className: 'btn-outline',
           onClick: () => {
             App.ui.close();
@@ -1045,7 +1190,7 @@ window.App = window.App || {};
           },
         },
         {
-          label: '✎ Edit Note',
+          label: 'Edit note',
           className: 'btn-gold',
           onClick: () => {
             App.ui.close();
@@ -1074,15 +1219,23 @@ window.App = window.App || {};
           drawAllNotesTab();
         });
       });
-
-      // Linked entity click in view modal
-      body.querySelectorAll('[data-entity-type]').forEach((chip) => {
-        chip.addEventListener('click', () => {
-          App.ui.close();
-          navigateToEntity(chip.dataset.entityType, chip.dataset.entityId);
-        });
-      });
     }
+
+    // Linked entity click in view modal
+    App.utils.qsa('.nd-view [data-entity-type]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        App.ui.close();
+        navigateToEntity(chip.dataset.entityType, chip.dataset.entityId);
+      });
+    });
+  }
+
+  // Priority badge for dialog content (scoped to .notes-dlg, which has its own chip styles).
+  function priorityBadgeDialog(note) {
+    const p = String(note.priority || '').toLowerCase();
+    if (p === 'high') return '<span class="n-chip" style="color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent)">High priority</span>';
+    if (p === 'low') return '<span class="n-chip">Low priority</span>';
+    return '';
   }
 
   // ---- Modal: Simple Direct Note Editor ----
@@ -1093,53 +1246,54 @@ window.App = window.App || {};
       ...state.folders.map((f) => ({ value: f.id, label: f.name })),
     ];
     const tagsStr = Array.isArray(note.tags) ? note.tags.join(', ') : '';
+    const currentPriority = String(note.priority || 'medium').toLowerCase();
 
     App.ui.open({
-      title: `Edit Note`,
+      title: `Edit note`,
       bodyHtml: `
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div class="field">
-            <label style="font-size:11px;font-weight:600;color:var(--text2)">Note Title <span style="color:var(--red)">*</span></label>
-            <input type="text" id="simpleEditTitle" class="search-input" value="${App.utils.escapeHtml(note.title || '')}" placeholder="Note title...">
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="notes-dlg">
+          <div class="nd-stack">
             <div class="field">
-              <label style="font-size:11px;font-weight:600;color:var(--text2)">Folder</label>
-              <select id="simpleEditFolder" class="search-input">
-                ${folderOptions.map((opt) => `<option value="${opt.value}" ${String(note.folder_id || '') === String(opt.value) ? 'selected' : ''}>${App.utils.escapeHtml(opt.label)}</option>`).join('')}
-              </select>
+              <label for="simpleEditTitle">Title <span class="req">*</span></label>
+              <input type="text" id="simpleEditTitle" value="${App.utils.escapeHtml(note.title || '')}" placeholder="Note title">
             </div>
-            <div class="field">
-              <label style="font-size:11px;font-weight:600;color:var(--text2)">Priority</label>
-              <select id="simpleEditPriority" class="search-input">
-                <option value="low" ${note.priority === 'low' ? 'selected' : ''}>Low</option>
-                <option value="medium" ${!note.priority || note.priority === 'medium' ? 'selected' : ''}>Medium</option>
-                <option value="high" ${note.priority === 'high' ? 'selected' : ''}>High</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="field">
-              <label style="font-size:11px;font-weight:600;color:var(--text2)">Tags (comma-separated)</label>
-              <input type="text" id="simpleEditTags" class="search-input" value="${App.utils.escapeHtml(tagsStr)}" placeholder="e.g. deals, thesis, Q4">
-            </div>
-            <div class="field">
-              <label style="font-size:11px;font-weight:600;color:var(--text2)">Reminder / Due Date</label>
-              <input type="datetime-local" id="simpleEditReminder" class="search-input" value="${note.reminder_at ? new Date(note.reminder_at).toISOString().slice(0, 16) : ''}">
-            </div>
-          </div>
-          <div class="field">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <label style="font-size:11px;font-weight:600;color:var(--text2)">Note Content</label>
-              <div style="display:flex;gap:4px">
-                <button type="button" class="btn btn-outline btn-xs" id="simpleEditH2Btn" style="padding:2px 6px;font-size:10.5px">H2</button>
-                <button type="button" class="btn btn-outline btn-xs" id="simpleEditH3Btn" style="padding:2px 6px;font-size:10.5px">H3</button>
-                <button type="button" class="btn btn-outline btn-xs" id="simpleEditBoldBtn" style="padding:2px 6px;font-size:10.5px"><b>B</b></button>
-                <button type="button" class="btn btn-outline btn-xs" id="simpleEditChecklistBtn" style="padding:2px 6px;font-size:10.5px">☑ Task</button>
+            <div class="nd-grid2">
+              <div class="field">
+                <label for="simpleEditFolder">Folder</label>
+                <select id="simpleEditFolder">
+                  ${folderOptions.map((opt) => `<option value="${opt.value}" ${String(note.folder_id || '') === String(opt.value) ? 'selected' : ''}>${App.utils.escapeHtml(opt.label)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field">
+                <label for="simpleEditPriority">Priority</label>
+                <select id="simpleEditPriority">
+                  <option value="low" ${currentPriority === 'low' ? 'selected' : ''}>Low</option>
+                  <option value="medium" ${currentPriority !== 'low' && currentPriority !== 'high' ? 'selected' : ''}>Medium</option>
+                  <option value="high" ${currentPriority === 'high' ? 'selected' : ''}>High</option>
+                </select>
               </div>
             </div>
-            <div id="simpleEditContent" contenteditable="true" class="notes-content-editable" style="min-height:160px;max-height:280px;overflow-y:auto;background:var(--fill-2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6">
-              ${note.content_html || (plain ? `<p>${App.utils.escapeHtml(plain).replace(/\n/g, '<br>')}</p>` : '')}
+            <div class="nd-grid2">
+              <div class="field">
+                <label for="simpleEditTags">Tags (comma-separated)</label>
+                <input type="text" id="simpleEditTags" value="${App.utils.escapeHtml(tagsStr)}" placeholder="e.g. deals, thesis, Q4">
+              </div>
+              <div class="field">
+                <label for="simpleEditReminder">Reminder / due date</label>
+                <input type="datetime-local" id="simpleEditReminder" value="${note.reminder_at ? new Date(note.reminder_at).toISOString().slice(0, 16) : ''}">
+              </div>
+            </div>
+            <div class="field">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                <label id="simpleEditContentLabel">Content</label>
+                <div class="nd-minibar" role="toolbar" aria-label="Formatting">
+                  <button type="button" class="nd-minibtn" id="simpleEditH2Btn" title="Heading 2" aria-label="Heading 2">H2</button>
+                  <button type="button" class="nd-minibtn" id="simpleEditH3Btn" title="Heading 3" aria-label="Heading 3">H3</button>
+                  <button type="button" class="nd-minibtn" id="simpleEditBoldBtn" title="Bold" aria-label="Bold"><b>B</b></button>
+                  <button type="button" class="nd-minibtn" id="simpleEditChecklistBtn" title="Insert checklist item" aria-label="Insert checklist item">${ic('checksq')}</button>
+                </div>
+              </div>
+              <div id="simpleEditContent" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="simpleEditContentLabel" class="notes-content-editable nd-editarea">${note.content_html || (plain ? `<p>${App.utils.escapeHtml(plain).replace(/\n/g, '<br>')}</p>` : '')}</div>
             </div>
           </div>
         </div>
@@ -1147,7 +1301,7 @@ window.App = window.App || {};
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Save Changes',
+          label: 'Save changes',
           className: 'btn-gold',
           onClick: async () => {
             const titleInput = App.utils.qs('#simpleEditTitle');
@@ -1202,7 +1356,8 @@ window.App = window.App || {};
       ],
     });
 
-    // Bind mini formatting buttons
+    // Bind mini formatting buttons (mousedown is held back so the text selection survives the click)
+    App.utils.qs('.nd-minibar')?.addEventListener('mousedown', (e) => e.preventDefault());
     App.utils.qs('#simpleEditBoldBtn')?.addEventListener('click', () => document.execCommand('bold'));
     App.utils.qs('#simpleEditH2Btn')?.addEventListener('click', () => document.execCommand('formatBlock', false, 'h2'));
     App.utils.qs('#simpleEditH3Btn')?.addEventListener('click', () => document.execCommand('formatBlock', false, 'h3'));
@@ -1211,7 +1366,6 @@ window.App = window.App || {};
       else document.execCommand('insertHTML', false, '<div class="notes-task-item"><input type="checkbox" class="notes-task-checkbox"><div class="notes-task-text">New task</div></div>');
     });
   }
-
   // ---- Update Mobile View State ----
   function updateMobileViewState() {
     const ws = App.utils.qs('#notesWorkspace');
@@ -1226,6 +1380,7 @@ window.App = window.App || {};
   function drawNavPane() {
     const nav = App.utils.qs('#notesNavPane');
     if (!nav) return;
+    const savedFocus = captureFocus(nav);
 
     const allNotes = state.notes.filter((n) => !n.in_trash && !n.is_archived);
     const pinnedCount = state.notes.filter((n) => !n.in_trash && !n.is_archived && n.is_pinned).length;
@@ -1254,77 +1409,66 @@ window.App = window.App || {};
       totalWords += stats.words;
     });
 
+    const views = [
+      ['all', 'file', 'All notes', allNotes.length],
+      ['pinned', 'pin', 'Pinned', pinnedCount],
+      ['favorites', 'star', 'Favorites', favCount],
+      ['reminders', 'clock', 'Reminders & due', reminderCount],
+      ['archive', 'archive', 'Archive', archiveCount],
+      ['trash', 'trash', 'Trash', trashCount],
+    ];
+
     nav.innerHTML = `
-      <div class="notes-pane-headline">
-        <span class="notes-pane-headline-title"><span>📁</span> Folders & Views</span>
-        <button class="btn btn-outline btn-xs" id="navNewFolderBtn" style="font-size:10px;padding:2px 6px">+ Folder</button>
+      <div class="nn-drawer-head">
+        <span>Folders &amp; views</span>
+        <button type="button" class="n-icon-btn" id="notesNavCloseBtn" title="Close" aria-label="Close navigation">${ic('x')}</button>
       </div>
-      <div class="notes-nav-scroll">
-        <!-- Views -->
+      <div class="nn-scroll">
         <div>
-          <div class="notes-nav-section-title">Views</div>
-          <button class="notes-nav-btn ${state.activeFilter === 'all' ? 'active' : ''}" data-filter="all">
-            <span class="icon-label"><span>&#128196;</span> All Notes</span>
-            <span class="count-pill">${allNotes.length}</span>
-          </button>
-          <button class="notes-nav-btn ${state.activeFilter === 'pinned' ? 'active' : ''}" data-filter="pinned">
-            <span class="icon-label"><span>&#128204;</span> Pinned</span>
-            <span class="count-pill">${pinnedCount}</span>
-          </button>
-          <button class="notes-nav-btn ${state.activeFilter === 'favorites' ? 'active' : ''}" data-filter="favorites">
-            <span class="icon-label"><span>&#9733;</span> Favorites</span>
-            <span class="count-pill">${favCount}</span>
-          </button>
-          <button class="notes-nav-btn ${state.activeFilter === 'reminders' ? 'active' : ''}" data-filter="reminders">
-            <span class="icon-label"><span>&#9200;</span> Reminders & Due</span>
-            <span class="count-pill">${reminderCount}</span>
-          </button>
-          <button class="notes-nav-btn ${state.activeFilter === 'archive' ? 'active' : ''}" data-filter="archive">
-            <span class="icon-label"><span>&#128451;</span> Archive</span>
-            <span class="count-pill">${archiveCount}</span>
-          </button>
-          <button class="notes-nav-btn ${state.activeFilter === 'trash' ? 'active' : ''}" data-filter="trash">
-            <span class="icon-label"><span>&#128465;</span> Trash</span>
-            <span class="count-pill">${trashCount}</span>
-          </button>
+          <div class="nn-title"><span>Views</span></div>
+          ${views.map(([key, icon, label, count]) => `
+            <button type="button" class="notes-nav-btn ${state.activeFilter === key ? 'active' : ''}" data-filter="${key}" ${state.activeFilter === key ? 'aria-current="true"' : ''}>
+              <span class="icon-label">${ic(icon)} ${label}</span>
+              <span class="count-pill">${count}</span>
+            </button>
+          `).join('')}
         </div>
 
-        <!-- Custom Folders -->
         <div>
-          <div class="notes-nav-section-title">
+          <div class="nn-title">
             <span>Folders</span>
-            <button class="btn btn-outline btn-xs" id="newFolderBtn" title="Create Folder" style="padding:1px 6px;font-size:10px">+</button>
+            <button type="button" class="n-icon-btn n-icon-btn--xs" id="newFolderBtn" title="New folder" aria-label="New folder">${ic('plus')}</button>
           </div>
           <div id="notesFolderList">
             ${state.folders.map((f) => {
               const count = allNotes.filter((n) => String(n.folder_id || '') === String(f.id)).length;
               const isActive = state.activeFilter === `folder:${f.id}`;
+              const safeName = App.utils.escapeHtml(f.name);
               return `
-                <div style="display:flex;align-items:center;justify-content:space-between;group;margin-bottom:2px">
-                  <button class="notes-nav-btn ${isActive ? 'active' : ''}" data-filter="folder:${f.id}" style="flex:1">
+                <div class="nn-folder-row">
+                  <button type="button" class="notes-nav-btn ${isActive ? 'active' : ''}" data-filter="folder:${f.id}" ${isActive ? 'aria-current="true"' : ''}>
                     <span class="icon-label">
                       <span class="notes-folder-dot" style="background:${f.color || '#c9a84c'}"></span>
-                      ${App.utils.escapeHtml(f.name)}
+                      ${safeName}
                     </span>
                     <span class="count-pill">${count}</span>
                   </button>
-                  <button class="icon-btn btn-xs" data-delete-folder="${f.id}" title="Delete folder (notes kept safely)" style="opacity:0.6;font-size:11px;padding:2px 5px;color:var(--red)">&#128465;</button>
+                  <button type="button" class="n-icon-btn n-icon-btn--xs n-icon-btn--danger nn-del" data-delete-folder="${f.id}" title="Delete folder (notes are kept)" aria-label="Delete folder ${safeName}">${ic('trash')}</button>
                 </div>
               `;
-            }).join('') || '<div style="font-size:11.5px;color:var(--text3);padding:4px 8px">No folders yet</div>'}
+            }).join('') || '<div class="nn-muted">No folders yet</div>'}
           </div>
         </div>
 
-        <!-- Tags Cloud -->
         ${tagMap.size > 0 ? `
           <div>
-            <div class="notes-nav-section-title">Tags</div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px;padding:2px 6px">
+            <div class="nn-title"><span>Tags</span></div>
+            <div class="nn-tags">
               ${Array.from(tagMap.entries()).map(([tag, count]) => {
                 const isActive = state.activeFilter === `tag:${tag}`;
                 return `
-                  <button class="notes-tag-chip ${isActive ? 'active' : ''}" data-filter="tag:${tag}">
-                    #${App.utils.escapeHtml(tag)} <span style="opacity:0.6">${count}</span>
+                  <button type="button" class="notes-tag-chip ${isActive ? 'active' : ''}" data-filter="tag:${App.utils.escapeHtml(tag)}" ${isActive ? 'aria-current="true"' : ''}>
+                    #${App.utils.escapeHtml(tag)} <span class="n-count">${count}</span>
                   </button>
                 `;
               }).join('')}
@@ -1333,7 +1477,6 @@ window.App = window.App || {};
         ` : ''}
       </div>
 
-      <!-- Footer Quick Stats -->
       <div class="notes-nav-footer">
         <span>${totalWords.toLocaleString()} words</span>
         <span>${allNotes.length} notes</span>
@@ -1346,7 +1489,13 @@ window.App = window.App || {};
         state.activeFilter = btn.dataset.filter;
         drawNavPane();
         drawListPane();
+        closeNavDrawer();
       });
+    });
+
+    App.utils.qs('#notesNavCloseBtn', nav)?.addEventListener('click', () => {
+      setNavDrawerOpen(false);
+      App.utils.qs('#notesNavToggleBtn')?.focus();
     });
 
     // Bind New Folder
@@ -1381,8 +1530,9 @@ window.App = window.App || {};
         }
       });
     });
-  }
 
+    restoreFocus(savedFocus, nav);
+  }
   // ==========================================================================
   // PANE 2: NOTES LIST & FOLDER VIEW (Search, Sort, Inline Edit & Bulk Actions)
   // ==========================================================================
@@ -1390,29 +1540,27 @@ window.App = window.App || {};
     const isActive = String(n.id) === String(state.activeNoteId);
     const isChecked = state.selectedNoteIds.has(String(n.id));
     const isInlineEditing = String(n.id) === String(state.inlineEditingNoteId);
-    const folder = state.folders.find((f) => String(f.id) === String(n.folder_id));
-    const snippet = getNotePlainText(n.content_html || n.content || '').slice(0, 140);
+    const folder = findFolder(n);
+    const snippet = getSnippetText(n.content_html || n.content || '', 140);
     const isOverdue = n.reminder_at && new Date(n.reminder_at) < new Date();
+    const safeTitle = App.utils.escapeHtml(n.title || 'Untitled Note');
+    const firstTag = Array.isArray(n.tags) && n.tags.length > 0 ? n.tags[0] : '';
 
     return `
-      <div class="note-item-card ${isActive ? 'active' : ''}" data-note-id="${n.id}" style="${n.color ? `border-left: 3px solid ${n.color};` : ''}">
+      <div class="note-item-card ${isActive ? 'active' : ''}" data-note-id="${n.id}" tabindex="0" ${isActive ? 'aria-current="true"' : ''} style="${n.color ? `border-left: 3px solid ${n.color};` : ''}">
         <div class="note-item-top">
-          <div style="display:flex;align-items:center;gap:6px;flex:1;overflow:hidden">
-            <input type="checkbox" class="note-select-chk" data-chk-id="${n.id}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation()">
-            <span class="note-item-title">${App.utils.escapeHtml(n.title || 'Untitled Note')}</span>
+          <div class="note-item-lead">
+            <input type="checkbox" class="note-select-chk" data-chk-id="${n.id}" ${isChecked ? 'checked' : ''} aria-label="Select ${safeTitle}" onclick="event.stopPropagation()">
+            <span class="note-item-title">${safeTitle}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:4px">
+          <div class="note-item-tools">
             <div class="note-card-quick-actions">
-              <button class="icon-btn btn-xs inline-edit-toggle-btn" data-edit-inline="${n.id}" title="${isInlineEditing ? 'Close inline edit' : 'Edit note directly'}" style="padding:2px 6px;font-size:11px" onclick="event.stopPropagation()">
-                ${isInlineEditing ? '✕ Cancel' : '✎ Edit'}
-              </button>
-              <button class="icon-btn btn-xs full-editor-btn" data-open-editor="${n.id}" title="Open in full rich-text editor" style="padding:2px 6px;font-size:11px" onclick="event.stopPropagation()">
-                ⤢ Full
-              </button>
+              <button type="button" class="n-icon-btn n-icon-btn--xs inline-edit-toggle-btn" data-edit-inline="${n.id}" title="${isInlineEditing ? 'Close quick edit' : 'Quick edit'}" aria-label="${isInlineEditing ? 'Close quick edit' : 'Quick edit'}" onclick="event.stopPropagation()">${ic(isInlineEditing ? 'x' : 'edit')}</button>
+              <button type="button" class="n-icon-btn n-icon-btn--xs full-editor-btn" data-open-editor="${n.id}" title="Open in full editor" aria-label="Open in full editor" onclick="event.stopPropagation()">${ic('expand')}</button>
             </div>
             <div class="note-item-indicators">
-              ${n.is_pinned ? '<span title="Pinned">&#128204;</span>' : ''}
-              ${n.is_favorite ? '<span title="Favorite" style="color:var(--gold)">&#9733;</span>' : ''}
+              ${n.is_pinned ? `<span title="Pinned">${ic('pin', 'is-filled')}<span class="n-sr-only">Pinned</span></span>` : ''}
+              ${n.is_favorite ? `<span class="is-fav" title="Favorite">${ic('star', 'is-filled')}<span class="n-sr-only">Favorite</span></span>` : ''}
             </div>
           </div>
         </div>
@@ -1420,44 +1568,48 @@ window.App = window.App || {};
         ${isInlineEditing ? `
           <!-- Direct Inline Quick Editor -->
           <div class="note-inline-editor" onclick="event.stopPropagation()">
-            <input type="text" class="note-inline-title" id="inlineTitle_${n.id}" value="${App.utils.escapeHtml(n.title || '')}" placeholder="Note Title...">
-            <textarea class="note-inline-body" id="inlineBody_${n.id}" rows="4" placeholder="Edit note content directly...">${App.utils.escapeHtml(getNotePlainText(n.content_html || n.content || ''))}</textarea>
+            <input type="text" class="note-inline-title" id="inlineTitle_${n.id}" value="${App.utils.escapeHtml(n.title || '')}" placeholder="Note title" aria-label="Note title">
+            <textarea class="note-inline-body" id="inlineBody_${n.id}" rows="4" placeholder="Edit note content directly..." aria-label="Note content">${App.utils.escapeHtml(getNotePlainText(n.content_html || n.content || ''))}</textarea>
             <div class="note-inline-actions">
-              <div style="display:flex;gap:4px">
-                <button class="btn btn-gold btn-xs inline-save-btn" data-save-inline="${n.id}">✓ Save Note</button>
-                <button class="btn btn-outline btn-xs inline-cancel-btn" data-cancel-inline="${n.id}">✕ Cancel</button>
+              <div>
+                <button type="button" class="n-btn n-btn--primary n-btn--sm inline-save-btn" data-save-inline="${n.id}">Save</button>
+                <button type="button" class="n-btn n-btn--sm inline-cancel-btn" data-cancel-inline="${n.id}">Cancel</button>
               </div>
-              <button class="btn btn-outline btn-xs inline-open-editor-btn" data-open-editor="${n.id}">Open in Full Editor →</button>
+              <button type="button" class="n-btn n-btn--sm inline-open-editor-btn" data-open-editor="${n.id}">Open full editor ${ic('chevR')}</button>
             </div>
           </div>
         ` : `
-          <div class="note-item-snippet">${App.utils.escapeHtml(snippet || 'Empty note...')}</div>
+          <div class="note-item-snippet">${App.utils.escapeHtml(snippet || 'Empty note')}</div>
           <div class="note-item-meta">
             <span>${formatRelativeDate(n.updated_at || n.created_at)}</span>
-            ${folder ? `<span>·</span><span class="note-item-folder"><span class="notes-folder-dot" style="background:${folder.color || '#c9a84c'}"></span> ${App.utils.escapeHtml(folder.name)}</span>` : ''}
-            ${n.reminder_at ? `<span>·</span><span class="note-item-reminder ${isOverdue ? 'overdue' : ''}">&#9200; ${new Date(n.reminder_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>` : ''}
-            ${Array.isArray(n.tags) && n.tags.length > 0 ? `<span>·</span><span>#${App.utils.escapeHtml(n.tags[0])}</span>` : ''}
+            ${folder ? `<span class="note-item-folder"><span class="notes-folder-dot" style="background:${folder.color || '#c9a84c'}"></span> ${App.utils.escapeHtml(folder.name)}</span>` : ''}
+            ${n.reminder_at ? `<span class="note-item-reminder ${isOverdue ? 'overdue' : ''}">${ic('clock')} ${new Date(n.reminder_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>` : ''}
+            ${firstTag ? `<span class="note-item-tag">#${App.utils.escapeHtml(firstTag)}</span>` : ''}
           </div>
         `}
       </div>
     `;
   }
-
   function drawListPane() {
     const listPane = App.utils.qs('#notesListPane');
     if (!listPane) return;
 
+    const savedFocus = captureFocus(listPane);
     const filtered = getFilteredNotes();
     const hasBulkSelection = state.selectedNoteIds.size > 0;
+    listPane.classList.toggle('has-selection', hasBulkSelection);
 
     // Build content based on displayMode ('list' vs 'folder')
     let contentHtml = '';
     if (filtered.length === 0) {
+      const searching = !!state.searchQuery.trim();
+      const inTrash = state.activeFilter === 'trash';
       contentHtml = `
-        <div style="padding:32px 16px;text-align:center;color:var(--text3);font-size:12.5px">
-          <div style="font-size:24px;margin-bottom:8px">&#128221;</div>
-          <p>No notes found in this view.</p>
-          <button class="btn btn-gold btn-xs" id="emptyCreateBtn" style="margin-top:10px">+ Create Note</button>
+        <div class="n-empty">
+          <div class="n-empty-ic">${ic(searching ? 'search' : inTrash ? 'trash' : 'file')}</div>
+          <h3>${searching ? 'No matching notes' : inTrash ? 'Trash is empty' : 'Nothing here yet'}</h3>
+          <p>${searching ? `Nothing matched "${App.utils.escapeHtml(state.searchQuery.trim())}" in this view.` : inTrash ? 'Deleted notes will wait here until you restore them.' : 'Create a note to start capturing ideas in this view.'}</p>
+          <div class="n-empty-actions"><button type="button" class="n-btn n-btn--primary" id="emptyCreateBtn">${ic('plus')}<span>New note</span></button></div>
         </div>
       `;
     } else if (state.displayMode === 'folder') {
@@ -1482,32 +1634,27 @@ window.App = window.App || {};
       contentHtml = folderGroups.map((grp) => {
         const isCollapsed = state.collapsedFolderGroups.has(grp.id);
         if (state.searchQuery.trim() && grp.notes.length === 0) return '';
+        const safeName = App.utils.escapeHtml(grp.name);
         return `
           <div class="notes-folder-group">
-            <div class="notes-folder-group-header" data-toggle-group="${grp.id}">
-              <div class="notes-folder-group-title">
-                <span style="font-size:10px;color:var(--text3)">${isCollapsed ? '▶' : '▼'}</span>
+            <div class="notes-folder-group-header">
+              <button type="button" class="notes-folder-group-title" data-toggle-group="${grp.id}" aria-expanded="${isCollapsed ? 'false' : 'true'}">
+                ${ic('chevR')}
                 <span class="notes-folder-dot" style="background:${grp.color}"></span>
-                <span>${App.utils.escapeHtml(grp.name)}</span>
-                <span class="count-pill" style="font-size:11px;color:var(--text3);margin-left:4px">(${grp.notes.length})</span>
-              </div>
-              <div class="notes-folder-group-actions" onclick="event.stopPropagation()">
-                <button class="btn btn-outline btn-xs" data-add-in-folder="${grp.id === 'unorganized' ? '' : grp.id}" title="Add note in ${App.utils.escapeHtml(grp.name)}" style="font-size:10.5px;padding:2px 6px">
-                  + Note
-                </button>
+                <span>${safeName}</span>
+                <span class="count-pill">${grp.notes.length}</span>
+              </button>
+              <div class="notes-folder-group-actions">
+                <button type="button" class="n-icon-btn n-icon-btn--xs" data-add-in-folder="${grp.id === 'unorganized' ? '' : grp.id}" title="Add note in ${safeName}" aria-label="Add note in ${safeName}">${ic('plus')}</button>
                 ${grp.isCustom ? `
-                  <button class="icon-btn btn-xs" data-delete-folder-group="${grp.id}" title="Delete folder (notes kept safely)" style="font-size:11px;padding:2px 5px;color:var(--red)">
-                    &#128465;
-                  </button>
+                  <button type="button" class="n-icon-btn n-icon-btn--xs n-icon-btn--danger" data-delete-folder-group="${grp.id}" title="Delete folder (notes are kept)" aria-label="Delete folder ${safeName}">${ic('trash')}</button>
                 ` : ''}
               </div>
             </div>
             ${!isCollapsed ? `
               <div class="notes-folder-group-cards">
                 ${grp.notes.length > 0 ? grp.notes.map(renderNoteCard).join('') : `
-                  <div style="padding:10px 16px;font-size:11.5px;color:var(--text3)">
-                    No notes in this folder. Click "+ Note" to add one.
-                  </div>
+                  <div class="nl-group-empty">No notes in this folder yet.</div>
                 `}
               </div>
             ` : ''}
@@ -1518,46 +1665,51 @@ window.App = window.App || {};
       contentHtml = filtered.map(renderNoteCard).join('');
     }
 
+    const navExpanded = (() => {
+      const ws = App.utils.qs('#notesWorkspace');
+      if (!ws) return false;
+      return ws.clientWidth >= NAV_WIDE_PX ? !ws.classList.contains('nav-collapsed') : ws.classList.contains('nav-open');
+    })();
+
     listPane.innerHTML = `
-      <div class="notes-pane-headline">
-        <span class="notes-pane-headline-title"><span>📄</span> Notes Stream (${filtered.length})</span>
-        <span style="font-size:10px;color:var(--text3);text-transform:none">Filter: ${App.utils.escapeHtml(state.activeFilter)}</span>
-      </div>
-      <!-- List Header with Search & Sort -->
       <div class="notes-list-header">
-        <div class="notes-search-wrap">
-          <span class="notes-search-icon">&#128269;</span>
-          <input type="text" id="notesSearchInput" placeholder="Search notes, tags, content..." value="${App.utils.escapeHtml(state.searchQuery)}">
+        <div class="nli-title-row">
+          <button type="button" class="n-icon-btn" id="notesNavToggleBtn" aria-controls="notesNavPane" aria-expanded="${navExpanded ? 'true' : 'false'}" title="Show or hide folders &amp; views" aria-label="Show or hide folders and views">${ic('panel')}</button>
+          <h2 class="nli-title"><strong>${App.utils.escapeHtml(getActiveViewLabel())}</strong><span>${filtered.length}</span></h2>
+        </div>
+        <div class="n-search">
+          ${ic('search')}
+          <input type="text" class="n-field" id="notesSearchInput" placeholder="Search notes, tags, content" aria-label="Search notes" autocomplete="off" value="${App.utils.escapeHtml(state.searchQuery)}">
         </div>
         <div class="notes-list-controls">
-          <div style="display:flex;align-items:center;gap:6px">
-            <input type="checkbox" id="selectAllNotesChk" ${hasBulkSelection && state.selectedNoteIds.size === filtered.length ? 'checked' : ''} title="Select All">
-            <div class="notes-view-mode-toggle">
-              <button class="notes-view-mode-btn ${state.displayMode === 'list' ? 'active' : ''}" data-view-mode="list" title="Continuous list view">☰ List</button>
-              <button class="notes-view-mode-btn ${state.displayMode === 'folder' ? 'active' : ''}" data-view-mode="folder" title="Group notes by folder">📁 Folders</button>
+          <div class="nli-left">
+            <input type="checkbox" id="selectAllNotesChk" ${hasBulkSelection && state.selectedNoteIds.size === filtered.length ? 'checked' : ''} aria-label="Select all notes in this view" title="Select all">
+            <div class="n-seg notes-view-mode-toggle" role="group" aria-label="List layout">
+              <button type="button" class="n-seg-btn notes-view-mode-btn ${state.displayMode === 'list' ? 'active' : ''}" data-view-mode="list" aria-pressed="${state.displayMode === 'list'}" title="Continuous list">${ic('rows')}<span>List</span></button>
+              <button type="button" class="n-seg-btn notes-view-mode-btn ${state.displayMode === 'folder' ? 'active' : ''}" data-view-mode="folder" aria-pressed="${state.displayMode === 'folder'}" title="Group notes by folder">${ic('folder')}<span>Folders</span></button>
             </div>
           </div>
-          <select id="notesSortSelect">
-            <option value="updated_desc" ${state.sortBy === 'updated_desc' ? 'selected' : ''}>Recently Updated</option>
-            <option value="created_desc" ${state.sortBy === 'created_desc' ? 'selected' : ''}>Date Created</option>
+          <select id="notesSortSelect" class="n-field" aria-label="Sort notes">
+            <option value="updated_desc" ${state.sortBy === 'updated_desc' ? 'selected' : ''}>Recently updated</option>
+            <option value="created_desc" ${state.sortBy === 'created_desc' ? 'selected' : ''}>Date created</option>
             <option value="title_asc" ${state.sortBy === 'title_asc' ? 'selected' : ''}>Title (A-Z)</option>
             <option value="priority_desc" ${state.sortBy === 'priority_desc' ? 'selected' : ''}>Priority</option>
-            <option value="reminder_asc" ${state.sortBy === 'reminder_asc' ? 'selected' : ''}>Reminder Date</option>
+            <option value="reminder_asc" ${state.sortBy === 'reminder_asc' ? 'selected' : ''}>Reminder date</option>
           </select>
         </div>
       </div>
 
       <!-- Bulk Actions Bar (conditionally shown) -->
       ${hasBulkSelection ? `
-        <div class="notes-bulk-bar">
+        <div class="notes-bulk-bar" role="region" aria-label="Bulk actions">
           <span>${state.selectedNoteIds.size} selected</span>
-          <div style="display:flex;gap:4px">
+          <div>
             ${state.activeFilter === 'trash' ? `
-              <button class="btn btn-outline btn-xs" id="bulkRestoreBtn">Restore</button>
-              <button class="btn btn-danger btn-xs" id="bulkPermanentDeleteBtn">Delete Forever</button>
+              <button type="button" class="n-btn n-btn--sm" id="bulkRestoreBtn">${ic('restore')}<span>Restore</span></button>
+              <button type="button" class="n-btn n-btn--sm n-btn--danger" id="bulkPermanentDeleteBtn">${ic('trash')}<span>Delete forever</span></button>
             ` : `
-              <button class="btn btn-outline btn-xs" id="bulkArchiveBtn">${state.activeFilter === 'archive' ? 'Unarchive' : 'Archive'}</button>
-              <button class="btn btn-outline btn-xs" id="bulkTrashBtn">Trash</button>
+              <button type="button" class="n-btn n-btn--sm" id="bulkArchiveBtn">${ic('archive')}<span>${state.activeFilter === 'archive' ? 'Unarchive' : 'Archive'}</span></button>
+              <button type="button" class="n-btn n-btn--sm n-btn--danger" id="bulkTrashBtn">${ic('trash')}<span>Trash</span></button>
             `}
           </div>
         </div>
@@ -1569,6 +1721,7 @@ window.App = window.App || {};
       </div>
     `;
 
+    App.utils.qs('#notesNavToggleBtn', listPane)?.addEventListener('click', toggleNotesNav);
     // Bind View Mode Switcher (List vs Folder)
     App.utils.qsa('[data-view-mode]', listPane).forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -1811,7 +1964,18 @@ window.App = window.App || {};
         drawListPane();
         drawEditorPane();
       });
+
+      // Keyboard: Enter / Space on the focused row opens the note (same as a click)
+      card.addEventListener('keydown', (e) => {
+        if (e.target !== card) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          card.click();
+        }
+      });
     });
+
+    restoreFocus(savedFocus, listPane);
   }
 
   // ==========================================================================
@@ -1825,158 +1989,138 @@ window.App = window.App || {};
 
     if (!note) {
       editorPane.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text3);padding:24px;text-align:center">
-          <div style="font-size:36px;margin-bottom:12px;opacity:0.7">&#128196;</div>
-          <h2 style="font-size:18px;color:var(--text);margin-bottom:6px">No Note Selected</h2>
-          <p style="font-size:13px;max-width:320px;margin-bottom:16px">Select a note from the list, or create a new one to begin capturing your knowledge.</p>
-          <button class="btn btn-gold btn-sm" id="editorNewNoteBtn">+ New Note</button>
+        <div class="ne-topbar">
+          <div class="ne-topbar-l">
+            <button type="button" class="n-icon-btn notes-mobile-back" id="notesMobileBackBtn" title="Back to notes list" aria-label="Back to notes list">${ic('back')}</button>
+          </div>
+        </div>
+        <div class="ne-empty">
+          <div class="n-empty">
+            <div class="n-empty-ic">${ic('file')}</div>
+            <h3>No note selected</h3>
+            <p>Pick a note from the list, or create a new one to start capturing your thinking.</p>
+            <div class="n-empty-actions"><button type="button" class="n-btn n-btn--primary" id="editorNewNoteBtn">${ic('plus')}<span>New note</span></button></div>
+          </div>
         </div>
       `;
       App.utils.qs('#editorNewNoteBtn', editorPane)?.addEventListener('click', () => createNewNoteModal());
+      App.utils.qs('#notesMobileBackBtn', editorPane)?.addEventListener('click', () => {
+        state.mobileView = 'list';
+        updateMobileViewState();
+      });
       return;
     }
 
     const initialHtml = note.content_html || (note.content ? App.utils.escapeHtml(note.content).replace(/\n/g, '<br>') : '');
     const stats = getNoteStats(initialHtml);
+    const pinLabel = note.is_pinned ? 'Unpin note' : 'Pin to top';
+    const favLabel = note.is_favorite ? 'Remove favorite' : 'Mark as favorite';
 
     editorPane.innerHTML = `
-      <div class="notes-pane-headline">
-        <span class="notes-pane-headline-title"><span>✍️</span> Active Note Editor</span>
-        <span class="notes-status-badge ${state.saveStatus}" id="editorSaveBadge" style="font-size:10.5px">
-          ${state.saveStatus === 'saving' ? '● Saving...' : state.saveStatus === 'saved' ? '✓ Saved' : '● Unsaved'}
-        </span>
-      </div>
-      <!-- Editor Header -->
-      <div class="notes-editor-header">
-        <div class="notes-editor-header-left">
-          <button class="notes-mobile-back" id="notesMobileBackBtn" title="Back to Notes List">
-            &#8592; Notes
-          </button>
-          <input type="text" class="notes-editor-title-input" id="noteTitleInput" value="${App.utils.escapeHtml(note.title || '')}" placeholder="Note Title...">
+      <!-- Slim action bar: location, save state, quick toggles, overflow menu -->
+      <div class="ne-topbar">
+        <div class="ne-topbar-l">
+          <button type="button" class="n-icon-btn notes-mobile-back" id="notesMobileBackBtn" title="Back to notes list" aria-label="Back to notes list">${ic('back')}</button>
+          <label class="ne-folder" title="Move to folder">
+            ${ic('folder')}
+            <select id="noteFolderSelect" aria-label="Folder">
+              <option value="">No folder</option>
+              ${state.folders.map((f) => `<option value="${f.id}" ${String(note.folder_id || '') === String(f.id) ? 'selected' : ''}>${App.utils.escapeHtml(f.name)}</option>`).join('')}
+            </select>
+          </label>
         </div>
 
-        <div class="notes-editor-header-actions">
-          <!-- Folder Selector Dropdown -->
-          <select id="noteFolderSelect" class="btn btn-outline btn-xs" style="font-size:11.5px;max-width:130px">
-            <option value="">No Folder</option>
-            ${state.folders.map((f) => `<option value="${f.id}" ${String(note.folder_id || '') === String(f.id) ? 'selected' : ''}>${App.utils.escapeHtml(f.name)}</option>`).join('')}
-          </select>
+        <div class="ne-topbar-r">
+          <span class="notes-status-badge saved" id="noteSaveStatus" role="status" aria-live="polite"><span class="n-dot"></span><span class="n-status-text">Saved</span></span>
 
-          <!-- Pin Toggle -->
-          <button class="icon-btn btn-xs ${note.is_pinned ? 'active' : ''}" id="notePinBtn" title="${note.is_pinned ? 'Unpin Note' : 'Pin to Top'}" style="color:${note.is_pinned ? 'var(--gold)' : 'var(--text3)'}">
-            &#128204;
-          </button>
+          <button type="button" class="n-icon-btn ${note.is_pinned ? 'is-on' : ''}" id="notePinBtn" aria-pressed="${note.is_pinned ? 'true' : 'false'}" title="${pinLabel}" aria-label="${pinLabel}">${ic('pin')}</button>
+          <button type="button" class="n-icon-btn ${note.is_favorite ? 'is-on' : ''}" id="noteFavBtn" aria-pressed="${note.is_favorite ? 'true' : 'false'}" title="${favLabel}" aria-label="${favLabel}">${ic('star')}</button>
 
-          <!-- Favorite Toggle -->
-          <button class="icon-btn btn-xs ${note.is_favorite ? 'active' : ''}" id="noteFavBtn" title="${note.is_favorite ? 'Remove Favorite' : 'Mark Favorite'}" style="color:${note.is_favorite ? 'var(--gold)' : 'var(--text3)'}">
-            ${note.is_favorite ? '&#9733;' : '&#9734;'}
-          </button>
+          <button type="button" class="n-btn n-btn--accent n-btn--sm ne-ai" id="notesAiAssistBtn" title="AI assistant: summarize, polish, extract actions, analyze risks" aria-label="AI assistant">${ic('sparkles')}<span class="n-btn-label">AI assist</span></button>
 
-          <!-- Save Status Indicator -->
-          <span class="notes-status-badge saved" id="noteSaveStatus">
-            <span style="font-size:9px">&#9679;</span> Saved
-          </span>
+          <div class="n-menu-wrap">
+            <button type="button" class="n-icon-btn" id="noteMoreBtn" data-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-controls="noteMoreMenu" title="More actions" aria-label="More actions">${ic('more', 'is-filled')}</button>
+            <div class="n-menu" id="noteMoreMenu" role="menu" aria-label="Note actions" hidden>
+              <button type="button" class="n-menu-item" role="menuitem" id="noteVersionHistoryBtn" title="Version snapshots">${ic('history')}<span>Version history</span></button>
+              <button type="button" class="n-menu-item" role="menuitem" id="noteExportSingleBtn" title="Export note">${ic('download')}<span>Export note</span></button>
+              <button type="button" class="n-menu-item" role="menuitem" id="noteDuplicateBtn" title="Duplicate note">${ic('copy')}<span>Duplicate</span></button>
+              <div class="n-menu-sep" role="separator"></div>
+              <button type="button" class="n-menu-item ${note.in_trash ? '' : 'n-menu-item--danger'}" role="menuitem" id="noteTrashBtn" title="${note.in_trash ? 'Restore from Trash' : 'Move to Trash'}">${ic(note.in_trash ? 'restore' : 'trash')}<span>${note.in_trash ? 'Restore from trash' : 'Move to trash'}</span></button>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Rich-Text Formatting Toolbar -->
-      <div class="notes-toolbar">
-        <button class="notes-toolbar-btn" data-cmd="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
-        <button class="notes-toolbar-btn" data-cmd="italic" title="Italic (Ctrl+I)"><em>I</em></button>
-        <button class="notes-toolbar-btn" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
-
-        <span class="notes-toolbar-sep"></span>
-
-        <button class="notes-toolbar-btn" data-heading="h1" title="Heading 1">H1</button>
-        <button class="notes-toolbar-btn" data-heading="h2" title="Heading 2">H2</button>
-        <button class="notes-toolbar-btn" data-heading="h3" title="Heading 3">H3</button>
-
-        <span class="notes-toolbar-sep"></span>
-
-        <button class="notes-toolbar-btn" data-cmd="insertUnorderedList" title="Bulleted List">&#8226; List</button>
-        <button class="notes-toolbar-btn" data-cmd="insertOrderedList" title="Numbered List">1. List</button>
-        <button class="notes-toolbar-btn" id="toolbarChecklistBtn" title="Checklist Item">&#9745; Task</button>
-
-        <span class="notes-toolbar-sep"></span>
-
-        <button class="notes-toolbar-btn" id="toolbarBlockquoteBtn" title="Quote Block">&#10077; Quote</button>
-        <button class="notes-toolbar-btn" id="toolbarCodeBtn" title="Code Block">&lt;/&gt;</button>
-        <button class="notes-toolbar-btn" id="toolbarTableBtn" title="Financial Table">&#9638; Table</button>
-        <button class="notes-toolbar-btn" id="toolbarLinkBtn" title="Insert Link">&#128279;</button>
-
-        <span class="notes-toolbar-sep"></span>
-
-        <button class="notes-toolbar-btn" data-cmd="undo" title="Undo (Ctrl+Z)">&#8630;</button>
-        <button class="notes-toolbar-btn" data-cmd="redo" title="Redo (Ctrl+Y)">&#8631;</button>
-
-        <span class="notes-toolbar-sep"></span>
-
-        <!-- AI Knowledge Assistant Action -->
-        <button class="notes-toolbar-btn" id="notesAiAssistBtn" style="color:var(--gold);font-weight:600" title="AI Knowledge Assistant (Summarize, Polish, Extract Actions, Risks)">
-          <span>&#9889;</span> AI Assist
-        </button>
+      <div class="notes-toolbar" role="toolbar" aria-label="Text formatting">
+        <div class="notes-toolbar-group">
+          <button type="button" class="notes-toolbar-btn" data-cmd="bold" title="Bold (Ctrl+B)" aria-label="Bold">${ic('bold')}</button>
+          <button type="button" class="notes-toolbar-btn" data-cmd="italic" title="Italic (Ctrl+I)" aria-label="Italic">${ic('italic')}</button>
+          <button type="button" class="notes-toolbar-btn" data-cmd="strikeThrough" title="Strikethrough" aria-label="Strikethrough">${ic('strike')}</button>
+        </div>
+        <span class="notes-toolbar-sep" aria-hidden="true"></span>
+        <div class="notes-toolbar-group">
+          <button type="button" class="notes-toolbar-btn" data-heading="h1" title="Heading 1" aria-label="Heading 1">H1</button>
+          <button type="button" class="notes-toolbar-btn" data-heading="h2" title="Heading 2" aria-label="Heading 2">H2</button>
+          <button type="button" class="notes-toolbar-btn" data-heading="h3" title="Heading 3" aria-label="Heading 3">H3</button>
+        </div>
+        <span class="notes-toolbar-sep" aria-hidden="true"></span>
+        <div class="notes-toolbar-group">
+          <button type="button" class="notes-toolbar-btn" data-cmd="insertUnorderedList" title="Bulleted list" aria-label="Bulleted list">${ic('ul')}</button>
+          <button type="button" class="notes-toolbar-btn" data-cmd="insertOrderedList" title="Numbered list" aria-label="Numbered list">${ic('ol')}</button>
+          <button type="button" class="notes-toolbar-btn" id="toolbarChecklistBtn" title="Checklist item" aria-label="Checklist item">${ic('checksq')}</button>
+        </div>
+        <span class="notes-toolbar-sep" aria-hidden="true"></span>
+        <div class="notes-toolbar-group">
+          <button type="button" class="notes-toolbar-btn" id="toolbarBlockquoteBtn" title="Quote block" aria-label="Quote block">${ic('quote')}</button>
+          <button type="button" class="notes-toolbar-btn" id="toolbarCodeBtn" title="Code block" aria-label="Code block">${ic('code')}</button>
+          <button type="button" class="notes-toolbar-btn" id="toolbarTableBtn" title="Insert table" aria-label="Insert table">${ic('table')}</button>
+          <button type="button" class="notes-toolbar-btn" id="toolbarLinkBtn" title="Insert link" aria-label="Insert link">${ic('link')}</button>
+        </div>
+        <span class="notes-toolbar-sep" aria-hidden="true"></span>
+        <div class="notes-toolbar-group">
+          <button type="button" class="notes-toolbar-btn" data-cmd="undo" title="Undo (Ctrl+Z)" aria-label="Undo">${ic('undo')}</button>
+          <button type="button" class="notes-toolbar-btn" data-cmd="redo" title="Redo (Ctrl+Y)" aria-label="Redo">${ic('redo')}</button>
+        </div>
       </div>
 
       <!-- Content Scroll & Body -->
       <div class="notes-content-scroll">
-        <div class="notes-content-editable" id="notesContentEditable" contenteditable="true" placeholder="Start typing your investment notes, meeting minutes, thesis, or checklist...">
-          ${initialHtml}
-        </div>
+        <div class="notes-doc">
+          <input type="text" class="notes-editor-title-input" id="noteTitleInput" value="${App.utils.escapeHtml(note.title || '')}" placeholder="Untitled note" aria-label="Note title" autocomplete="off">
 
-        <!-- Entity Linking Tray -->
-        <div class="notes-entity-tray" id="notesEntityTray">
-          <div class="notes-entity-tray-header">
-            <span>&#128279; Linked Portfolio Entities</span>
-            <button class="btn btn-outline btn-xs" id="addEntityLinkBtn" style="font-size:11px">+ Link Entity</button>
+          <div class="notes-doc-meta">
+            <button type="button" class="n-chip" id="noteReminderBtn" title="Set reminder / due date">${ic('clock')}<span>${note.reminder_at ? `Due ${new Date(note.reminder_at).toLocaleDateString()}` : 'Set reminder'}</span></button>
+            <button type="button" class="n-chip" id="noteTagsBtn" title="Manage tags">${ic('tag')}<span>${Array.isArray(note.tags) && note.tags.length > 0 ? note.tags.map((t) => `#${App.utils.escapeHtml(t)}`).join(' ') : 'Add tags'}</span></button>
+            <span class="n-meta-text"><span id="noteWordCount">${stats.words} words</span><span aria-hidden="true">&middot;</span><span id="noteReadingTime">${stats.readingTimeMinutes} min read</span></span>
           </div>
-          <div class="notes-entity-chips" id="notesEntityChips">
-            ${Array.isArray(note.linked_entities) && note.linked_entities.length > 0 ? note.linked_entities.map((ent, idx) => `
-              <span class="notes-entity-chip" data-entity-type="${ent.type}" data-entity-id="${ent.id}" title="Click to open ${App.utils.escapeHtml(ent.label || '')}">
-                <span style="color:var(--gold)">[${App.utils.escapeHtml(ent.type.toUpperCase())}]</span>
-                <span>${App.utils.escapeHtml(ent.label || 'Entity')}</span>
-                <span class="del-link" data-del-entity="${idx}" title="Remove link" onclick="event.stopPropagation()">&#10005;</span>
-              </span>
-            `).join('') : '<span style="font-size:11.5px;color:var(--text3)">No linked deals, SIPs, gold, or goals yet.</span>'}
+
+          <div class="notes-content-editable" id="notesContentEditable" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Note content" placeholder="Start writing: thesis, meeting minutes, a checklist...">
+            ${initialHtml}
           </div>
-        </div>
-      </div>
 
-      <!-- Editor Footer / Meta Bar -->
-      <div class="notes-editor-footer">
-        <div class="notes-meta-stats">
-          <span id="noteWordCount">${stats.words} words</span>
-          <span>·</span>
-          <span id="noteReadingTime">${stats.readingTimeMinutes} min read</span>
-          <span>·</span>
-          <span style="cursor:pointer;color:var(--text2)" id="noteReminderBtn" title="Set Reminder / Due Date">
-            &#9200; ${note.reminder_at ? `Due ${new Date(note.reminder_at).toLocaleDateString()}` : 'Set Reminder'}
-          </span>
-          <span>·</span>
-          <span style="cursor:pointer;color:var(--text2)" id="noteTagsBtn" title="Manage Tags">
-            &#127991; ${Array.isArray(note.tags) && note.tags.length > 0 ? note.tags.map((t) => `#${t}`).join(' ') : 'Add Tags'}
-          </span>
-        </div>
-
-        <div class="notes-footer-actions">
-          <button class="btn btn-outline btn-xs" id="noteVersionHistoryBtn" title="Version Snapshots">
-            &#128339; History
-          </button>
-          <button class="btn btn-outline btn-xs" id="noteExportSingleBtn" title="Export Note">
-            &#8595; Export
-          </button>
-          <button class="btn btn-outline btn-xs" id="noteDuplicateBtn" title="Duplicate Note">
-            &#128203; Duplicate
-          </button>
-          <button class="btn btn-outline btn-xs" id="noteTrashBtn" style="color:var(--red)" title="${note.in_trash ? 'Restore from Trash' : 'Move to Trash'}">
-            ${note.in_trash ? 'Restore' : 'Trash'}
-          </button>
+          <!-- Entity Linking Tray -->
+          <div class="notes-entity-tray" id="notesEntityTray">
+            <div class="notes-entity-tray-header">
+              <span>${ic('link')} Linked portfolio records</span>
+              <button type="button" class="n-btn n-btn--sm" id="addEntityLinkBtn">${ic('plus')}<span>Link record</span></button>
+            </div>
+            <div class="notes-entity-chips" id="notesEntityChips">
+              ${Array.isArray(note.linked_entities) && note.linked_entities.length > 0 ? note.linked_entities.map((ent, idx) => `
+                <span class="notes-entity-chip" tabindex="0" role="link" data-entity-type="${App.utils.escapeHtml(ent.type)}" data-entity-id="${App.utils.escapeHtml(ent.id)}" title="Open ${App.utils.escapeHtml(ent.label || '')}">
+                  <span class="n-etype">${App.utils.escapeHtml(String(ent.type).toUpperCase())}</span>
+                  <span>${App.utils.escapeHtml(ent.label || 'Entity')}</span>
+                  <button type="button" class="del-link" data-del-entity="${idx}" title="Remove link" aria-label="Remove link to ${App.utils.escapeHtml(ent.label || 'record')}" onclick="event.stopPropagation()">${ic('x')}</button>
+                </span>
+              `).join('') : '<span class="nn-hint">No linked deals, SIPs, gold or goals yet.</span>'}
+            </div>
+          </div>
         </div>
       </div>
     `;
 
     bindEditorEvents(note);
   }
-
   // ---- Bind Editor Events & Autosave Engine ----
   function bindEditorEvents(note) {
     const editorPane = App.utils.qs('#notesEditorPane');
@@ -2001,15 +2145,18 @@ window.App = window.App || {};
         state.saveStatus = status;
         if (!statusBadge) return;
         statusBadge.className = `notes-status-badge ${status}`;
+        const setStatusText = (text) => {
+          statusBadge.innerHTML = `<span class="n-dot"></span><span class="n-status-text">${text}</span>`;
+        };
         if (status === 'saving') {
-          statusBadge.innerHTML = '<span style="font-size:9px">&#9679;</span> Saving...';
+          setStatusText('Saving...');
         } else if (status === 'saved') {
-          statusBadge.innerHTML = '<span style="font-size:9px">&#9679;</span> Saved';
+          setStatusText('Saved');
           updateCardSnippetInList(note.id);
         } else if (status === 'cached') {
-          statusBadge.innerHTML = '<span style="font-size:9px">&#9679;</span> Draft saved offline';
+          setStatusText('Draft saved offline');
         } else if (status === 'failed') {
-          statusBadge.innerHTML = '<span style="font-size:9px">&#9679;</span> Save failed';
+          setStatusText('Save failed');
         }
       },
       onConflict: () => {
@@ -2078,6 +2225,11 @@ window.App = window.App || {};
           handleContentChange();
         }
       }
+    });
+
+    // Pressing a toolbar button must not pull focus (and the text selection) out of the editor
+    App.utils.qs('.notes-toolbar', editorPane)?.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) e.preventDefault();
     });
 
     // Toolbar standard execCommand buttons
@@ -2243,6 +2395,12 @@ window.App = window.App || {};
         const id = chip.dataset.entityId;
         navigateToEntity(type, id);
       });
+      chip.addEventListener('keydown', (e) => {
+        if (e.target === chip && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          chip.click();
+        }
+      });
     });
 
     // Remove Entity link
@@ -2271,8 +2429,7 @@ window.App = window.App || {};
     const snippetEl = card.querySelector('.note-item-snippet');
     if (titleEl) titleEl.textContent = note.title || 'Untitled Note';
     if (snippetEl) {
-      const plain = getNotePlainText(note.content_html || note.content || '');
-      snippetEl.textContent = plain.slice(0, 140) || 'Empty note...';
+      snippetEl.textContent = getSnippetText(note.content_html || note.content || '', 140) || 'Empty note';
     }
   }
 
@@ -2315,6 +2472,16 @@ window.App = window.App || {};
   // MODALS & DIALOGS
   // ==========================================================================
 
+  // The shared form renderer emits <label> without a "for"; link each label to its control for screen readers.
+  function associateFieldLabels(root) {
+    const scope = root || document;
+    scope.querySelectorAll('.notes-dlg .field').forEach((field) => {
+      const label = field.querySelector('label');
+      const control = field.querySelector('input, select, textarea');
+      if (label && control && control.id && !label.htmlFor) label.htmlFor = control.id;
+    });
+  }
+
   // ---- Modal: Quick Capture Note ----
   function createNewNoteModal(prefillHtml = '', prefillTitle = '', prefillFolderId = '') {
     const fields = [
@@ -2342,17 +2509,19 @@ window.App = window.App || {};
     ];
 
     App.ui.open({
-      title: 'Quick Capture Note',
+      title: 'Quick capture',
+      small: true,
+      onMount: associateFieldLabels,
       bodyHtml: `
-        <div style="margin-bottom:12px;font-size:12px;color:var(--text2)">
-          Capture investment thoughts, meeting takeaways, or knowledge items instantly.
+        <div class="notes-dlg">
+          <p class="nd-lead">${prefillHtml ? 'Your template is ready. Name the note and choose where it lives.' : 'Capture an idea, meeting takeaway or research item before it slips away.'}</p>
+          ${App.ui.renderForm(fields, { folder_id: prefillFolderId || '', title: prefillTitle || '' })}
         </div>
-        ${App.ui.renderForm(fields, { folder_id: prefillFolderId || '' })}
       `,
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Create Note',
+          label: 'Create note',
           className: 'btn-gold',
           onClick: async () => {
             const { values, errors } = App.ui.readForm(fields);
@@ -2398,19 +2567,22 @@ window.App = window.App || {};
   // ---- Modal: Executive Templates Selector ----
   function openTemplatesModal() {
     App.ui.open({
-      title: 'Executive Note Templates',
+      title: 'Note templates',
       bodyHtml: `
-        <div style="margin-bottom:14px;font-size:12.5px;color:var(--text2)">
-          Choose a pre-structured executive framework for investment memos, meeting minutes, and diligence reviews:
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));gap:10px;max-height:420px;overflow-y:auto">
-          ${state.templates.map((tmpl) => `
-            <div class="integration-card" style="cursor:pointer;padding:12px;border:1px solid var(--border2);border-radius:8px" data-template-id="${tmpl.id}">
-              <div class="name" style="font-size:14px;color:var(--gold);margin-bottom:4px">${App.utils.escapeHtml(tmpl.title)}</div>
-              <div class="status" style="font-size:11.5px;color:var(--text3);text-transform:capitalize;margin-bottom:8px">${App.utils.escapeHtml(tmpl.category || 'General')}</div>
-              <button class="btn btn-gold btn-xs" style="width:100%">Use Template</button>
-            </div>
-          `).join('')}
+        <div class="notes-dlg">
+          <p class="nd-lead">Start from a ready-made structure for investment memos, meeting minutes and reviews.</p>
+          <div class="nd-templates">
+            ${state.templates.map((tmpl) => {
+              const preview = getSnippetText(tmpl.content_html || '', 130);
+              return `
+                <button type="button" class="nd-tmpl" data-template-id="${App.utils.escapeHtml(tmpl.id)}">
+                  <strong>${App.utils.escapeHtml(tmpl.title)}</strong>
+                  <span class="n-chip" style="text-transform:capitalize">${App.utils.escapeHtml(tmpl.category || 'General')}</span>
+                  ${preview ? `<p>${App.utils.escapeHtml(preview)}</p>` : ''}
+                </button>
+              `;
+            }).join('')}
+          </div>
         </div>
       `,
       actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
@@ -2448,12 +2620,19 @@ window.App = window.App || {};
     ];
 
     App.ui.open({
-      title: 'Create Folder',
-      bodyHtml: App.ui.renderForm(fields, {}),
+      title: 'New folder',
+      small: true,
+      onMount: associateFieldLabels,
+      bodyHtml: `
+        <div class="notes-dlg">
+          <p class="nd-lead">Folders group related notes. Deleting a folder never deletes the notes inside it.</p>
+          ${App.ui.renderForm(fields, {})}
+        </div>
+      `,
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Create Folder',
+          label: 'Create folder',
           className: 'btn-gold',
           onClick: async () => {
             const { values, errors } = App.ui.readForm(fields);
@@ -2512,16 +2691,18 @@ window.App = window.App || {};
     ];
 
     App.ui.open({
-      title: 'Note Reminder & Review Schedule',
+      title: 'Reminder & review date',
+      small: true,
+      onMount: associateFieldLabels,
       bodyHtml: `
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-          Set an executive review milestone or deadline for this note.
+        <div class="notes-dlg">
+          <p class="nd-lead">Set a review milestone or deadline for this note.</p>
+          ${App.ui.renderForm(fields, { reminder_at: existingDate, priority: note.priority || 'medium' })}
         </div>
-        ${App.ui.renderForm(fields, { reminder_at: existingDate, priority: note.priority || 'medium' })}
       `,
       actions: [
         {
-          label: 'Remove Reminder',
+          label: 'Remove reminder',
           className: 'btn-outline',
           onClick: async () => {
             note.reminder_at = null;
@@ -2534,7 +2715,7 @@ window.App = window.App || {};
           },
         },
         {
-          label: 'Save Reminder',
+          label: 'Save reminder',
           className: 'btn-gold',
           onClick: async () => {
             const { values } = App.ui.readForm(fields);
@@ -2584,17 +2765,19 @@ window.App = window.App || {};
     ];
 
     App.ui.open({
-      title: 'Manage Tags',
+      title: 'Manage tags',
+      small: true,
+      onMount: associateFieldLabels,
       bodyHtml: `
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-          Enter tags separated by commas (e.g. <code>equity, q3-review, diligence, checklist</code>).
+        <div class="notes-dlg">
+          <p class="nd-lead">Separate tags with commas, for example <code>equity, q3-review, diligence</code>.</p>
+          ${App.ui.renderForm(fields, { tags: existingTags })}
         </div>
-        ${App.ui.renderForm(fields, { tags: existingTags })}
       `,
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Save Tags',
+          label: 'Save tags',
           className: 'btn-gold',
           onClick: async () => {
             const { values } = App.ui.readForm(fields);
@@ -2616,32 +2799,32 @@ window.App = window.App || {};
       ],
     });
   }
-
   // ---- Modal: Link Note to Portfolio Entities ----
   async function openEntityLinkModal(note) {
     App.ui.open({
-      title: 'Link Note to Portfolio Entity',
+      title: 'Link a portfolio record',
+      small: true,
       bodyHtml: `
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-          Associate this note with any portfolio record for 1-click cross-referencing:
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Entity Type</label>
-            <select id="entityTypePicker" class="search-input" style="width:100%">
-              <option value="deal">Deal / Private Investment</option>
-              <option value="recurring">SIP / Recurring Investment</option>
-              <option value="gold">Gold Purchase / Holding</option>
-              <option value="contact">Contact / Founder</option>
-              <option value="document">Document / Contract</option>
-              <option value="goal">Financial Goal</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Select Record</label>
-            <select id="entityRecordPicker" class="search-input" style="width:100%">
-              <option value="">Loading records...</option>
-            </select>
+        <div class="notes-dlg">
+          <p class="nd-lead">Connect this note to a record for one-click cross-referencing.</p>
+          <div class="nd-stack">
+            <div class="field">
+              <label for="entityTypePicker">Record type</label>
+              <select id="entityTypePicker">
+                <option value="deal">Deal / Private Investment</option>
+                <option value="recurring">SIP / Recurring Investment</option>
+                <option value="gold">Gold Purchase / Holding</option>
+                <option value="contact">Contact / Founder</option>
+                <option value="document">Document / Contract</option>
+                <option value="goal">Financial Goal</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="entityRecordPicker">Record</label>
+              <select id="entityRecordPicker">
+                <option value="">Loading records...</option>
+              </select>
+            </div>
           </div>
         </div>
       `,
@@ -2729,25 +2912,24 @@ window.App = window.App || {};
     }
 
     App.ui.open({
-      title: 'Note Version History',
+      title: 'Version history',
+      small: true,
       bodyHtml: `
-        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-          Browse previous snapshots of this note and restore any state in 1 click:
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px;max-height:380px;overflow-y:auto">
-          ${history.length === 0 ? `
-            <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">
-              No version snapshots recorded yet. Snapshots are created automatically during editing sessions.
-            </div>
-          ` : history.map((ver, idx) => `
-            <div class="integration-card" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px">
-              <div>
-                <div style="font-weight:600;font-size:13px;color:var(--text)">Version ${ver.version || (history.length - idx)}</div>
-                <div style="font-size:11px;color:var(--text3)">${new Date(ver.created_at).toLocaleString()} · ${ver.word_count || 0} words</div>
+        <div class="notes-dlg">
+          <p class="nd-lead">Browse earlier snapshots of this note and restore one with a click.</p>
+          <div class="nd-list">
+            ${history.length === 0 ? `
+              <div class="nd-empty">No snapshots yet. They are created automatically while you edit.</div>
+            ` : history.map((ver, idx) => `
+              <div class="nd-row">
+                <div>
+                  <strong>Version ${ver.version || (history.length - idx)}</strong>
+                  <small>${new Date(ver.created_at).toLocaleString()} &middot; ${ver.word_count || 0} words</small>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" data-restore-ver="${idx}">Restore</button>
               </div>
-              <button class="btn btn-gold btn-xs" data-restore-ver="${idx}">Restore</button>
-            </div>
-          `).join('')}
+            `).join('')}
+          </div>
         </div>
       `,
       actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
@@ -2785,45 +2967,46 @@ window.App = window.App || {};
     }
 
     App.ui.open({
-      title: 'AI Knowledge Assistant',
+      title: 'AI assistant',
+      small: true,
       bodyHtml: `
-        <div style="font-size:12.5px;color:var(--text2);margin-bottom:14px">
-          Select an executive AI capability to analyze, structure, or refine this note:
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
-          <button class="btn btn-outline btn-sm" id="aiActionSummarize" style="text-align:left;padding:10px">
-            <strong>&#128221; Executive Summary</strong>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Condense into high-level takeaways</div>
-          </button>
-          <button class="btn btn-outline btn-sm" id="aiActionTasks" style="text-align:left;padding:10px">
-            <strong>&#9745; Extract Action Items</strong>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Generate checklist with due dates</div>
-          </button>
-          <button class="btn btn-outline btn-sm" id="aiActionPolish" style="text-align:left;padding:10px">
-            <strong>&#10024; Polish & Format Memo</strong>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Clean headings, tone, and grammar</div>
-          </button>
-          <button class="btn btn-outline btn-sm" id="aiActionTitle" style="text-align:left;padding:10px">
-            <strong>&#127991; Generate Clear Title</strong>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Extract an executive note heading</div>
-          </button>
-          <button class="btn btn-outline btn-sm" id="aiActionRisk" style="text-align:left;padding:10px;grid-column:span 2">
-            <strong>&#9878; Investment Risk & Catalyst Analysis</strong>
-            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Detect downside risks, legal debt flags, and return catalysts</div>
-          </button>
-        </div>
-        <div id="aiAssistPreviewArea" style="display:none;background:var(--fill-2);border:1px solid var(--border2);border-radius:8px;padding:14px;max-height:280px;overflow-y:auto;font-size:13px;line-height:1.6">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-size:11px;font-weight:700;color:var(--gold);text-transform:uppercase">Generated Output</span>
-            <span id="aiAssistTokens" style="font-size:10.5px;color:var(--text3)"></span>
+        <div class="notes-dlg">
+          <p class="nd-lead">Choose what the assistant should do with this note. You can review the result before applying it.</p>
+          <div class="nd-options nd-options--grid">
+            <button type="button" class="nd-option" id="aiActionSummarize">
+              <span class="nd-option-ic">${ic('file')}</span>
+              <span class="nd-option-t"><strong>Executive summary</strong><small>Condense into key takeaways</small></span>
+            </button>
+            <button type="button" class="nd-option" id="aiActionTasks">
+              <span class="nd-option-ic">${ic('checksq')}</span>
+              <span class="nd-option-t"><strong>Extract action items</strong><small>Turn decisions into a checklist</small></span>
+            </button>
+            <button type="button" class="nd-option" id="aiActionPolish">
+              <span class="nd-option-ic">${ic('sparkles')}</span>
+              <span class="nd-option-t"><strong>Polish &amp; format</strong><small>Clean headings, tone and grammar</small></span>
+            </button>
+            <button type="button" class="nd-option" id="aiActionTitle">
+              <span class="nd-option-ic">${ic('tag')}</span>
+              <span class="nd-option-t"><strong>Suggest a title</strong><small>A clear 3 to 7 word heading</small></span>
+            </button>
+            <button type="button" class="nd-option nd-option--wide" id="aiActionRisk">
+              <span class="nd-option-ic">${ic('alert')}</span>
+              <span class="nd-option-t"><strong>Risk &amp; catalyst analysis</strong><small>Downside risks, legal or debt flags, and return catalysts</small></span>
+            </button>
           </div>
-          <div id="aiAssistPreviewContent"></div>
+          <div id="aiAssistPreviewArea" class="nd-output" style="display:none" aria-live="polite">
+            <div class="nd-output-head">
+              <span>Generated output</span>
+              <span id="aiAssistTokens"></span>
+            </div>
+            <div id="aiAssistPreviewContent"></div>
+          </div>
         </div>
       `,
       actions: [
         { label: 'Cancel', className: 'btn-outline', onClick: App.ui.close },
         {
-          label: 'Apply to Note',
+          label: 'Apply to note',
           className: 'btn-gold',
           id: 'aiAssistApplyBtn',
           onClick: () => {
@@ -2860,7 +3043,7 @@ window.App = window.App || {};
 
       previewArea.style.display = 'block';
       if (tokenInfo) tokenInfo.textContent = 'Generating...';
-      previewContent.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:var(--gold)"><span style="font-size:16px">&#9889;</span> Generating AI response with Gemini...</div>';
+      previewContent.innerHTML = `<div class="nd-status">${ic('sparkles')} Generating a response...</div>`;
 
       try {
         const response = await fetch('/api/chat', {
@@ -2893,7 +3076,7 @@ window.App = window.App || {};
         previewContent.innerHTML = clean;
       } catch (err) {
         if (tokenInfo) tokenInfo.textContent = 'Failed';
-        previewContent.innerHTML = `<div style="color:var(--red);padding:6px 0">&#9888; AI generation failed: ${App.utils.escapeHtml(err.message || String(err))}</div><div style="font-size:11.5px;color:var(--text3);margin-top:4px">Please retry or choose another capability.</div>`;
+        previewContent.innerHTML = `<div class="nd-error">${ic('alert')} AI generation failed: ${App.utils.escapeHtml(err.message || String(err))}</div><div style="font-size:12px;color:var(--text2);margin-top:4px">Please retry or choose another capability.</div>`;
       }
     }
 
@@ -2921,28 +3104,29 @@ window.App = window.App || {};
   // ---- Modal: Single Note Export ----
   function openSingleNoteExport(note) {
     App.ui.open({
-      title: 'Export Note',
+      title: 'Export note',
+      small: true,
       bodyHtml: `
-        <div style="font-size:12.5px;color:var(--text2);margin-bottom:14px">
-          Select export format for "${App.utils.escapeHtml(note.title || 'Untitled Note')}":
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn btn-outline btn-sm" id="exportMdBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Markdown (.md)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">Obsidian / Notion format</span>
-          </button>
-          <button class="btn btn-outline btn-sm" id="exportHtmlBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Clean HTML (.html)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">Standalone Web Document</span>
-          </button>
-          <button class="btn btn-outline btn-sm" id="exportTxtBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Plain Text (.txt)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">Standard text</span>
-          </button>
-          <button class="btn btn-outline btn-sm" id="exportJsonBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Raw JSON (.json)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">Full Metadata & Entities</span>
-          </button>
+        <div class="notes-dlg">
+          <p class="nd-lead">Choose a format for &ldquo;${App.utils.escapeHtml(note.title || 'Untitled Note')}&rdquo;.</p>
+          <div class="nd-options">
+            <button type="button" class="nd-option" id="exportMdBtn">
+              <span class="nd-option-ic">${ic('text')}</span>
+              <span class="nd-option-t"><strong>Markdown (.md)</strong><small>Works with Obsidian, Notion and most editors</small></span>
+            </button>
+            <button type="button" class="nd-option" id="exportHtmlBtn">
+              <span class="nd-option-ic">${ic('html')}</span>
+              <span class="nd-option-t"><strong>Clean HTML (.html)</strong><small>A standalone web document</small></span>
+            </button>
+            <button type="button" class="nd-option" id="exportTxtBtn">
+              <span class="nd-option-ic">${ic('file')}</span>
+              <span class="nd-option-t"><strong>Plain text (.txt)</strong><small>Unformatted text only</small></span>
+            </button>
+            <button type="button" class="nd-option" id="exportJsonBtn">
+              <span class="nd-option-ic">${ic('json')}</span>
+              <span class="nd-option-t"><strong>Raw JSON (.json)</strong><small>Full metadata and linked records</small></span>
+            </button>
+          </div>
         </div>
       `,
       actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
@@ -2978,24 +3162,25 @@ window.App = window.App || {};
   // ---- Modal: Bulk / All Notes Export ----
   function openExportModal() {
     App.ui.open({
-      title: 'Export Notes Knowledge Hub',
+      title: 'Export notes',
+      small: true,
       bodyHtml: `
-        <div style="font-size:12.5px;color:var(--text2);margin-bottom:14px">
-          Export all ${state.notes.length} notes and knowledge items from your Investment OS:
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn btn-outline btn-sm" id="exportAllJsonBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Complete Notes Backup (.json)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">All notes, folders, and links</span>
-          </button>
-          <button class="btn btn-outline btn-sm" id="exportAllMarkdownZipBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Obsidian / Markdown Bundle (.json archive)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">Markdown formatted items</span>
-          </button>
-          <button class="btn btn-outline btn-sm" id="exportSystemSectionBtn" style="text-align:left;justify-content:flex-start;padding:10px">
-            <strong>Standard Investment OS Export (.xlsx / .csv)</strong>
-            <span style="font-size:11px;color:var(--text3);margin-left:auto">System-wide backup module</span>
-          </button>
+        <div class="notes-dlg">
+          <p class="nd-lead">Export all ${state.notes.length} notes from your Investment OS.</p>
+          <div class="nd-options">
+            <button type="button" class="nd-option" id="exportAllJsonBtn">
+              <span class="nd-option-ic">${ic('json')}</span>
+              <span class="nd-option-t"><strong>Complete backup (.json)</strong><small>All notes, folders and links</small></span>
+            </button>
+            <button type="button" class="nd-option" id="exportAllMarkdownZipBtn">
+              <span class="nd-option-ic">${ic('text')}</span>
+              <span class="nd-option-t"><strong>Markdown bundle (.json archive)</strong><small>Each note converted to Markdown</small></span>
+            </button>
+            <button type="button" class="nd-option" id="exportSystemSectionBtn">
+              <span class="nd-option-ic">${ic('download')}</span>
+              <span class="nd-option-t"><strong>Investment OS export (.xlsx / .csv)</strong><small>The system-wide backup module</small></span>
+            </button>
+          </div>
         </div>
       `,
       actions: [{ label: 'Close', className: 'btn-outline', onClick: App.ui.close }],
