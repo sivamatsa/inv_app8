@@ -1,0 +1,100 @@
+/* ==========================================================================
+   Job Intelligence - CRM / Profiles / Companies / Documents views
+   Scoped to #pane-jobintel. Uses host theme variables (light + dark).
+   ========================================================================== */
+
+/* ---- shared small helpers for these views ---- */
+#pane-jobintel .ji-crm h4,
+#pane-jobintel .ji-prof h4,
+#pane-jobintel .ji-comp h4 { margin: 0; }
+
+/* ======================= Follow-ups board (crm.js) ======================= */
+#pane-jobintel .ji-crm-col { --col: var(--ji-blue); display: flex; flex-direction: column; min-width: 0; padding: 14px; border: 1px solid color-mix(in srgb, var(--col) 38%, transparent); border-radius: var(--ji-r-lg); background: color-mix(in srgb, var(--col) 7%, transparent); }
+#pane-jobintel .ji-crm-col--overdue { --col: var(--ji-red); }
+#pane-jobintel .ji-crm-col--today { --col: var(--ji-amber); }
+#pane-jobintel .ji-crm-col--upcoming { --col: var(--ji-blue); }
+#pane-jobintel .ji-crm-col--done { --col: var(--ji-green); }
+#pane-jobintel .ji-crm-col-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--col) 30%, transparent); }
+#pane-jobintel .ji-crm-col-title { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--col); }
+#pane-jobintel .ji-crm-col-count { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--col) 22%, transparent); color: var(--col); font-size: 11px; font-weight: 700; }
+#pane-jobintel .ji-crm-none { margin: 0; padding: 14px 0; text-align: center; font-style: italic; }
+
+#pane-jobintel .ji-crm-fol { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--ji-r-md); }
+#pane-jobintel .ji-crm-fol-main { display: flex; align-items: flex-start; gap: 4px; }
+#pane-jobintel .ji-crm-check { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: -5px 0 -5px -6px; cursor: pointer; flex-shrink: 0; }
+@media (pointer: coarse) { #pane-jobintel .ji-crm-check { width: 40px; height: 40px; margin: -10px 0 -10px -10px; } }
+#pane-jobintel .ji-crm-fol-text { min-width: 0; flex: 1 1 auto; }
+#pane-jobintel .ji-crm-fol-title { margin: 0; font-size: 12.5px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+#pane-jobintel .ji-crm-fol-sub { margin: 2px 0 0; overflow-wrap: anywhere; }
+#pane-jobintel .ji-crm-fol.is-done .ji-crm-fol-title { text-decoration: line-through; color: var(--ji-text-3); }
+#pane-jobintel .ji-crm-fol-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-crm-due { font-weight: 600; }
+
+/* recruiter directory */
+#pane-jobintel .ji-crm-rec { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; padding: 16px 18px; }
+#pane-jobintel .ji-crm-rec-id { min-width: 0; }
+#pane-jobintel .ji-crm-rec-name { font-size: 15px; overflow-wrap: anywhere; }
+#pane-jobintel .ji-crm-rec-role { margin: 2px 0 0; font-size: 12px; font-weight: 600; color: var(--ji-blue); }
+#pane-jobintel .ji-crm-rec-co { display: flex; align-items: center; gap: 5px; margin: 3px 0 0; color: var(--ji-text); font-weight: 500; }
+#pane-jobintel .ji-crm-rec-contacts { margin-top: 12px; font-size: 12.5px; }
+#pane-jobintel .ji-crm-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#pane-jobintel .ji-crm-line .ji-ic { color: var(--ji-text-3); }
+#pane-jobintel .ji-crm-link { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--ji-blue); text-decoration: none; }
+#pane-jobintel .ji-crm-link:hover { text-decoration: underline; }
+#pane-jobintel .ji-crm-notes { margin: 12px 0 0; font-style: italic; overflow-wrap: anywhere; }
+#pane-jobintel .ji-crm-rec-foot { padding-top: 10px; border-top: 1px solid var(--ji-line); }
+
+/* ======================= Search profiles (profiles.js) ======================= */
+#pane-jobintel .ji-prof-card { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; padding: 16px 18px; }
+#pane-jobintel .ji-prof-head { min-width: 0; }
+#pane-jobintel .ji-prof-name { font-size: 15px; overflow-wrap: anywhere; }
+#pane-jobintel .ji-prof-body { margin-top: 14px; }
+#pane-jobintel .ji-prof-label { display: block; margin-bottom: 4px; }
+#pane-jobintel .ji-prof-body p { margin: 0; overflow-wrap: anywhere; }
+#pane-jobintel .ji-prof-foot { padding-top: 12px; border-top: 1px solid var(--ji-line); }
+
+/* ======================= Companies (companies.js) ======================= */
+#pane-jobintel .ji-comp-q { width: 220px; max-width: 100%; }
+@media (max-width: 600px) { #pane-jobintel .ji-comp-q { width: 100%; flex: 1 1 100%; } }
+#pane-jobintel .ji-comp-card { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; padding: 16px 18px; }
+#pane-jobintel .ji-comp-id { min-width: 0; }
+#pane-jobintel .ji-comp-name { font-size: 15px; overflow-wrap: anywhere; }
+#pane-jobintel .ji-comp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ji-green); flex-shrink: 0; }
+#pane-jobintel .ji-comp-links { gap: 12px; margin-top: 4px; }
+#pane-jobintel .ji-comp-link { display: inline-flex; align-items: center; gap: 4px; color: var(--ji-text-2); text-decoration: none; min-width: 0; }
+#pane-jobintel .ji-comp-link:hover { color: var(--ji-blue); }
+#pane-jobintel .ji-comp-trend { margin-top: 12px; }
+#pane-jobintel .ji-comp-trend-label { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; }
+#pane-jobintel .ji-comp-trend p { margin: 0; }
+#pane-jobintel .ji-comp-foot { padding-top: 12px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-comp-muted { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 38%, transparent); color: var(--ji-red); }
+
+/* ======================= Documents (documents.js) ======================= */
+#pane-jobintel .ji-doc-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { #pane-jobintel .ji-doc-layout { grid-template-columns: minmax(0, 1fr); } }
+#pane-jobintel .ji-doc-card { display: flex; align-items: flex-start; gap: 6px; padding: 8px 8px 8px 4px; }
+#pane-jobintel .ji-doc-pick { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; flex: 1 1 auto; min-width: 0; padding: 6px 10px; border: 0; border-radius: var(--ji-r-md); background: transparent; color: var(--ji-text); font: 400 13px/1.3 'DM Sans', system-ui, sans-serif; text-align: left; cursor: pointer; }
+#pane-jobintel .ji-doc-pick:hover { background: var(--ji-hover); }
+#pane-jobintel .ji-doc-type { text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; max-width: 100%; white-space: normal; }
+#pane-jobintel .ji-doc-name { font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+#pane-jobintel .ji-doc-head { padding-bottom: 12px; border-bottom: 1px solid var(--ji-line); }
+#pane-jobintel .ji-doc-preview { max-height: 192px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ji-text); }
+#pane-jobintel .ji-doc-ats-title { gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ji-accent-text); }
+#pane-jobintel .ji-doc-ats-controls { align-items: stretch; flex-wrap: nowrap; }
+#pane-jobintel .ji-doc-job { flex: 1 1 auto; min-width: 0; }
+#pane-jobintel .ji-doc-ats-controls .ji-btn { flex-shrink: 0; }
+@media (max-width: 600px) { #pane-jobintel .ji-doc-ats-controls { flex-wrap: wrap; } #pane-jobintel .ji-doc-ats-controls .ji-btn { width: 100%; } }
+#pane-jobintel .ji-doc-results { padding-top: 14px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-doc-score { font-size: 26px; font-weight: 800; line-height: 1; color: var(--ji-green); font-variant-numeric: tabular-nums; }
+#pane-jobintel .ji-doc-box { padding: 10px 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); }
+#pane-jobintel .ji-doc-box--ok { border-color: color-mix(in srgb, var(--teal) 35%, transparent); background: color-mix(in srgb, var(--teal) 9%, transparent); }
+#pane-jobintel .ji-doc-box--warn { border-color: color-mix(in srgb, var(--ji-amber) 38%, transparent); background: color-mix(in srgb, var(--ji-amber) 9%, transparent); }
+#pane-jobintel .ji-doc-box--ok .ji-doc-box-title { color: var(--ji-green); }
+#pane-jobintel .ji-doc-box--warn .ji-doc-box-title { color: var(--ji-amber); }
+#pane-jobintel .ji-doc-box-title { display: block; margin-bottom: 4px; }
+#pane-jobintel .ji-doc-box-title--info { color: var(--ji-accent-text); }
+#pane-jobintel .ji-doc-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+#pane-jobintel .ji-doc-list li { overflow-wrap: anywhere; }
+
+/* ---- modal forms in these views ---- */
+.ji-modal-backdrop .ji-doc-content { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }

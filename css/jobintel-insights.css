@@ -1,0 +1,137 @@
+/* ==========================================================================
+   Job Intelligence - insights group (compare, sources, analytics)
+   Scoped to #pane-jobintel. Class prefixes: ji-cmp-, ji-src-, ji-ins-.
+   ========================================================================== */
+
+/* ---- shared "synthetic sample" marker ---- */
+#pane-jobintel .ji-ins-synth { border-style: dashed; }
+
+/* ---- compare ---- */
+#pane-jobintel .ji-cmp-table { min-width: 100%; table-layout: auto; }
+#pane-jobintel .ji-cmp-table th,
+#pane-jobintel .ji-cmp-table td { vertical-align: top; }
+#pane-jobintel .ji-cmp-table .ji-cmp-attr {
+  width: 150px;
+  min-width: 130px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--ji-surface);
+  background-image: linear-gradient(var(--ji-sunken), var(--ji-sunken));
+  border-right: 1px solid var(--ji-line);
+}
+#pane-jobintel .ji-cmp-table .ji-cmp-jobcol { min-width: 240px; }
+#pane-jobintel .ji-cmp-table thead .ji-cmp-jobcol {
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+  font-size: 13px;
+  color: var(--ji-text);
+}
+#pane-jobintel .ji-cmp-jobtitle { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--ji-text); }
+#pane-jobintel .ji-cmp-company { margin: 2px 0 0; font-size: 12px; font-weight: 600; color: var(--ji-blue); }
+#pane-jobintel .ji-cmp-comp { font-weight: 700; color: var(--ji-green); }
+#pane-jobintel .ji-cmp-skills { display: flex; flex-wrap: wrap; gap: 4px; }
+#pane-jobintel .ji-cmp-skill {
+  padding: 2px 8px;
+  border: 1px solid var(--ji-line);
+  border-radius: var(--ji-r-sm);
+  background: var(--ji-sunken);
+  color: var(--ji-text-2);
+  font-size: 11px;
+}
+#pane-jobintel .ji-cmp-shared {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--blue) 38%, transparent);
+  border-radius: var(--ji-r-lg);
+  background: color-mix(in srgb, var(--blue) 9%, transparent);
+}
+#pane-jobintel .ji-cmp-shared-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--ji-blue); }
+#pane-jobintel .ji-cmp-shared .ji-cmp-skill {
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+  color: var(--ji-text);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+#pane-jobintel .ji-cmp-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#pane-jobintel .ji-cmp-meta { font-size: 11px; color: var(--ji-text-3); margin-top: 2px; }
+#pane-jobintel .ji-cmp-ext { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); color: var(--ji-text-2); text-decoration: none; }
+#pane-jobintel .ji-cmp-ext:hover { background: var(--ji-hover); color: var(--ji-text); }
+@media (pointer: coarse) { #pane-jobintel .ji-cmp-ext { width: 40px; height: 40px; } }
+
+/* ---- sources ---- */
+#pane-jobintel .ji-src-card { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; }
+#pane-jobintel .ji-src-card.is-off { opacity: 0.85; }
+#pane-jobintel .ji-src-name { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--ji-text); overflow-wrap: anywhere; }
+#pane-jobintel .ji-src-type { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ji-blue); }
+#pane-jobintel .ji-src-desc { margin: 0; font-size: 12px; line-height: 1.55; color: var(--ji-text-2); }
+#pane-jobintel .ji-src-metrics { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+#pane-jobintel .ji-src-metrics > div { display: flex; justify-content: space-between; gap: 10px; }
+#pane-jobintel .ji-src-metrics dt { color: var(--ji-text-3); }
+#pane-jobintel .ji-src-metrics dd { margin: 0; font-weight: 600; color: var(--ji-text); text-align: right; }
+#pane-jobintel .ji-src-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-src-endpoint { min-width: 0; flex: 1 1 0; font: 400 10.5px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ji-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pane-jobintel .ji-src-enable { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-sunken); }
+#pane-jobintel .ji-src-enable-label { font-size: 12px; font-weight: 600; color: var(--ji-text); }
+#pane-jobintel .ji-src-switch {
+  position: relative; flex-shrink: 0;
+  width: 42px; height: 24px; padding: 0;
+  border: 1px solid var(--ji-line-strong); border-radius: 999px;
+  background: var(--ji-press); cursor: pointer;
+  transition: background var(--ji-ease), border-color var(--ji-ease);
+}
+#pane-jobintel .ji-src-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--ji-text-2);
+  transition: transform var(--ji-ease), background var(--ji-ease);
+}
+#pane-jobintel .ji-src-switch[aria-checked="true"] { background: color-mix(in srgb, var(--teal) 30%, transparent); border-color: color-mix(in srgb, var(--teal) 55%, transparent); }
+#pane-jobintel .ji-src-switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--ji-green); }
+#pane-jobintel .ji-src-switch:disabled { opacity: 0.5; cursor: wait; }
+#pane-jobintel .ji-src-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+#pane-jobintel .ji-src-run-id { font: 400 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ji-text-2); }
+#pane-jobintel .ji-src-running { animation: jiInsPulse 1.4s ease-in-out infinite; }
+@keyframes jiInsPulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { #pane-jobintel .ji-src-running { animation: none; } }
+@media (pointer: coarse) { #pane-jobintel .ji-src-switch { width: 48px; height: 28px; } #pane-jobintel .ji-src-switch::after { width: 22px; height: 22px; } #pane-jobintel .ji-src-switch[aria-checked="true"]::after { transform: translateX(20px); } }
+
+/* ---- analytics ---- */
+#pane-jobintel .ji-ins-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { #pane-jobintel .ji-ins-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) { #pane-jobintel .ji-ins-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+#pane-jobintel .ji-ins-metric { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+#pane-jobintel .ji-ins-metric-label { font-size: 11px; font-weight: 600; color: var(--ji-text-2); }
+#pane-jobintel .ji-ins-metric-sub { font-size: 10.5px; color: var(--ji-text-3); }
+#pane-jobintel .ji-ins-unit { font-size: 12px; font-weight: 400; font-family: 'DM Sans', system-ui, sans-serif; color: var(--ji-text-2); }
+#pane-jobintel .ji-ins-tone-blue .ji-stat-value, #pane-jobintel .ji-ins-tone-blue .ji-ins-metric-sub { color: var(--ji-blue); }
+#pane-jobintel .ji-ins-tone-accent .ji-stat-value, #pane-jobintel .ji-ins-tone-accent .ji-ins-metric-sub { color: var(--ji-accent-text); }
+#pane-jobintel .ji-ins-tone-purple .ji-stat-value, #pane-jobintel .ji-ins-tone-purple .ji-ins-metric-sub { color: var(--ji-purple); }
+#pane-jobintel .ji-ins-tone-green .ji-stat-value, #pane-jobintel .ji-ins-tone-green .ji-ins-metric-sub { color: var(--ji-green); }
+#pane-jobintel .ji-ins-tone-amber .ji-stat-value, #pane-jobintel .ji-ins-tone-amber .ji-ins-metric-sub { color: var(--ji-amber); }
+
+#pane-jobintel .ji-ins-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { #pane-jobintel .ji-ins-panels { grid-template-columns: minmax(0, 1fr); } }
+#pane-jobintel .ji-ins-panel-title { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ji-text-2); }
+#pane-jobintel .ji-ins-funnel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+#pane-jobintel .ji-ins-funnel-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; font-size: 12px; font-weight: 500; }
+#pane-jobintel .ji-ins-funnel-head span:first-child { color: var(--ji-text); }
+#pane-jobintel .ji-ins-funnel-head span:last-child { color: var(--ji-text-2); font-variant-numeric: tabular-nums; }
+#pane-jobintel .ji-ins-track { height: 8px; border-radius: 999px; background: var(--ji-line); overflow: hidden; }
+#pane-jobintel .ji-ins-fill { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ji-blue); transition: width 0.5s ease; }
+#pane-jobintel .ji-ins-fill--blue { background: var(--ji-blue); }
+#pane-jobintel .ji-ins-fill--accent { background: var(--ji-accent); }
+#pane-jobintel .ji-ins-fill--purple { background: var(--ji-purple); }
+#pane-jobintel .ji-ins-fill--green { background: var(--ji-green); }
+#pane-jobintel .ji-ins-fill--teal { background: color-mix(in srgb, var(--teal) 60%, var(--blue)); }
+@media (prefers-reduced-motion: reduce) { #pane-jobintel .ji-ins-fill { transition: none; } }
+#pane-jobintel .ji-ins-yield { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+#pane-jobintel .ji-ins-yield-item { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-sunken); }
+#pane-jobintel .ji-ins-yield-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#pane-jobintel .ji-ins-yield-name { font-size: 12.5px; font-weight: 700; color: var(--ji-text); overflow-wrap: anywhere; }
+#pane-jobintel .ji-ins-yield-sub { display: block; font-size: 11px; color: var(--ji-text-3); }
+#pane-jobintel .ji-ins-yield-pct { font-size: 15px; font-weight: 800; color: var(--ji-blue); text-align: right; font-variant-numeric: tabular-nums; }
+#pane-jobintel .ji-ins-yield-pct small { display: block; font-size: 10px; font-weight: 400; color: var(--ji-text-3); }

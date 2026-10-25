@@ -1,0 +1,156 @@
+<!doctype html><meta charset="utf-8"><title>Direct P2P signaling hub tests</title>
+<!-- Direct P2P signaling hub tests. No Node needed: run in any modern browser.
+     How to run: serve the project root (e.g. `python -m http.server 8080` or `node server.js`) and open
+     http://localhost:8080/tests/p2p-hub.test.html - the page prints "N checks, 0 failed".
+     Covers server/p2p/core/signaling.js with fake in-memory sockets (no network, no Supabase). -->
+<pre id="out">running...</pre>
+<script type="module">
+import { SignalingHub, normalizeRoomCode, CODE_ALPHABET, CODE_LENGTH } from '/server/p2p/core/signaling.js';
+const results = [];
+const test = async (name, fn) => { try { await fn(); results.push({ name, pass: true }); } catch (e) { results.push({ name, pass: false, detail: e && e.message }); } };
+const eq = (a, b, m) => { if (a !== b) throw new Error((m || 'not equal') + ': got ' + JSON.stringify(a) + ' expected ' + JSON.stringify(b)); };
+const ok = (c, m) => { if (!c) throw new Error(m || 'assertion failed'); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const TOKENS = { 'tok-alice': 'user-alice', 'tok-bob': 'user-bob', 'tok-carol': 'user-carol' };
+const verifyToken = async (t) => (TOKENS[t] ? { userId: TOKENS[t] } : null);
+
+function makeHub(cfg, clock) {
+  let t = 1000000; const now = clock || (() => t);
+  const hub = new SignalingHub({ verifyToken, now, config: { graceMs: 40, authTimeoutMs: 150, ...(cfg || {}) }, logger: { warn() {}, error() {}, log() {} } });
+  hub.advance = (ms) => { t += ms; };
+  return hub;
+}
+function client(hub, networkKey) {
+  const inbox = []; let closedWith = null;
+  const conn = { send: (s) => inbox.push(JSON.parse(s)), close: (code, reason) => { closedWith = { code, reason }; }, meta: { networkKey } };
+  const session = hub.attach(conn);
+  const c = {
+    session, inbox,
+    get closedWith() { return closedWith; },
+    send: async (o) => { await session.onMessage(typeof o === 'string' ? o : JSON.stringify(o)); },
+    last: (type) => [...inbox].reverse().find((m) => m.type === type),
+    all: (type) => inbox.filter((m) => m.type === type),
+    auth: async (token, peerId) => { await c.send({ type: 'auth', token, peerId }); return c.last('welcome'); },
+  };
+  return c;
+}
+async function authed(hub, who, peerId, nk) { const c = client(hub, nk); const w = await c.auth('tok-' + who, peerId); ok(w, 'welcome expected'); return c; }
+
+await test('unauthenticated sessions can do nothing', async () => {
+  const hub = makeHub(); const c = client(hub);
+  await c.send({ type: 'create' }); eq(c.last('error').code, 'auth-required'); eq(hub.rooms.size, 0);
+  await c.send({ type: 'join', room: 'ABCDEFGH' }); eq(c.last('error').code, 'auth-required');
+});
+await test('bad token is rejected and the socket closed', async () => {
+  const hub = makeHub(); const c = client(hub); await c.send({ type: 'auth', token: 'nope' });
+  eq(c.last('error').code, 'auth-failed'); ok(c.closedWith && c.closedWith.code === 4001);
+});
+await test('verifier failure closes with auth-unavailable (no crash)', async () => {
+  const hub = new SignalingHub({ verifyToken: async () => { throw new Error('supabase down'); }, config: { authTimeoutMs: 150 }, logger: { warn() {}, error() {} } });
+  const c = client(hub); await c.send({ type: 'auth', token: 'x' }); eq(c.last('error').code, 'auth-unavailable');
+});
+await test('auth timeout closes idle unauthenticated sockets', async () => {
+  const hub = makeHub(); const c = client(hub); await sleep(250); eq(c.last('error').code, 'auth-timeout'); ok(c.closedWith);
+});
+await test('welcome reports nearby=false by default and uses a safe peer id', async () => {
+  const hub = makeHub(); const c = client(hub); const w = await c.auth('tok-alice', 'peer_alice1'); eq(w.nearby, false); eq(w.peerId, 'peer_alice1');
+  const c2 = client(hub); const w2 = await c2.auth('tok-bob', '<script>'); ok(/^[A-Za-z0-9_-]{4,32}$/.test(w2.peerId) || w2.peerId.length >= 4, 'invalid peer id replaced');
+});
+await test('create makes an 8-char code from the safe alphabet and joins as initiator', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); await a.send({ type: 'create' });
+  const j = a.last('joined'); ok(j, 'joined'); eq(j.room.length, CODE_LENGTH); ok([...j.room].every((ch) => CODE_ALPHABET.includes(ch)), 'alphabet'); eq(j.isInitiator, true); eq(j.peerCount, 1); eq(j.created, true);
+  ok(!/[01OIL]/.test(j.room), 'no ambiguous characters');
+});
+await test('codes are unique and well distributed across many rooms', async () => {
+  const hub = makeHub({ maxRoomsPerUser: 5000, createLimit: { max: 100000, windowMs: 1000 } }); const seen = new Set(); const counts = {};
+  for (let i = 0; i < 400; i++) { const code = hub.generateRoomCode(); ok(!seen.has(code), 'duplicate code'); seen.add(code); hub.rooms.set(code, { code, peers: new Map() }); for (const ch of code) counts[ch] = (counts[ch] || 0) + 1; }
+  eq(Object.keys(counts).length, CODE_ALPHABET.length, 'all symbols used'); const vals = Object.values(counts); ok(Math.max(...vals) / Math.min(...vals) < 2.2, 'roughly uniform');
+});
+await test('join needs an EXISTING room; unknown or malformed codes fail', async () => {
+  const hub = makeHub(); const b = await authed(hub, 'bob', 'peer_bob001');
+  await b.send({ type: 'join', room: 'ABCDEFGH' }); eq(b.last('error').code, 'room-not-found'); eq(hub.rooms.size, 0, 'no room created by a failed join');
+  await b.send({ type: 'join', room: 'ABC' }); eq(b.last('error').code, 'bad-code');
+});
+await test('two peers: join, peer-joined notification, second is not initiator', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001');
+  await a.send({ type: 'create' }); const code = a.last('joined').room;
+  await b.send({ type: 'join', room: code.slice(0, 4) + '-' + code.slice(4).toLowerCase() }); const j = b.last('joined'); ok(j, 'dash/lowercase tolerated'); eq(j.isInitiator, false); eq(j.peerCount, 2);
+  eq(a.last('peer-joined').peerId, 'peer_bob001'); eq(a.last('peer-joined').peerCount, 2);
+});
+await test('third peer is refused (room full)', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001'); const c = await authed(hub, 'carol', 'peer_carol1');
+  await a.send({ type: 'create' }); const code = a.last('joined').room; await b.send({ type: 'join', room: code }); await c.send({ type: 'join', room: code }); eq(c.last('error').code, 'room-full');
+});
+await test('only offer/answer/ice are relayed, re-serialised with whitelisted fields', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001'); await a.send({ type: 'create' }); await b.send({ type: 'join', room: a.last('joined').room });
+  await a.send({ type: 'offer', sdp: { type: 'offer', sdp: 'v=0' }, evil: 'x' }); const off = b.last('offer'); ok(off, 'offer relayed'); eq(off.evil, undefined); eq(off.sdp.sdp, 'v=0');
+  await b.send({ type: 'answer', sdp: { type: 'answer', sdp: 'v=0' } }); ok(a.last('answer'));
+  await a.send({ type: 'ice', candidate: { candidate: 'c' } }); eq(b.last('ice').candidate.candidate, 'c');
+  const before = b.inbox.length; await a.send({ type: 'peer-left', peerId: 'x' }); await a.send({ type: 'joined', room: 'ZZ' }); await a.send({ type: 'error', message: 'spoof' }); await a.send({ type: 'whatever', x: 1 });
+  eq(b.inbox.length, before, 'spoofed server events are not relayed');
+});
+await test('relay does nothing outside a room and never echoes to the sender', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); await a.send({ type: 'offer', sdp: {} }); eq(a.all('offer').length, 0);
+  await a.send({ type: 'create' }); await a.send({ type: 'offer', sdp: {} }); eq(a.all('offer').length, 0);
+});
+await test('leave notifies the peer and deletes an empty room', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001'); await a.send({ type: 'create' }); const code = a.last('joined').room; await b.send({ type: 'join', room: code });
+  await b.send({ type: 'leave' }); eq(a.last('peer-left').peerId, 'peer_bob001'); await a.send({ type: 'leave' }); eq(hub.rooms.has(code), false);
+});
+await test('disconnect: peer-left only after the grace period, and not if the peer reconnects', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001'); await a.send({ type: 'create' }); const code = a.last('joined').room; await b.send({ type: 'join', room: code });
+  b.session.onClose(); await sleep(10); eq(a.all('peer-left').length, 0, 'not immediate'); await sleep(80); eq(a.all('peer-left').length, 1, 'announced after grace');
+  const hub2 = makeHub(); const a2 = await authed(hub2, 'alice', 'peer_alice1'); const b2 = await authed(hub2, 'bob', 'peer_bob001'); await a2.send({ type: 'create' }); const code2 = a2.last('joined').room; await b2.send({ type: 'join', room: code2 });
+  b2.session.onClose(); const b3 = await authed(hub2, 'bob', 'peer_bob001'); await b3.send({ type: 'join', room: code2 }); await sleep(90); eq(a2.all('peer-left').length, 0, 'reconnected peer is not reported as left'); eq(hub2.rooms.get(code2).peers.size, 2);
+});
+await test('same peer id rejoining evicts the stale socket', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); await a.send({ type: 'create' }); const code = a.last('joined').room; const b = await authed(hub, 'bob', 'peer_bob001'); await b.send({ type: 'join', room: code });
+  const b2 = await authed(hub, 'bob', 'peer_bob001'); await b2.send({ type: 'join', room: code }); ok(b.closedWith && b.closedWith.reason === 'replaced'); eq(hub.rooms.get(code).peers.size, 2); eq(b2.last('joined').peerCount, 2);
+});
+await test('failed-join flood is rate limited and disconnected', async () => {
+  const hub = makeHub({ joinFailLimit: { max: 3, windowMs: 60000 } }); const b = await authed(hub, 'bob', 'peer_bob001');
+  for (let i = 0; i < 3; i++) await b.send({ type: 'join', room: 'ABCDEFG' + i }); await b.send({ type: 'join', room: 'ABCDEFGH' }); eq(b.last('error').code, 'rate-limit'); ok(b.closedWith && b.closedWith.code === 4008);
+});
+await test('room creation is limited per user (rate and concurrent rooms)', async () => {
+  const hub = makeHub({ maxRoomsPerUser: 2 }); const a1 = await authed(hub, 'alice', 'peer_alice1'); const a2 = await authed(hub, 'alice', 'peer_alice2'); const a3 = await authed(hub, 'alice', 'peer_alice3');
+  await a1.send({ type: 'create' }); await a2.send({ type: 'create' }); await a3.send({ type: 'create' }); eq(a3.last('error').code, 'too-many-rooms'); eq(hub.rooms.size, 2);
+  const hub2 = makeHub({ createLimit: { max: 2, windowMs: 600000 } }); const x = await authed(hub2, 'alice', 'peer_alice1'); await x.send({ type: 'create' }); await x.send({ type: 'create' }); await x.send({ type: 'create' }); eq(x.last('error').code, 'rate-limit');
+});
+await test('message flood and oversized messages are handled', async () => {
+  const hub = makeHub({ messageLimit: { max: 5, windowMs: 60000 } }); const a = await authed(hub, 'alice', 'peer_alice1');
+  await a.send(JSON.stringify({ type: 'ping', pad: 'x'.repeat(70000) })); eq(a.last('error').code, 'too-large');
+  for (let i = 0; i < 8; i++) await a.send({ type: 'ping' }); eq(a.last('error').code, 'rate-limit'); ok(a.closedWith && a.closedWith.code === 4008);
+});
+await test('invalid JSON and malformed messages are ignored safely', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1'); await a.send('not json'); await a.send('null'); await a.send('[]'); await a.send({ nope: 1 }); await a.send({ type: 5 }); ok(true);
+  await a.send({ type: 'ping' }); ok(a.last('pong'), 'still alive');
+});
+await test('rooms expire when idle or too old (sweep) and peers are told', async () => {
+  const hub = makeHub({ roomIdleMs: 1000, roomMaxAgeMs: 100000 }); const a = await authed(hub, 'alice', 'peer_alice1'); await a.send({ type: 'create' }); const code = a.last('joined').room;
+  hub.advance(500); hub.sweep(); ok(hub.rooms.has(code), 'not yet'); hub.advance(600); hub.sweep(); eq(hub.rooms.has(code), false); eq(a.last('error').code, 'room-expired');
+  const hub2 = makeHub({ roomIdleMs: 100000, roomMaxAgeMs: 1000 }); const a2 = await authed(hub2, 'alice', 'peer_alice1'); await a2.send({ type: 'create' }); hub2.advance(1500); hub2.sweep(); eq(hub2.rooms.size, 0, 'absolute max age');
+});
+await test('signaling activity keeps a room alive', async () => {
+  const hub = makeHub({ roomIdleMs: 1000 }); const a = await authed(hub, 'alice', 'peer_alice1'); const b = await authed(hub, 'bob', 'peer_bob001'); await a.send({ type: 'create' }); const code = a.last('joined').room; await b.send({ type: 'join', room: code });
+  hub.advance(800); await a.send({ type: 'offer', sdp: {} }); hub.advance(800); hub.sweep(); ok(hub.rooms.has(code));
+});
+await test('nearby discovery is OFF by default: presence and invites do nothing', async () => {
+  const hub = makeHub(); const a = await authed(hub, 'alice', 'peer_alice1', '1.2.3.4'); const b = await authed(hub, 'bob', 'peer_bob001', '1.2.3.4');
+  await a.send({ type: 'presence', device: { name: 'A' }, code: 'ABCDEFGH' }); await b.send({ type: 'presence', device: { name: 'B' }, code: 'JKMNPQRS' }); eq(a.all('nearby-devices').length, 0); eq(b.all('nearby-devices').length, 0);
+  await a.send({ type: 'direct-connect-invite', targetPeerId: 'peer_bob001', roomCode: 'ABCDEFGH' }); eq(b.all('incoming-connect-request').length, 0);
+});
+await test('nearby discovery works only when enabled, and only within one network key', async () => {
+  const hub = makeHub({ nearby: true }); const a = await authed(hub, 'alice', 'peer_alice1', '1.2.3.4'); const b = await authed(hub, 'bob', 'peer_bob001', '1.2.3.4'); const c = await authed(hub, 'carol', 'peer_carol1', '9.9.9.9');
+  eq(a.last('welcome').nearby, true);
+  await a.send({ type: 'presence', device: { name: 'A' }, code: 'ABCDEFGH' }); await b.send({ type: 'presence', device: { name: 'B' }, code: 'JKMNPQRS' }); await c.send({ type: 'presence', device: { name: 'C' }, code: 'TTTTTTTT' });
+  const seenByA = a.last('nearby-devices'); eq(seenByA.devices.length, 1); eq(seenByA.devices[0].peerId, 'peer_bob001'); eq(c.last('nearby-devices').devices.length, 0, 'different network sees nobody');
+  await a.send({ type: 'direct-connect-invite', targetPeerId: 'peer_bob001', roomCode: 'abcd-efgh', fromDevice: { name: 'A' } }); const inv = b.last('incoming-connect-request'); eq(inv.roomCode, 'ABCDEFGH'); eq(inv.fromPeerId, 'peer_alice1');
+  b.session.onClose(); eq(a.last('nearby-devices').devices.length, 0, 'departure is broadcast');
+});
+await test('normalizeRoomCode', () => { eq(normalizeRoomCode(' ab-cd ef.gh '), 'ABCDEFGH'); eq(normalizeRoomCode(null), ''); eq(normalizeRoomCode('x'.repeat(50)).length, 32); });
+
+const failed = results.filter((r) => !r.pass);
+window.__results = { total: results.length, failed: failed.length, failures: failed };
+document.getElementById('out').textContent = `${results.length} checks, ${failed.length} failed\n` + failed.map((f) => '✗ ' + f.name + ' :: ' + f.detail).join('\n');
+</script>

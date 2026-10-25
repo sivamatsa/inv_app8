@@ -1,0 +1,128 @@
+/* ==========================================================================
+   Job Intelligence - Discover tab (DiscoveryBar, sector chips, JobCard grid, Job Detail modal)
+   Scoped to #pane-jobintel and .ji-modal-backdrop. Class prefix: ji-disc-
+   ========================================================================== */
+
+/* ---- discovery bar ---- */
+#pane-jobintel .ji-disc { gap: 16px; }
+#pane-jobintel .ji-disc-bar { padding: 14px; }
+#pane-jobintel .ji-disc-bar-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }
+#pane-jobintel .ji-disc-searchbox { flex: 1 1 320px; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-sunken); transition: border-color var(--ji-ease), background var(--ji-ease); }
+#pane-jobintel .ji-disc-searchbox:focus-within { border-color: var(--ji-accent); background: var(--ji-surface); }
+#pane-jobintel .ji-disc-searchbox--ai { border-color: color-mix(in srgb, var(--purple) 55%, transparent); }
+#pane-jobintel .ji-disc-searchbox--ai:focus-within { border-color: var(--ji-purple); }
+#pane-jobintel .ji-disc-searchbox > .ji-ic { font-size: 16px; color: var(--ji-text-2); }
+#pane-jobintel .ji-disc-searchbox--ai > .ji-ic { color: var(--ji-purple); }
+#pane-jobintel input.ji-disc-bare { flex: 1 1 auto; width: 100%; min-width: 0; padding: 8px 0; border: 0; background: transparent; color: var(--ji-text); font: 400 13px/1.3 'DM Sans', system-ui, sans-serif; }
+#pane-jobintel input.ji-disc-bare::placeholder { color: var(--ji-text-3); }
+#pane-jobintel input.ji-disc-bare:focus,
+#pane-jobintel input.ji-disc-bare:focus-visible { outline: none; }
+#pane-jobintel .ji-disc-toggles { flex: 0 0 auto; align-self: center; }
+#pane-jobintel .ji-disc-toggle.is-on { background: var(--ji-accent-soft); border-color: var(--ji-accent-line); color: var(--ji-accent-text); }
+#pane-jobintel .ji-disc-count { display: inline-block; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--ji-accent); color: var(--on-gold); font: 700 10px/18px 'DM Sans', system-ui, sans-serif; text-align: center; }
+#pane-jobintel .ji-disc-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-disc-reset { align-self: flex-end; min-height: 30px; padding: 0 2px; border: 0; background: none; color: var(--ji-red); font: 500 12px/1 'DM Sans', system-ui, sans-serif; text-decoration: underline; cursor: pointer; }
+#pane-jobintel .ji-disc-reset:hover { opacity: 0.8; }
+@media (max-width: 600px) { #pane-jobintel .ji-disc-toggles { width: 100%; } #pane-jobintel .ji-disc-toggle { flex: 1 1 auto; } }
+@media (pointer: coarse) { #pane-jobintel input.ji-disc-bare { font-size: 16px; } #pane-jobintel .ji-disc-sectors .ji-chip { min-height: 40px; } #pane-jobintel .ji-disc-reset { min-height: 40px; } }
+
+/* ---- sector chips ---- */
+#pane-jobintel .ji-disc-sectors { display: flex; align-items: center; gap: 10px; min-width: 0; }
+#pane-jobintel .ji-disc-sector-label { flex: 0 0 auto; }
+#pane-jobintel .ji-disc-sectors .ji-chips { flex: 1 1 auto; min-width: 0; }
+#pane-jobintel .ji-disc-sectors .ji-chip { flex: 0 0 auto; }
+
+/* ---- compared banner ---- */
+#pane-jobintel .ji-disc-compare { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+#pane-jobintel .ji-disc-compare-msg { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ji-accent-text); }
+
+/* ---- job grid + card ---- */
+#pane-jobintel .ji-disc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 16px; min-width: 0; }
+#pane-jobintel .ji-disc-card { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; padding: 16px; }
+#pane-jobintel .ji-disc-card-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+#pane-jobintel .ji-disc-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+#pane-jobintel .ji-disc-card-main { flex: 1 1 auto; min-width: 0; }
+#pane-jobintel .ji-disc-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
+#pane-jobintel .ji-disc-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+#pane-jobintel .ji-disc-title { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.3; font-family: 'DM Sans', system-ui, sans-serif; }
+#pane-jobintel .ji-disc-title button { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: var(--ji-text); font: inherit; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+#pane-jobintel .ji-disc-title button:hover { color: var(--ji-accent-text); }
+#pane-jobintel .ji-disc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px; font-size: 12px; color: var(--ji-text-2); }
+#pane-jobintel .ji-disc-meta > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+#pane-jobintel .ji-disc-meta-strong { font-weight: 600; color: var(--ji-text); }
+#pane-jobintel .ji-disc-compare-lbl { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; font-size: 11px; color: var(--ji-text-2); cursor: pointer; user-select: none; }
+#pane-jobintel .ji-disc-salary { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ji-green); }
+#pane-jobintel .ji-disc-summary { margin: 0; line-height: 1.55; }
+#pane-jobintel .ji-disc-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#pane-jobintel .ji-disc-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; padding-top: 12px; border-top: 1px solid var(--ji-line); }
+#pane-jobintel .ji-disc-prov { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; font-size: 11px; color: var(--ji-text-2); }
+#pane-jobintel .ji-disc-prov > .ji-ic { color: var(--ji-accent-text); }
+#pane-jobintel .ji-disc-prov-name { min-width: 0; overflow-wrap: anywhere; }
+#pane-jobintel .ji-disc-cross { color: var(--ji-accent-text); font-weight: 600; }
+@media (max-width: 480px) { #pane-jobintel .ji-disc-compare-txt { display: none; } }
+@media (pointer: coarse) { #pane-jobintel .ji-disc-compare-lbl { min-height: 40px; } #pane-jobintel .ji-disc-compare-lbl .ji-check { width: 20px; height: 20px; } }
+
+/* ---- job detail modal ---- */
+.ji-modal-backdrop .ji-disc-md-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-family: 'DM Sans', system-ui, sans-serif; }
+.ji-modal-backdrop .ji-disc-md-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ji-modal-backdrop .ji-disc-md-title { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 26px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+.ji-modal-backdrop .ji-disc-md-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 13px; font-weight: 400; color: var(--ji-text-2); }
+.ji-modal-backdrop .ji-disc-md-meta > span { display: inline-flex; align-items: center; gap: 6px; }
+.ji-modal-backdrop .ji-disc-md-strong { font-weight: 600; color: var(--ji-text); }
+.ji-modal-backdrop .ji-disc-md-salary { font-weight: 700; color: var(--ji-green); }
+.ji-modal-backdrop .ji-disc-md-synth { margin-bottom: 12px; }
+.ji-modal-backdrop .ji-disc-md-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 16px; }
+.ji-modal-backdrop .ji-disc-md-tabs { flex: 1 1 auto; min-width: 0; }
+.ji-modal-backdrop .ji-disc-md-links { flex: 0 0 auto; }
+.ji-modal-backdrop .ji-disc-md-panelwrap { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.ji-modal-backdrop .ji-disc-md-section h4 { margin: 0 0 8px; }
+.ji-modal-backdrop .ji-disc-md-summary { margin: 0; }
+.ji-modal-backdrop .ji-disc-md-sumhead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--ji-accent-text); }
+.ji-modal-backdrop .ji-disc-md-summary p { margin: 0; line-height: 1.55; }
+.ji-modal-backdrop .ji-disc-md-skills { display: flex; flex-wrap: wrap; gap: 8px; }
+.ji-modal-backdrop .ji-disc-md-desc { max-height: 24rem; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; color: var(--ji-text-2); padding: 14px; }
+.ji-modal-backdrop .ji-disc-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--ji-text-2); }
+.ji-modal-backdrop .ji-disc-md-panel { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.ji-modal-backdrop .ji-disc-md-panel h4 { margin: 0; }
+.ji-modal-backdrop .ji-disc-md-panel p { margin: 0; }
+.ji-modal-backdrop .ji-disc-md-aihead { align-items: flex-start; }
+.ji-modal-backdrop .ji-disc-md-h { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 16px; }
+.ji-modal-backdrop .ji-disc-md-h .ji-ic { color: var(--ji-accent-text); }
+.ji-modal-backdrop .ji-disc-md-score { text-align: right; }
+.ji-modal-backdrop .ji-disc-md-scorenum { font: 600 32px/1 'Cormorant Garamond', Georgia, serif; color: var(--ji-accent-text); }
+.ji-modal-backdrop .ji-disc-md-expl { padding: 10px 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-surface); line-height: 1.55; color: var(--ji-text-2); }
+.ji-modal-backdrop .ji-disc-md-box { padding: 12px 14px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); min-width: 0; }
+.ji-modal-backdrop .ji-disc-md-box--ok { background: color-mix(in srgb, var(--teal) 9%, transparent); border-color: color-mix(in srgb, var(--teal) 30%, transparent); }
+.ji-modal-backdrop .ji-disc-md-box--warn { background: color-mix(in srgb, var(--ji-amber) 9%, transparent); border-color: color-mix(in srgb, var(--ji-amber) 32%, transparent); }
+.ji-modal-backdrop .ji-disc-md-boxh { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; font-weight: 700; }
+.ji-modal-backdrop .ji-disc-md-box--ok .ji-disc-md-boxh { color: var(--ji-green); }
+.ji-modal-backdrop .ji-disc-md-box--warn .ji-disc-md-boxh { color: var(--ji-amber); }
+.ji-modal-backdrop .ji-disc-md-facts { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--ji-line); }
+.ji-modal-backdrop .ji-disc-md-facts h5 { margin: 0; }
+.ji-modal-backdrop .ji-disc-md-fact { padding: 10px 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-surface); font-size: 12px; min-width: 0; }
+.ji-modal-backdrop .ji-disc-md-facth { display: block; margin-bottom: 6px; font-weight: 700; }
+.ji-modal-backdrop .ji-disc-md-facth--ok { color: var(--ji-green); }
+.ji-modal-backdrop .ji-disc-md-facth--info { color: var(--ji-blue); }
+.ji-modal-backdrop .ji-disc-md-facth--warn { color: var(--ji-amber); }
+.ji-modal-backdrop .ji-disc-bullets { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--ji-text-2); line-height: 1.45; }
+.ji-modal-backdrop .ji-disc-md-evalrow { display: flex; }
+.ji-modal-backdrop .ji-disc-md-lead { font-size: 12px; line-height: 1.55; color: var(--ji-text-2); }
+.ji-modal-backdrop .ji-disc-md-src { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border: 1px solid var(--ji-line); border-radius: var(--ji-r-md); background: var(--ji-surface); }
+.ji-modal-backdrop .ji-disc-md-srcmain { min-width: 0; flex: 1 1 260px; }
+.ji-modal-backdrop .ji-disc-md-srcname { font-size: 13px; font-weight: 700; }
+.ji-modal-backdrop .ji-disc-md-upper { text-transform: uppercase; font-size: 10px; }
+.ji-modal-backdrop .ji-disc-md-srcmeta { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; }
+.ji-modal-backdrop .ji-disc-md-hash { padding-top: 12px; border-top: 1px solid var(--ji-line); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.ji-modal-backdrop .ji-disc-md-ev { display: flex; align-items: flex-start; gap: 12px; }
+.ji-modal-backdrop .ji-disc-md-dot { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--ji-accent); }
+.ji-modal-backdrop .ji-disc-md-evmain { flex: 1 1 auto; min-width: 0; }
+.ji-modal-backdrop .ji-disc-md-evtype { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.ji-modal-backdrop .ji-disc-md-evdesc { margin-top: 2px; line-height: 1.5; overflow-wrap: anywhere; }
+.ji-modal-backdrop .ji-disc-md-foot { position: sticky; bottom: -20px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 18px -20px -20px; padding: 12px 20px; border-top: 1px solid var(--ji-line); background: var(--ji-raised); }
+@media (max-width: 600px) {
+  .ji-modal-backdrop .ji-disc-md-title { font-size: 22px; }
+  .ji-modal-backdrop .ji-disc-md-foot .ji-btn { flex: 1 1 auto; }
+  .ji-modal-backdrop .ji-disc-md-foot > .ji-row { width: 100%; }
+  .ji-modal-backdrop .ji-disc-md-links { width: 100%; }
+  .ji-modal-backdrop .ji-disc-md-links .ji-btn { flex: 1 1 auto; }
+}
