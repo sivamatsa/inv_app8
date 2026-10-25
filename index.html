@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Personal Investment Operating System</title>
+<!-- PWA: manifest + icons make "Add to Home Screen" install a real
+     standalone app instead of a browser-chrome URL shortcut. iOS Safari
+     ignores manifest.json for this and needs its own meta tags/icon link,
+     which is why both are present. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0c1628">
+<link rel="icon" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Investment OS">
+<script>(function(){try{if(localStorage.getItem('theme')==='light'){document.documentElement.setAttribute('data-theme','light');}}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="stylesheet" href="css/app.css?v=2.4.6">
+<link rel="stylesheet" href="css/notes.css?v=1.0.0">
+<link rel="stylesheet" href="css/jobintel.css?v=1.0.0">
+<link rel="stylesheet" href="css/jobintel-discover.css?v=1.0.0">
+<link rel="stylesheet" href="css/jobintel-pipeline.css?v=1.0.0">
+<link rel="stylesheet" href="css/jobintel-crm.css?v=1.0.0">
+<link rel="stylesheet" href="css/jobintel-insights.css?v=1.0.0">
+<link rel="stylesheet" href="css/recharge-intel.css?v=1.0.0">
+<link rel="stylesheet" href="css/p2p.css?v=1.0.0">
+<link rel="stylesheet" href="css/p2p-modals.css?v=1.0.0">
+</head>
+<body>
+
+<div id="toastWrap"></div>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="authScreen">
+  <div class="icon-btn" id="authThemeToggle" title="Toggle dark / light mode" style="position:absolute;top:18px;right:18px;width:32px;height:32px;font-size:14px"></div>
+  <div class="auth-card">
+    <div class="auth-logo">IOS</div>
+    <div class="auth-title">Personal Investment Operating System</div>
+    <div class="auth-sub">Private, bank-grade encrypted portfolio vault &amp; wealth intelligence.</div>
+
+    <button class="btn btn-teal" id="tryDemoBtn" style="width:100%;justify-content:center;margin-bottom:14px">&#9654; Try with Sample Data (no signup)</button>
+    <div class="auth-hint" style="margin:0 0 16px;text-align:center">Instant sandbox preview with sample deals — fully interactive, zero configuration required.</div>
+    <div style="height:1px;background:var(--border2);margin-bottom:16px"></div>
+
+    <div id="authPendingShareNotice" style="display:none;margin-bottom:14px"></div>
+
+    <div id="authQuickUnlockWrap" style="display:none;margin-bottom:14px"></div>
+
+    <div id="authFormsPane">
+      <div class="auth-tabs" style="margin-bottom:14px">
+        <button id="authTabSignIn" class="active">Sign In</button>
+        <button id="authTabSignUp">Create Account</button>
+      </div>
+      <div id="signInForm">
+        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signInEmail" placeholder="your.name@example.com" autocomplete="username"></div>
+        <div class="field" style="margin-bottom:10px">
+          <label>Password</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input type="password" id="signInPassword" placeholder="••••••••" autocomplete="current-password" style="width:100%;padding-right:38px">
+            <button type="button" id="toggleSignInPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
+          </div>
+        </div>
+        <div id="lastSignInWrap" style="display:none;justify-content:flex-end;margin-bottom:6px">
+          <button type="button" id="btnLastSignIn" class="btn btn-outline btn-xs" style="font-size:11px;padding:3px 8px;border-color:var(--gold);color:var(--gold);display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Auto-fill credentials and sign in with last account">
+            <span>⚡ Last Sign In:</span> <strong id="lastSignInUserLabel" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">user</strong>
+          </button>
+        </div>
+        <button class="btn btn-gold" id="signInBtn" style="width:100%;justify-content:center;padding:10px">Sign In</button>
+        <div class="auth-error" id="signInError"></div>
+      </div>
+      <div id="signUpForm" style="display:none">
+        <div class="field" style="margin-bottom:10px"><label>Full Name</label><input type="text" id="signUpName" placeholder="Your Name" autocomplete="name"></div>
+        <div class="field" style="margin-bottom:10px"><label>Email</label><input type="email" id="signUpEmail" placeholder="your.name@example.com" autocomplete="username"></div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Password (min 6 characters)</label>
+          <div style="position:relative;display:flex;align-items:center">
+            <input type="password" id="signUpPassword" placeholder="••••••••" autocomplete="new-password" style="width:100%;padding-right:38px">
+            <button type="button" id="toggleSignUpPassword" class="icon-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;font-size:14px;background:transparent;border:none;cursor:pointer;opacity:0.8" title="Show / Hide Password" aria-label="Toggle password visibility">👁️</button>
+          </div>
+        </div>
+        <button class="btn btn-gold" id="signUpBtn" style="width:100%;justify-content:center;padding:10px">Create Account</button>
+        <div class="auth-error" id="signUpError"></div>
+      </div>
+      <div style="display:flex;justify-content:center;align-items:center;margin-top:14px;font-size:12px">
+        <a href="#" id="needHelpLink" class="auth-hint" style="cursor:pointer;color:var(--text2)">🤖 Need Help?</a>
+      </div>
+    </div>
+
+    <!-- Shown only on a real Supabase PASSWORD_RECOVERY session (the user
+         clicked a password-reset email link) - see App.auth.onChange's
+         event argument and app.js's handling of it. -->
+    <div id="setNewPasswordPane" style="display:none">
+      <div class="auth-title" style="font-size:16px;margin-bottom:10px">Set a New Password</div>
+      <div class="field" style="margin-bottom:10px"><label>New Password (min 6 characters)</label><input type="password" id="newPasswordInput" autocomplete="new-password"></div>
+      <div class="field" style="margin-bottom:10px"><label>Confirm New Password</label><input type="password" id="confirmNewPasswordInput" autocomplete="new-password"></div>
+      <button class="btn btn-gold" id="setNewPasswordBtn" style="width:100%">Set Password &amp; Continue</button>
+      <div class="auth-error" id="setNewPasswordError"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
+<div id="appShell">
+  <nav class="sidebar" id="appSidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo">IOS</div>
+      <div style="flex:1"><div class="sidebar-title">Investment OS</div><div class="sidebar-sub">Personal Portfolio</div></div>
+      <button class="sidebar-close-btn" id="sidebarCloseBtn" title="Close Navigation" aria-label="Close navigation">&#10005;</button>
+    </div>
+    <div id="sidebarNav"></div>
+    <div class="sidebar-footer" id="sidebarFooter">
+      <button type="button" class="sidebar-version-btn" id="sidebarVersionBtn" title="Click to view What's New & Release Notes">
+        <span class="version-pulse-dot"></span>
+        <span class="version-label">v2.4.4 &middot; Stable</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="main-area">
+    <div id="demoBanner" style="display:none;align-items:center;justify-content:center;gap:8px;background:linear-gradient(90deg,rgba(22,201,163,0.18),rgba(201,168,76,0.18));border-bottom:1px solid var(--border);padding:7px;font-size:11.5px;color:var(--text)">
+      &#9654; <b>Interactive Sandbox Mode</b> — exploring with live simulated portfolio data. No changes are saved to your private vault.
+    </div>
+    <div id="sharedPortfolioBanner" style="display:none;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(201,168,76,0.22),rgba(34,197,94,0.18));border-bottom:1px solid rgba(201,168,76,0.4);padding:8px 16px;font-size:12.5px;color:var(--text);z-index:90">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">&#128101;</span>
+        <span>Co-Managing Shared Portfolio: <strong id="sharedPortfolioBannerName"></strong> &middot; <span id="sharedPortfolioBannerRole" class="badge" style="background:rgba(201,168,76,0.2);color:var(--gold)"></span></span>
+      </div>
+      <button class="btn btn-outline btn-sm" id="btnExitSharedPortfolio" style="padding:2px 10px;font-size:11.5px;border-color:var(--gold);color:var(--gold)">Exit to My Portfolio ✕</button>
+    </div>
+    <div class="topbar">
+      <div class="topbar-left">
+        <!-- Unified Menu & Sidebar Toggle (Cycles mode on Desktop, opens Drawer on Mobile) -->
+        <button type="button" class="icon-btn topbar-menu-btn" id="mobileMenuBtn" title="Toggle Navigation Menu (Ctrl+B)" aria-label="Toggle Navigation">☰</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="topbar-title" id="topbarTitle">Dashboard</div>
+          <button type="button" class="topbar-version-badge" id="topbarVersionBadge" title="Click to view What's New & Release Notes">v2.4.4</button>
+        </div>
+      </div>
+      <div class="topbar-search-wrap" id="topbarSearchWrap">
+        <div style="position:relative;display:flex;align-items:center;width:100%">
+          <input type="text" id="globalSearchInput" class="search-input" placeholder="Search deals, contacts, gold, ₹15000, 'pending'..." style="width:100%;padding-right:48px" autocomplete="off">
+          <span class="search-kbd-badge" id="searchKbdBadge" title="Press ⌘K or / to search">⌘K</span>
+        </div>
+        <div id="globalSearchResults" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-height:75vh;overflow:auto;z-index:999;box-shadow:0 24px 60px rgba(0,0,0,0.5)"></div>
+      </div>
+      <div class="topbar-actions">
+        <!-- Mobile Search Toggle -->
+        <button class="icon-btn mobile-search-btn" id="mobileSearchBtn" title="Search Portfolio">🔍</button>
+        <!-- Offline / Arcade Game Launcher -->
+        <div class="icon-btn topbar-tool-btn" id="btnLaunchArcadeGame" title="Play Market Runner">🎮</div>
+        <div class="icon-btn topbar-tool-btn" id="themeToggle" title="Toggle dark / light mode"></div>
+        <div class="icon-btn" id="notifBell" style="position:relative;width:32px;height:32px;font-size:15px" title="Notifications">
+          &#128276;<span class="nav-badge" id="bellBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span>
+        </div>
+        <div class="user-chip" id="topbarUserChip" style="display:none"><span id="userChipEmail"></span></div>
+        <!-- Single Unified Responsive Sign-Out Button with User Identity & Logout Arrow -->
+        <button type="button" class="btn btn-outline btn-sm topbar-signout-btn" id="signOutBtn" title="Logged in. Click to sign out" aria-label="Sign Out">
+          <span class="user-avatar-badge" id="topbarUserAvatar">👤</span>
+          <span class="signout-logged-prefix">Logged as</span>
+          <span class="signout-user-name" id="topbarUserName">User</span>
+          <span class="signout-ic" id="topbarSignOutIcon" title="Click to log out">&#10132;</span>
+        </button>
+      </div>
+    </div>
+    <div class="view-container" id="viewContainer"></div>
+  </div>
+
+  <!-- Mobile Bottom Navigation Bar: Deals, Recurring, Payments, Projects, More -->
+  <nav class="mobile-bottom-bar" id="mobileBottomBar">
+    <a href="#deals" class="mobile-bottom-item" data-tab="deals" id="mobTabDeals">
+      <span class="m-ic">&#128188;</span>
+      <span class="m-lbl">Deals</span>
+    </a>
+    <a href="#recurring" class="mobile-bottom-item" data-tab="recurring" id="mobTabRecurring">
+      <span class="m-ic">&#128257;</span>
+      <span class="m-lbl">Recurring</span>
+    </a>
+    <a href="#payments" class="mobile-bottom-item" data-tab="payments" id="mobTabPayments">
+      <span class="m-ic">&#128179;</span>
+      <span class="m-lbl">Payments</span>
+    </a>
+    <a href="#expenses" class="mobile-bottom-item" data-tab="expenses" id="mobTabProjects">
+      <span class="m-ic">&#128184;</span>
+      <span class="m-lbl">Projects</span>
+    </a>
+    <button type="button" class="mobile-bottom-item m-menu-trigger" id="mobileBottomMenuBtn" aria-label="Open Full Menu">
+      <span class="m-ic">&#9776;</span>
+      <span class="m-lbl">More</span>
+    </button>
+  </nav>
+</div>
+
+<script src="js/lib/theme.js?v=2.4.3"></script>
+<script src="js/lib/privacyMode.js?v=2.4.3"></script>
+<script src="js/lib/webrtc.js?v=2.4.3"></script>
+<script src="js/lib/utils.js?v=2.4.3"></script>
+<script src="js/lib/currency.js?v=2.4.3"></script>
+<script src="js/lib/offlineGame.js?v=2.4.3"></script>
+<script src="js/lib/demoData.js?v=2.4.3"></script>
+<script src="js/lib/backupProfileDb.js?v=2.4.3"></script>
+<script src="js/lib/biometricAuth.js?v=2.4.3"></script>
+<script src="js/lib/securityAuth.js?v=2.4.3"></script>
+<script src="js/lib/docScanner.js?v=2.4.3"></script>
+<script src="js/lib/regionalGoldRates.js?v=2.4.3"></script>
+<script src="js/lib/permissions.js?v=2.4.3"></script>
+<script src="js/lib/supabaseClient.js?v=2.4.3"></script>
+<script src="js/lib/ui.js?v=2.4.3"></script>
+<script src="js/lib/recycleBin.js?v=2.4.3"></script>
+<script src="js/lib/needHelp.js?v=2.4.3"></script>
+<script src="js/lib/vaultCrypto.js?v=2.4.3"></script>
+<script src="js/lib/notesEditor.js?v=2.4.5"></script>
+<script src="js/lib/notesSync.js?v=2.4.5"></script>
+<script src="js/data/api.js?v=2.4.7"></script>
+<script src="js/state.js?v=2.4.3"></script>
+<script src="js/calculations.js?v=2.4.3"></script>
+<script src="js/charts/chartBuilders.js?v=2.4.3"></script>
+<script src="js/router.js?v=2.4.3"></script>
+<script src="js/lib/dailyGoalTracker.js?v=2.4.3"></script>
+<script src="js/views/dashboard.js?v=2.4.3"></script>
+<script src="js/views/websiteVault.js?v=2.4.3"></script>
+<script src="js/lib/shareTarget.js?v=2.4.3"></script>
+<script src="js/views/deals.js?v=2.4.3"></script>
+<script src="js/views/recurring.js?v=2.4.3"></script>
+<script src="js/views/gold.js?v=2.4.3"></script>
+<script src="js/views/expenses.js?v=2.4.3"></script>
+<script src="js/views/netWorth.js?v=2.4.3"></script>
+<script src="js/views/cashFlow.js?v=2.4.3"></script>
+<script src="js/views/reconciliation.js?v=2.4.3"></script>
+<script src="js/lib/portfolioIntelligence.js?v=2.4.3"></script>
+<script src="js/views/automationCenter.js?v=2.4.3"></script>
+<script src="js/views/aiCopilot.js?v=2.4.3"></script>
+<script src="js/views/contacts.js?v=2.4.3"></script>
+<script src="js/views/chat.js?v=2.4.3"></script>
+<script src="js/lib/supabaseMigrationViewer.js?v=2.4.3"></script>
+<script src="js/views/payments.js?v=2.4.3"></script>
+<script src="js/views/dateIntelligence.js?v=2.4.3"></script>
+<script src="js/views/calendar.js?v=2.4.3"></script>
+<script src="js/views/maturityPlanner.js?v=2.4.3"></script>
+<script src="js/views/reinvestments.js?v=2.4.3"></script>
+<script src="js/views/goals.js?v=2.4.3"></script>
+<script src="js/views/whatIf.js?v=2.4.3"></script>
+<script src="js/views/analytics.js?v=2.4.3"></script>
+<script src="js/views/earnings.js?v=2.4.3"></script>
+<script src="js/views/riskAnalysis.js?v=2.4.3"></script>
+<script src="js/views/reports.js?v=2.4.3"></script>
+<script src="js/views/imports.js?v=2.4.3"></script>
+<script src="js/views/documents.js?v=2.4.3"></script>
+<script src="js/views/auditHistory.js?v=2.4.3"></script>
+<script src="js/views/settings.js?v=2.4.3"></script>
+<script src="js/views/admin.js?v=2.4.3"></script>
+<script src="js/views/notes.js?v=2.5.0"></script>
+<script src="js/views/calculator.js?v=2.4.3"></script>
+<script src="js/views/community.js?v=2.4.3"></script>
+<script src="js/views/support.js?v=2.4.3"></script>
+<script src="js/views/blog.js?v=2.4.3"></script>
+<script src="js/views/sharedWithMe.js?v=2.4.3"></script>
+<script src="js/lib/globalSearch.js?v=2.4.3"></script>
+<script src="js/lib/push.js?v=2.4.3"></script>
+<script src="js/lib/exportData.js?v=2.4.3"></script>
+<script src="js/lib/restoreData.js?v=2.4.3"></script>
+<script src="js/lib/executiveReport.js?v=2.4.3"></script>
+<script src="js/lib/tapeCalculator.js?v=2.4.3"></script>
+<script src="js/lib/chatbot.js?v=2.4.3"></script>
+<script src="js/lib/telegramClientPoller.js?v=2.4.3"></script>
+<script src="js/lib/backupEngine.js?v=2.4.4"></script>
+<script src="js/lib/googleSheetsSync.js?v=2.4.4"></script>
+<script src="js/views/backupCenter.js?v=2.4.4"></script>
+<script src="js/lib/version.js?v=2.4.4"></script>
+<script src="js/views/jobintel/core.js?v=1.0.0"></script>
+<script src="js/views/jobintel/index.js?v=1.0.0"></script>
+<script src="js/views/jobintel/discover.js?v=1.0.0"></script>
+<script src="js/views/jobintel/pipeline.js?v=1.0.0"></script>
+<script src="js/views/jobintel/interviews.js?v=1.0.0"></script>
+<script src="js/views/jobintel/offers.js?v=1.0.0"></script>
+<script src="js/views/jobintel/crm.js?v=1.0.0"></script>
+<script src="js/views/jobintel/profiles.js?v=1.0.0"></script>
+<script src="js/views/jobintel/companies.js?v=1.0.0"></script>
+<script src="js/views/jobintel/documents.js?v=1.0.0"></script>
+<script src="js/views/jobintel/compare.js?v=1.0.0"></script>
+<script src="js/views/jobintel/sources.js?v=1.0.0"></script>
+<script src="js/views/jobintel/analytics.js?v=1.0.0"></script>
+<script src="js/views/recharge.js?v=1.0.0"></script>
+<script src="js/views/p2p-modals.js?v=1.0.0"></script>
+<script src="js/views/p2p.js?v=1.0.0"></script>
+<script src="js/app.js?v=2.4.4"></script>
+<script>
+  // Service Worker Registration + PWA Update Engine wiring
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        if (window.App && window.App.updater) {
+          window.App.updater.setRegistration(reg);
+        }
+      }).catch((err) => {
+        console.warn('SW registration notice:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
